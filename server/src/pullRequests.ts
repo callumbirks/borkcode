@@ -1,6 +1,6 @@
 import type { LinkedPullRequest, RepoStatus } from "shared/protocol";
 import { ToolError } from "./errors.ts";
-import { git, run } from "./exec.ts";
+import { CommandError, git, run } from "./exec.ts";
 
 export interface PullRequestDraft {
   repo: string;
@@ -254,19 +254,43 @@ export async function fetchPullRequestStates(urls: string[]): Promise<Map<string
     [...repositories.values()].map(async ({ host, owner, name, prs }) => {
       const fields = prs.map(({ number }) => `pr${number}: pullRequest(number: ${number}) { state title headRefOid }`);
       const query = `query { repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { ${fields.join(" ")} } }`;
+      let output: string;
       try {
-        const output = await run("gh", ["api", "graphql", "--hostname", host, "-f", `query=${query}`], { timeoutMs: 15_000 });
-        const found = (JSON.parse(output) as {
-          data: { repository: Record<string, { state: string; title: string; headRefOid: string } | null> };
-        }).data.repository;
-        for (const { url, number } of prs) {
-          const pr = found[`pr${number}`];
-          if (pr) states.set(url, { state: pr.state, title: pr.title, headOid: pr.headRefOid });
-        }
-      } catch {
-        // Best-effort, like discovery; the next poll tries again.
+        output = await run("gh", ["api", "graphql", "--hostname", host, "-f", `query=${query}`], { timeoutMs: 15_000 });
+      } catch (error) {
+        // One pull request that cannot be resolved fails the whole query, but gh still prints
+        // the others. Anything else (offline, gh missing) is retried on the next poll.
+        reportOnce(`${owner}/${name}`, error instanceof CommandError ? error.stderr.trim() || error.message : String(error));
+        output = error instanceof CommandError ? error.stdout : "";
       }
+      for (const [url, state] of statesFromGraphql(output, prs)) states.set(url, state);
     }),
   );
   return states;
+}
+
+/** The pull requests a repository query answered, even when GitHub reported errors for others. */
+export function statesFromGraphql(output: string, prs: { url: string; number: number }[]): Map<string, PullRequestState> {
+  const states = new Map<string, PullRequestState>();
+  let found: Record<string, { state: string; title: string; headRefOid: string } | null> | undefined;
+  try {
+    found = (JSON.parse(output) as { data?: { repository?: typeof found } }).data?.repository ?? undefined;
+  } catch {
+    return states;
+  }
+  for (const { url, number } of prs) {
+    const pr = found?.[`pr${number}`];
+    if (pr) states.set(url, { state: pr.state, title: pr.title, headOid: pr.headRefOid });
+  }
+  return states;
+}
+
+const reported = new Set<string>();
+
+/** Logs a lookup failure the first time it happens, rather than every minute. */
+function reportOnce(repository: string, problem: string): void {
+  const key = `${repository}: ${problem}`;
+  if (reported.has(key)) return;
+  reported.add(key);
+  console.error(`Could not check pull requests in ${key}`);
 }

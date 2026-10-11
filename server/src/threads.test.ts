@@ -406,3 +406,24 @@ test("an archived thread's pull request merging updates its state without waking
   assert.notEqual(after.archivedAt, null);
   assert.equal(after.status, "idle");
 });
+
+test("coming back to borkcode checks open pull requests, at most once in a short while", async (t) => {
+  // Starts well after the checks earlier tests made.
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() + 3_600_000 });
+  const { thread, agent } = await startThread("keep an eye on it");
+  await agent.turn(1);
+  agent.finish("ok");
+  const url = "https://github.com/me/watched/pull/1";
+  db.linkPullRequest(thread.id, { repo: "watched", number: 1, url, state: "OPEN", title: "PR 1", headOid: "abc" });
+  /** Whether coming back asked GitHub about the pull request. */
+  const comeBack = async () => {
+    const before = lookups.length;
+    await threads.refreshPullRequestsOnReturn();
+    return lookups.slice(before).some((urls) => urls.includes(url));
+  };
+
+  assert.equal(await comeBack(), true);
+  assert.equal(await comeBack(), false);
+  t.mock.timers.tick(15_000);
+  assert.equal(await comeBack(), true);
+});

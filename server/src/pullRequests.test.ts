@@ -12,6 +12,7 @@ import {
   planSync,
   pushBranch,
   rebasePastMerged,
+  statesFromGraphql,
   withRelatedBlock,
 } from "./pullRequests.ts";
 import { ToolError } from "./errors.ts";
@@ -230,4 +231,19 @@ test("fast-forwarding moves an untouched branch to the latest base", async () =>
   await git(clone, "switch", "-q", BRANCH);
   await fastForward(clone, "main");
   assert.equal(await git(clone, "rev-parse", "HEAD"), await git(clone, "rev-parse", "origin/main"));
+});
+
+test("a pull request GitHub cannot resolve does not hide the others in its repository's answer", () => {
+  // What `gh api graphql` prints, before exiting with an error, when one of the numbers is gone.
+  const output = JSON.stringify({
+    data: { repository: { pr3: { state: "MERGED", title: "Three", headRefOid: "c3" }, pr99999: null } },
+    errors: [{ type: "NOT_FOUND", path: ["repository", "pr99999"], message: "Could not resolve to a PullRequest with the number of 99999." }],
+  });
+  const three = { url: "https://github.com/me/alpha/pull/3", number: 3 };
+  const missing = { url: "https://github.com/me/alpha/pull/99999", number: 99999 };
+  assert.deepEqual(
+    [...statesFromGraphql(output, [three, missing])],
+    [[three.url, { state: "MERGED", title: "Three", headOid: "c3" }]],
+  );
+  assert.equal(statesFromGraphql("gh: not logged in", [three]).size, 0);
 });

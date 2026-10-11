@@ -89,6 +89,8 @@ const realDeps: ThreadDeps = {
 
 /** How often open pull requests are checked for merges and closes. */
 const PULL_REQUEST_POLL_MS = 60_000;
+/** Coming back to borkcode checks pull requests, unless a check ran this recently. */
+const RETURN_REFRESH_MS = 15_000;
 
 /** In-memory state for a thread whose agent may be active. */
 interface LiveThread {
@@ -140,6 +142,7 @@ export class ThreadService {
   /** Automatic wake-ups per thread tree (keyed by its root) since the user last messaged it. */
   readonly #familyWakes = new Map<string, number>();
   #pullRequestPoll: NodeJS.Timeout | null = null;
+  #lastPullRequestCheck = 0;
 
   constructor(
     db: Database,
@@ -1014,7 +1017,17 @@ export class ThreadService {
 
   /** One poll: every open pull request of every thread. */
   async refreshOpenPullRequests(): Promise<void> {
+    this.#lastPullRequestCheck = Date.now();
     await this.#refreshLinks(this.#db.listPullRequestLinks("OPEN"));
+  }
+
+  /**
+   * The user came back to borkcode, maybe from merging on GitHub. Throttled here rather than in
+   * the client, so switching tabs quickly or having several clients does not spam gh.
+   */
+  async refreshPullRequestsOnReturn(): Promise<void> {
+    if (Date.now() - this.#lastPullRequestCheck < RETURN_REFRESH_MS) return;
+    await this.refreshOpenPullRequests();
   }
 
   /** Re-checks the threads' open pull requests. Merged and closed ones stay as they are. */
