@@ -1,6 +1,6 @@
-import { existsSync } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { createServer, type IncomingMessage } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import type {
@@ -10,6 +10,7 @@ import type {
   ServerEvent,
   ServerMessage,
 } from "shared/protocol";
+import { AttachmentError, AttachmentStore, MAX_ATTACHMENT_BYTES } from "./attachments.ts";
 import { loadConfig } from "./config.ts";
 import { Database } from "./db.ts";
 import { FileStore } from "./files.ts";
@@ -37,7 +38,14 @@ void files.watchAll().catch((error: Error) => console.error(`Could not watch pro
 
 // Agents connect from this machine, so a wildcard bind is reached through loopback.
 const mcpHost = config.host === "0.0.0.0" || config.host === "::" ? "127.0.0.1" : config.host;
-const threads = new ThreadService(db, projects, settings, broadcast, `http://${mcpHost}:${config.port}/mcp/`);
+const threads = new ThreadService(
+  db,
+  projects,
+  settings,
+  broadcast,
+  `http://${mcpHost}:${config.port}/mcp/`,
+  new AttachmentStore(config.home),
+);
 
 async function projectsChanged<T>(result: T): Promise<T> {
   broadcast({ type: "projects.changed", projects: await projects.list() });
@@ -74,9 +82,11 @@ const handlers: Handlers = {
   "threads.list": async () => threads.list(),
   "threads.create": (params) => threads.create(params),
   "threads.get": ({ threadId }) => threads.get(threadId),
-  "threads.send": async ({ threadId, text, model, effort, accessMode }) => {
+  "threads.send": async ({ threadId, text, attachments, model, effort, accessMode }) => {
     // The turn runs in the background; progress arrives as events.
-    void threads.send(threadId, text, { model, effort, accessMode }).catch((error: Error) => console.error(error));
+    void threads
+      .send(threadId, text, { model, effort, accessMode }, attachments ?? [])
+      .catch((error: Error) => console.error(error));
     return null;
   },
   "threads.rename": async ({ threadId, title }) => threads.rename(threadId, title),
@@ -147,6 +157,52 @@ function isAllowedOrigin(request: IncomingMessage): boolean {
   }
 }
 
+/**
+ * Requests that carry no Origin, such as an image loaded by a page, still say where they come from
+ * in `sec-fetch-site`. Missing means a client other than a browser.
+ */
+function isSameSiteFetch(request: IncomingMessage): boolean {
+  const site = request.headers["sec-fetch-site"];
+  return site === undefined || site === "same-origin" || site === "none";
+}
+
+function replyError(response: ServerResponse, status: number, message: string): void {
+  response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify({ error: message }));
+}
+
+/** `POST /api/threads/<id>/attachments` stores an upload; `GET .../attachments/<id>` serves it. */
+async function handleAttachments(
+  request: IncomingMessage,
+  response: ServerResponse,
+  threadId: string,
+  attachmentId: string | undefined,
+): Promise<void> {
+  if (!isAllowedOrigin(request) || !isSameSiteFetch(request)) return replyError(response, 403, "Forbidden");
+  if (request.method === "POST" && !attachmentId) {
+    if (Number(request.headers["content-length"] ?? 0) > MAX_ATTACHMENT_BYTES) {
+      response.setHeader("connection", "close");
+      return replyError(response, 413, `Attachments can be at most ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB`);
+    }
+    const name = decodeURIComponent(String(request.headers["x-filename"] ?? ""));
+    const mimeType = (request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
+    const attachment = await threads.upload(threadId, name, mimeType, request);
+    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(attachment));
+    return;
+  }
+  const file = request.method === "GET" && attachmentId ? threads.attachmentFile(threadId, attachmentId) : null;
+  if (!file) return replyError(response, 404, "Not found");
+  response.writeHead(200, {
+    "content-type": file.mimeType,
+    "content-length": file.size,
+    "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+    // An id always names the same bytes.
+    "cache-control": "private, max-age=31536000, immutable",
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "default-src 'none'; sandbox",
+  });
+  createReadStream(file.path).pipe(response);
+}
+
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript",
@@ -169,6 +225,20 @@ const server = createServer(async (request, response) => {
     });
     return;
   }
+  const pathname = new URL(request.url ?? "/", "http://x").pathname;
+  const attachmentRoute = /^\/api\/threads\/([\w-]+)\/attachments(?:\/([\w-]+))?$/.exec(pathname);
+  if (attachmentRoute) {
+    await handleAttachments(request, response, attachmentRoute[1]!, attachmentRoute[2]).catch((error: Error) => {
+      if (response.headersSent) return response.destroy();
+      if (error instanceof AttachmentError) {
+        if (error.status === 413) response.setHeader("connection", "close");
+        return replyError(response, error.status, error.message);
+      }
+      replyError(response, 400, error.message);
+    });
+    return;
+  }
+  if (pathname.startsWith("/api/")) return replyError(response, 404, "Not found");
   if (!existsSync(config.webDist)) {
     response.writeHead(404).end("Web client not built. Run `pnpm build`, or use `pnpm dev`.");
     return;
