@@ -1,0 +1,56 @@
+<script lang="ts">
+  import type { Effort, ProviderKind } from "shared/protocol";
+  import { loadModels, models } from "../lib/state.svelte";
+
+  let {
+    provider,
+    model = $bindable(),
+    effort = $bindable(),
+  }: { provider: ProviderKind; model: string | null; effort: Effort | null } = $props();
+
+  $effect(() => {
+    void loadModels(provider);
+  });
+
+  const catalog = $derived(models[provider]);
+  const list = $derived(catalog?.list ?? []);
+  // A null model means the provider's default, so that is the one shown as selected.
+  const value = $derived(model ?? list.find((option) => option.isDefault)?.id ?? "");
+  const current = $derived(list.find((option) => option.id === value));
+
+  function pickModel(id: string) {
+    model = id;
+    const next = list.find((option) => option.id === id);
+    if (next && effort && !next.efforts.includes(effort)) effort = next.defaultEffort;
+  }
+</script>
+
+<label title={catalog?.error ?? undefined}>
+  Model
+  <select {value} onchange={(event) => pickModel(event.currentTarget.value)} disabled={!catalog}>
+    {#if !catalog}
+      <option value="">Loading…</option>
+    {:else if !current}
+      <!-- A model the provider no longer lists, or any model when listing failed. -->
+      <option {value}>{value || "Default"}</option>
+    {/if}
+    {#each list as option (option.id)}
+      <option value={option.id}>{option.name}</option>
+    {/each}
+  </select>
+</label>
+{#if current && current.efforts.length > 0}
+  <label>
+    Effort
+    <select
+      value={effort ?? current.defaultEffort ?? ""}
+      onchange={(event) => (effort = (event.currentTarget.value || null) as Effort | null)}
+    >
+      {#if current.defaultEffort === null}<option value="">Default</option>{/if}
+      {#each current.efforts as level (level)}
+        <option value={level}>{level}</option>
+      {/each}
+    </select>
+  </label>
+{/if}
+{#if catalog?.error}<span class="error" title={catalog.error}>Could not list models</span>{/if}

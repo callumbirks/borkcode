@@ -1,6 +1,7 @@
 <script lang="ts">
-  import type { AccessMode, ProviderKind } from "shared/protocol";
+  import type { AccessMode, Effort, ProviderKind } from "shared/protocol";
   import { app, go, rpc } from "../lib/state.svelte";
+  import ModelPicker from "./ModelPicker.svelte";
   import RepoEditor from "./RepoEditor.svelte";
 
   let { name }: { name: string } = $props();
@@ -30,28 +31,48 @@
     }
   }
 
-  let title = $state("");
+  let message = $state("");
   let provider = $state<ProviderKind>("claude");
+  let model = $state<string | null>(null);
+  let effort = $state<Effort | null>(null);
   let accessMode = $state<AccessMode>("ask");
   let isolated = $state(true);
-  let model = $state("");
+  let starting = $state(false);
   let threadError = $state("");
 
-  async function createThread(event: SubmitEvent) {
-    event.preventDefault();
+  function pickProvider(next: ProviderKind) {
+    provider = next;
+    model = null;
+    effort = null;
+  }
+
+  async function createThread(event?: SubmitEvent) {
+    event?.preventDefault();
+    if (!message.trim() || starting || project?.repos.length === 0) return;
     threadError = "";
+    starting = true;
     try {
       const thread = await rpc.request("threads.create", {
         project: name,
-        title,
+        text: message,
         provider,
+        model,
+        effort,
         accessMode,
         isolated,
-        model: model || undefined,
       });
       go({ view: "thread", id: thread.id });
     } catch (cause) {
       threadError = (cause as Error).message;
+    } finally {
+      starting = false;
+    }
+  }
+
+  function onKeydown(event: KeyboardEvent) {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      void createThread();
     }
   }
 </script>
@@ -65,37 +86,41 @@
 
     <section class="card">
       <h2>New thread</h2>
-      <form class="row" onsubmit={createThread}>
-        <label class="grow">
-          Title
-          <input bind:value={title} placeholder="Fix the login flow" required />
-        </label>
-        <label>
-          Agent
-          <select bind:value={provider}>
-            <option value="claude">Claude</option>
-            <option value="codex">Codex</option>
-          </select>
-        </label>
-        <label>
-          Model
-          <input bind:value={model} placeholder="default" size="12" />
-        </label>
-        <label>
-          Access
-          <select bind:value={accessMode}>
-            <option value="ask">Ask before acting</option>
-            <option value="full">Full access</option>
-          </select>
-        </label>
-        <label>
-          Workspace
-          <select bind:value={isolated}>
-            <option value={true}>New worktrees</option>
-            <option value={false}>Main checkouts</option>
-          </select>
-        </label>
-        <button class="primary" type="submit" disabled={project.repos.length === 0}>Start</button>
+      <form onsubmit={createThread}>
+        <textarea
+          bind:value={message}
+          onkeydown={onKeydown}
+          rows="3"
+          placeholder="What should the agent do? The thread is named from this. (Enter to start, Shift+Enter for a new line)"
+          required
+        ></textarea>
+        <div class="row">
+          <label>
+            Agent
+            <select value={provider} onchange={(event) => pickProvider(event.currentTarget.value as ProviderKind)}>
+              <option value="claude">Claude</option>
+              <option value="codex">Codex</option>
+            </select>
+          </label>
+          <ModelPicker {provider} bind:model bind:effort />
+          <label>
+            Access
+            <select bind:value={accessMode}>
+              <option value="ask">Ask before acting</option>
+              <option value="full">Full access</option>
+            </select>
+          </label>
+          <label>
+            Workspace
+            <select bind:value={isolated}>
+              <option value={true}>New worktrees</option>
+              <option value={false}>Main checkouts</option>
+            </select>
+          </label>
+          <button class="primary" type="submit" disabled={project.repos.length === 0 || starting || !message.trim()}>
+            Start
+          </button>
+        </div>
       </form>
       {#if project.repos.length === 0}
         <p class="muted">Add a repository first.</p>
@@ -140,6 +165,11 @@
   .grow {
     flex: 1;
     min-width: 200px;
+  }
+  textarea {
+    width: 100%;
+    resize: vertical;
+    margin-bottom: 8px;
   }
   .add {
     margin-top: 12px;

@@ -1,13 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import {
   query,
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { Item } from "shared/protocol";
-import { truncate, type ProviderSession, type SessionOptions } from "./types.ts";
+import type { Item, ModelOption } from "shared/protocol";
+import {
+  truncate,
+  type ProviderSession,
+  type SessionOptions,
+  type TextRequest,
+} from "./types.ts";
 
 /** Async iterable the SDK reads user turns from, keeping one Claude process alive per thread. */
 class TurnQueue implements AsyncIterable<SDKUserMessage> {
@@ -55,6 +61,68 @@ function findClaudeBinary(): string | undefined {
   return undefined;
 }
 
+/** Claude lists its default as a model named "default", which the CLI does not accept as a name. */
+function modelOption(model: string | null): string | undefined {
+  return model && model !== "default" ? model : undefined;
+}
+
+/** Never yields, so the Claude process starts and answers control requests without a turn. */
+const noTurns: AsyncIterable<SDKUserMessage> = {
+  [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }),
+};
+
+export async function listClaudeModels(): Promise<ModelOption[]> {
+  const claudeBinary = findClaudeBinary();
+  const conversation = query({
+    prompt: noTurns,
+    options: {
+      cwd: tmpdir(),
+      persistSession: false,
+      ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
+    },
+  });
+  try {
+    const models = await conversation.supportedModels();
+    return models.map((model) => ({
+      id: model.value,
+      name: model.displayName,
+      isDefault: model.value === "default",
+      efforts: (model.supportsEffort && model.supportedEffortLevels) || [],
+      defaultEffort: null,
+    }));
+  } finally {
+    conversation.close();
+  }
+}
+
+export async function generateClaudeText(request: TextRequest): Promise<string> {
+  const claudeBinary = findClaudeBinary();
+  const abortController = new AbortController();
+  request.signal.addEventListener("abort", () => abortController.abort(), { once: true });
+  const model = modelOption(request.model);
+  const conversation = query({
+    prompt: request.prompt,
+    options: {
+      cwd: tmpdir(),
+      abortController,
+      tools: [],
+      maxTurns: 1,
+      persistSession: false,
+      settingSources: [],
+      systemPrompt: request.instructions,
+      ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
+      ...(model ? { model } : {}),
+      ...(request.effort ? { effort: request.effort } : {}),
+    },
+  });
+  for await (const message of conversation) {
+    if (message.type !== "result") continue;
+    if (message.subtype === "success") return message.result;
+    throw new Error(message.errors.join("\n") || message.subtype);
+  }
+  throw new Error("Claude exited without answering");
+}
+
 function summarizeToolInput(name: string, input: Record<string, unknown>): string {
   const field = (key: string) => (typeof input[key] === "string" ? (input[key] as string) : null);
   const summary =
@@ -84,6 +152,8 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
   const turns = new TurnQueue();
   const full = options.accessMode === "full";
   const claudeBinary = findClaudeBinary();
+  const model = modelOption(options.model);
+  let current = { model: options.model, effort: options.effort };
 
   const conversation = query({
     prompt: turns,
@@ -105,7 +175,8 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
       includePartialMessages: true,
       systemPrompt: { type: "preset", preset: "claude_code", append: options.instructions },
       ...(options.resumeId ? { resume: options.resumeId } : {}),
-      ...(options.model ? { model: options.model } : {}),
+      ...(model ? { model } : {}),
+      ...(options.effort ? { effort: options.effort } : {}),
     },
   });
 
@@ -221,7 +292,13 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
   })();
 
   return {
-    async sendTurn(text) {
+    async sendTurn(text, settings) {
+      if (settings.model !== current.model) await conversation.setModel(modelOption(settings.model));
+      // A null effort level resets to the model's default.
+      if (settings.effort !== current.effort) {
+        await conversation.applyFlagSettings({ effortLevel: settings.effort });
+      }
+      current = settings;
       turnActive = true;
       turns.push({
         type: "user",

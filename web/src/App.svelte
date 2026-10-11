@@ -1,6 +1,7 @@
 <script lang="ts">
   import Home from "./components/Home.svelte";
   import ProjectView from "./components/ProjectView.svelte";
+  import SettingsView from "./components/SettingsView.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import ThreadView from "./components/ThreadView.svelte";
   import { app, nav } from "./lib/state.svelte";
@@ -16,6 +17,8 @@
       {#key nav.route.name}
         <ProjectView name={nav.route.name} />
       {/key}
+    {:else if nav.route.view === "settings"}
+      <SettingsView />
     {:else if nav.route.view === "thread"}
       {#key nav.route.id}
         <ThreadView id={nav.route.id} />

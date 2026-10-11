@@ -1,7 +1,14 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { tmpdir } from "node:os";
 import { createInterface } from "node:readline";
-import type { Item } from "shared/protocol";
-import { truncate, type ProviderSession, type SessionOptions } from "./types.ts";
+import type { Item, ModelOption } from "shared/protocol";
+import {
+  isEffort,
+  truncate,
+  type ProviderSession,
+  type SessionOptions,
+  type TextRequest,
+} from "./types.ts";
 
 // Minimal hand-written slice of the app-server protocol. Regenerate the full bindings with
 // `codex app-server generate-ts --out <dir>` when extending this.
@@ -43,6 +50,15 @@ interface CodexTurn {
   error: { message: string } | null;
 }
 
+interface CodexModel {
+  model: string;
+  displayName: string;
+  hidden: boolean;
+  isDefault: boolean;
+  supportedReasoningEfforts: { reasoningEffort: string }[];
+  defaultReasoningEffort: string;
+}
+
 type JsonRpcMessage = {
   id?: number | string;
   method?: string;
@@ -53,20 +69,19 @@ type JsonRpcMessage = {
 
 class RpcError extends Error {}
 
+type ConnectionHandlers = {
+  notification: (method: string, params: Record<string, unknown>) => void;
+  request: (method: string, params: Record<string, unknown>) => Promise<unknown>;
+  exit: (detail: string) => void;
+};
+
 class AppServerConnection {
   readonly #child: ChildProcessWithoutNullStreams;
   readonly #pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
   #nextId = 1;
   #stderr = "";
 
-  constructor(
-    cwd: string,
-    handlers: {
-      notification: (method: string, params: Record<string, unknown>) => void;
-      request: (method: string, params: Record<string, unknown>) => Promise<unknown>;
-      exit: (detail: string) => void;
-    },
-  ) {
+  constructor(cwd: string, handlers: ConnectionHandlers) {
     this.#child = spawn(process.env.BORKCODE_CODEX_BIN ?? "codex", ["app-server"], {
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
@@ -123,6 +138,96 @@ class AppServerConnection {
 
   #send(message: unknown): void {
     if (this.#child.stdin.writable) this.#child.stdin.write(`${JSON.stringify(message)}\n`);
+  }
+}
+
+async function connect(cwd: string, handlers: ConnectionHandlers): Promise<AppServerConnection> {
+  const connection = new AppServerConnection(cwd, handlers);
+  try {
+    await connection.request("initialize", {
+      clientInfo: { name: "borkcode", title: "borkcode", version: "0.1.0" },
+      capabilities: null,
+    });
+  } catch (error) {
+    connection.close();
+    throw error;
+  }
+  connection.notify("initialized");
+  return connection;
+}
+
+const noRequests = async (method: string) => {
+  throw new Error(`borkcode does not support ${method} here`);
+};
+
+export async function listCodexModels(): Promise<ModelOption[]> {
+  const connection = await connect(tmpdir(), { notification() {}, request: noRequests, exit() {} });
+  try {
+    const models: CodexModel[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: { data: CodexModel[]; nextCursor: string | null } = await connection.request("model/list", {
+        cursor,
+      });
+      models.push(...page.data);
+      cursor = page.nextCursor;
+    } while (cursor);
+    return models
+      .filter((model) => !model.hidden)
+      .map((model) => ({
+        id: model.model,
+        name: model.displayName,
+        isDefault: model.isDefault,
+        efforts: model.supportedReasoningEfforts.map((option) => option.reasoningEffort).filter(isEffort),
+        defaultEffort: isEffort(model.defaultReasoningEffort) ? model.defaultReasoningEffort : null,
+      }));
+  } finally {
+    connection.close();
+  }
+}
+
+export async function generateCodexText(request: TextRequest): Promise<string> {
+  let settle!: { resolve: (text: string) => void; reject: (error: Error) => void };
+  const answer = new Promise<string>((resolve, reject) => {
+    settle = { resolve, reject };
+  });
+  // Failures also surface through the awaited requests below; this keeps them from going unhandled.
+  answer.catch(() => {});
+  const messages: string[] = [];
+  const connection = await connect(tmpdir(), {
+    notification(method, params) {
+      if (method === "item/completed") {
+        const item = params.item as CodexItem;
+        if (item.type === "agentMessage") messages.push((item as Extract<CodexItem, { type: "agentMessage" }>).text);
+      } else if (method === "turn/completed") {
+        const turn = params.turn as CodexTurn;
+        if (turn.status === "completed") settle.resolve(messages.join("\n"));
+        else settle.reject(new Error(turn.error?.message ?? `Turn ${turn.status}`));
+      }
+    },
+    request: noRequests,
+    exit: (detail) => settle.reject(new Error(detail)),
+  });
+  const abort = () => connection.close();
+  request.signal.addEventListener("abort", abort, { once: true });
+  try {
+    const started = await connection.request<{ thread: { id: string } }>("thread/start", {
+      cwd: tmpdir(),
+      model: request.model,
+      ephemeral: true,
+      approvalPolicy: "never",
+      sandbox: "read-only",
+      baseInstructions: request.instructions,
+    });
+    await connection.request("turn/start", {
+      threadId: started.thread.id,
+      input: [{ type: "text", text: request.prompt, text_elements: [] }],
+      effort: request.effort,
+    });
+    return await answer;
+  } finally {
+    request.signal.removeEventListener("abort", abort);
+    connection.close();
   }
 }
 
@@ -215,7 +320,7 @@ export async function startCodexSession(options: SessionOptions): Promise<Provid
     events.turnEnded(outcome);
   };
 
-  const connection = new AppServerConnection(options.cwd, {
+  const connection = await connect(options.cwd, {
     notification(method, params) {
       if (threadId !== null && "threadId" in params && params.threadId !== threadId) return;
       switch (method) {
@@ -271,12 +376,6 @@ export async function startCodexSession(options: SessionOptions): Promise<Provid
     },
   });
 
-  await connection.request("initialize", {
-    clientInfo: { name: "borkcode", title: "borkcode", version: "0.1.0" },
-    capabilities: null,
-  });
-  connection.notify("initialized");
-
   const threadParams = {
     cwd: options.cwd,
     model: options.model,
@@ -296,12 +395,15 @@ export async function startCodexSession(options: SessionOptions): Promise<Provid
   events.sessionId(threadId);
 
   return {
-    async sendTurn(text) {
+    async sendTurn(text, settings) {
       turnActive = true;
       try {
+        // Overrides stick for later turns, and null means "no change" rather than "default".
         const response = await connection.request<{ turn: CodexTurn }>("turn/start", {
           threadId,
           input: [{ type: "text", text, text_elements: [] }],
+          model: settings.model,
+          effort: settings.effort,
         });
         turnId ??= response.turn.id;
       } catch (error) {

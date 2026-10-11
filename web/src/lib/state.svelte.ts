@@ -1,4 +1,12 @@
-import type { Project, ServerEvent, Thread, ThreadDetail } from "shared/protocol";
+import type {
+  ModelOption,
+  Project,
+  ProviderKind,
+  ServerEvent,
+  Settings,
+  Thread,
+  ThreadDetail,
+} from "shared/protocol";
 import { RpcClient } from "./rpc";
 
 export const app = $state({
@@ -7,10 +15,34 @@ export const app = $state({
   threads: [] as Thread[],
   /** The open thread's transcript and pending approvals. */
   detail: null as ThreadDetail | null,
+  settings: null as Settings | null,
 });
+
+/** Each provider's model list, loaded on first use. */
+export const models = $state<Partial<Record<ProviderKind, { list: ModelOption[]; error: string | null }>>>({});
+const modelRequests = new Map<ProviderKind, Promise<void>>();
+
+export function loadModels(provider: ProviderKind): Promise<void> {
+  let request = modelRequests.get(provider);
+  if (!request) {
+    request = rpc.request("models.list", { provider }).then(
+      (list) => {
+        models[provider] = { list, error: null };
+      },
+      (cause: Error) => {
+        models[provider] = { list: [], error: cause.message };
+        // Try again next time, for example once the CLI is installed or the server is back.
+        modelRequests.delete(provider);
+      },
+    );
+    modelRequests.set(provider, request);
+  }
+  return request;
+}
 
 export type Route =
   | { view: "home" }
+  | { view: "settings" }
   | { view: "project"; name: string }
   | { view: "thread"; id: string };
 
@@ -18,6 +50,7 @@ function parseRoute(): Route {
   const [, view, id] = location.hash.split("/");
   if (view === "project" && id) return { view: "project", name: decodeURIComponent(id) };
   if (view === "thread" && id) return { view: "thread", id };
+  if (view === "settings") return { view: "settings" };
   return { view: "home" };
 }
 
@@ -30,9 +63,11 @@ export function go(route: Route): void {
   location.hash =
     route.view === "home"
       ? "#/"
-      : route.view === "project"
-        ? `#/project/${encodeURIComponent(route.name)}`
-        : `#/thread/${route.id}`;
+      : route.view === "settings"
+        ? "#/settings"
+        : route.view === "project"
+          ? `#/project/${encodeURIComponent(route.name)}`
+          : `#/thread/${route.id}`;
 }
 
 function upsertById<T extends { id: string }>(list: T[], value: T): void {
@@ -46,6 +81,9 @@ function handleEvent(event: ServerEvent): void {
   switch (event.type) {
     case "projects.changed":
       app.projects = event.projects;
+      return;
+    case "settings.changed":
+      app.settings = event.settings;
       return;
     case "thread.updated":
       upsertById(app.threads, event.thread);
@@ -76,12 +114,14 @@ function handleEvent(event: ServerEvent): void {
 }
 
 async function refresh(): Promise<void> {
-  const [projects, threads] = await Promise.all([
+  const [projects, threads, settings] = await Promise.all([
     rpc.request("projects.list", {}),
     rpc.request("threads.list", {}),
+    rpc.request("settings.get", {}),
   ]);
   app.projects = projects;
   app.threads = threads;
+  app.settings = settings;
   if (nav.route.view === "thread") await openThread(nav.route.id);
 }
 

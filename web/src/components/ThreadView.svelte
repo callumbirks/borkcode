@@ -1,7 +1,9 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import type { Effort } from "shared/protocol";
   import { app, go, openThread, rpc } from "../lib/state.svelte";
   import ItemView from "./ItemView.svelte";
+  import ModelPicker from "./ModelPicker.svelte";
   import RepoPanel from "./RepoPanel.svelte";
 
   let { id }: { id: string } = $props();
@@ -13,6 +15,43 @@
   let draft = $state("");
   let error = $state("");
   let transcript: HTMLDivElement | undefined = $state();
+
+  // The composer's picks start from the thread's and are saved with the next message.
+  let model = $state<string | null>(null);
+  let effort = $state<Effort | null>(null);
+  let picksLoaded = false;
+  $effect(() => {
+    if (!thread || picksLoaded) return;
+    picksLoaded = true;
+    model = thread.model;
+    effort = thread.effort;
+  });
+
+  let editingTitle = $state(false);
+  let titleDraft = $state("");
+
+  function editTitle() {
+    if (!thread) return;
+    titleDraft = thread.title;
+    editingTitle = true;
+  }
+
+  async function saveTitle() {
+    if (!editingTitle) return;
+    editingTitle = false;
+    const title = titleDraft.trim();
+    if (!title || title === thread?.title) return;
+    try {
+      await rpc.request("threads.rename", { threadId: id, title });
+    } catch (cause) {
+      error = (cause as Error).message;
+    }
+  }
+
+  function onTitleKeydown(event: KeyboardEvent) {
+    if (event.key === "Enter") void saveTitle();
+    if (event.key === "Escape") editingTitle = false;
+  }
 
   $effect(() => {
     if (app.connected) void openThread(id);
@@ -37,7 +76,7 @@
     error = "";
     draft = "";
     try {
-      await rpc.request("threads.send", { threadId: id, text });
+      await rpc.request("threads.send", { threadId: id, text, model, effort });
     } catch (cause) {
       draft = text;
       error = (cause as Error).message;
@@ -80,10 +119,15 @@
   <div class="thread">
     <div class="chat">
       <header>
-        <div>
-          <strong>{thread.title}</strong>
+        <div class="heading">
+          {#if editingTitle}
+            <!-- svelte-ignore a11y_autofocus -->
+            <input class="title" bind:value={titleDraft} onkeydown={onTitleKeydown} onblur={saveTitle} autofocus />
+          {:else}
+            <button class="title" title="Rename" onclick={editTitle}>{thread.title}</button>
+          {/if}
           <span class="muted">
-            {thread.provider}{thread.model ? ` · ${thread.model}` : ""} ·
+            {thread.provider} ·
             {thread.accessMode === "full" ? "full access" : "asks first"} ·
             <a href="#/project/{encodeURIComponent(thread.project)}">{thread.project}</a>
           </span>
@@ -105,7 +149,7 @@
           </div>
         {/each}
         {#if thread.status === "preparing"}
-          <p class="muted">Creating worktrees and running setup…</p>
+          <p class="muted">Preparing the workspace…</p>
         {:else if thread.status === "running" && detail.approvals.length === 0}
           <p class="muted">Working…</p>
         {/if}
@@ -119,6 +163,8 @@
           placeholder={busy ? "The agent is working…" : "Message the agent (Enter to send, Shift+Enter for a new line)"}
         ></textarea>
         <div class="actions">
+          <ModelPicker provider={thread.provider} bind:model bind:effort />
+          <span class="spacer"></span>
           {#if thread.status === "running"}
             <button onclick={() => rpc.request("threads.interrupt", { threadId: id })}>Stop</button>
           {/if}
@@ -150,9 +196,28 @@
     padding: 10px 20px;
     border-bottom: 1px solid var(--border);
   }
-  header .muted {
-    margin-left: 8px;
+  .heading {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+  .heading .muted {
     font-size: 13px;
+    white-space: nowrap;
+  }
+  .title {
+    font-weight: 600;
+    padding: 2px 6px;
+    margin-left: -6px;
+  }
+  button.title {
+    background: none;
+    border-color: transparent;
+    text-align: left;
+  }
+  button.title:hover {
+    border-color: var(--border);
   }
   .transcript {
     flex: 1;
@@ -180,8 +245,11 @@
   }
   .actions {
     display: flex;
-    justify-content: flex-end;
+    align-items: flex-end;
     gap: 8px;
     margin-top: 8px;
+  }
+  .spacer {
+    flex: 1;
   }
 </style>

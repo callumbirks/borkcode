@@ -1,4 +1,4 @@
-import type { AccessMode, Approval, Item } from "shared/protocol";
+import type { AccessMode, Approval, Effort, Item } from "shared/protocol";
 
 export type TurnOutcome = { status: "completed" | "interrupted" } | { status: "failed"; error: string };
 
@@ -25,15 +25,38 @@ export interface SessionOptions {
   instructions: string;
   accessMode: AccessMode;
   model: string | null;
+  effort: Effort | null;
   resumeId: string | null;
   events: SessionEvents;
 }
 
+/** Null model or effort means the provider's default. */
+export interface TurnSettings {
+  model: string | null;
+  effort: Effort | null;
+}
+
 export interface ProviderSession {
-  /** Starts a turn. Resolves once the provider accepts it; the end arrives as `turnEnded`. */
-  sendTurn(text: string): Promise<void>;
+  /**
+   * Starts a turn, switching model and effort first if they changed. Resolves once the provider
+   * accepts it; the end arrives as `turnEnded`.
+   */
+  sendTurn(text: string, settings: TurnSettings): Promise<void>;
   interrupt(): Promise<void>;
   close(): void;
+}
+
+/** A single tool-less completion, used for small jobs such as naming threads. */
+export interface TextRequest extends TurnSettings {
+  instructions: string;
+  prompt: string;
+  signal: AbortSignal;
+}
+
+export const EFFORTS: readonly Effort[] = ["low", "medium", "high", "xhigh", "max"];
+
+export function isEffort(value: unknown): value is Effort {
+  return EFFORTS.includes(value as Effort);
 }
 
 export function truncate(text: string, max = 8000): string {

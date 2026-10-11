@@ -14,6 +14,7 @@ interface ThreadRow {
   title: string;
   provider: Thread["provider"];
   model: string | null;
+  effort: Thread["effort"];
   access_mode: Thread["accessMode"];
   workspace: string | null;
   branch: string | null;
@@ -30,6 +31,7 @@ function fromRow(row: ThreadRow): StoredThread {
     title: row.title,
     provider: row.provider,
     model: row.model,
+    effort: row.effort,
     accessMode: row.access_mode,
     workspace: row.workspace,
     branch: row.branch,
@@ -58,6 +60,7 @@ export class Database {
         title TEXT NOT NULL,
         provider TEXT NOT NULL,
         model TEXT,
+        effort TEXT,
         access_mode TEXT NOT NULL,
         workspace TEXT,
         branch TEXT,
@@ -76,6 +79,10 @@ export class Database {
       CREATE INDEX IF NOT EXISTS items_by_seq ON items (thread_id, seq);
       PRAGMA foreign_keys = ON;
     `);
+    const columns = this.#db.prepare(`PRAGMA table_info(threads)`).all() as unknown as { name: string }[];
+    if (!columns.some((column) => column.name === "effort")) {
+      this.#db.exec(`ALTER TABLE threads ADD COLUMN effort TEXT`);
+    }
     // A server restart ends every provider process, so nothing can still be running.
     this.#db
       .prepare(`UPDATE threads SET status = 'idle' WHERE status IN ('running', 'preparing')`)
@@ -95,9 +102,9 @@ export class Database {
   insertThread(thread: StoredThread): void {
     this.#db
       .prepare(
-        `INSERT INTO threads (id, project, title, provider, model, access_mode, workspace, branch,
-          status, provider_session_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO threads (id, project, title, provider, model, effort, access_mode, workspace,
+          branch, status, provider_session_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         thread.id,
@@ -105,6 +112,7 @@ export class Database {
         thread.title,
         thread.provider,
         thread.model,
+        thread.effort,
         thread.accessMode,
         thread.workspace,
         thread.branch,
@@ -117,16 +125,29 @@ export class Database {
 
   updateThread(
     id: string,
-    patch: Partial<Pick<StoredThread, "status" | "providerSessionId" | "title">>,
+    patch: Partial<
+      Pick<StoredThread, "status" | "providerSessionId" | "title" | "model" | "effort" | "workspace" | "branch">
+    >,
   ): StoredThread {
     const current = this.getThread(id);
     if (!current) throw new Error(`Unknown thread ${id}`);
     const next: StoredThread = { ...current, ...patch, updatedAt: Date.now() };
     this.#db
       .prepare(
-        `UPDATE threads SET status = ?, provider_session_id = ?, title = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE threads SET status = ?, provider_session_id = ?, title = ?, model = ?, effort = ?,
+          workspace = ?, branch = ?, updated_at = ? WHERE id = ?`,
       )
-      .run(next.status, next.providerSessionId, next.title, next.updatedAt, id);
+      .run(
+        next.status,
+        next.providerSessionId,
+        next.title,
+        next.model,
+        next.effort,
+        next.workspace,
+        next.branch,
+        next.updatedAt,
+        id,
+      );
     return next;
   }
 

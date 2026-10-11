@@ -38,14 +38,27 @@
       {/each}
     </div>
   {/each}
+  <button
+    class="settings"
+    class:active={nav.route.view === "settings"}
+    onclick={() => go({ view: "settings" })}
+  >
+    Settings
+  </button>
 </nav>
 
 <style>
   nav {
+    display: flex;
+    flex-direction: column;
     background: var(--panel);
     border-right: 1px solid var(--border);
     padding: 12px 8px;
     overflow-y: auto;
+  }
+  .settings {
+    margin-top: auto;
+    color: var(--muted);
   }
   button {
     display: flex;

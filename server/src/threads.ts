@@ -2,13 +2,13 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type {
-  AccessMode,
   Approval,
   Item,
   Project,
   ProviderKind,
   RepoConfig,
   RepoStatus,
+  Requests,
   ServerEvent,
   Thread,
   ThreadDetail,
@@ -18,7 +18,9 @@ import { buildInstructions } from "./instructions.ts";
 import type { ProjectStore } from "./projects.ts";
 import { startClaudeSession } from "./providers/claude.ts";
 import { startCodexSession } from "./providers/codex.ts";
-import type { ProviderSession, SessionOptions } from "./providers/types.ts";
+import type { ProviderSession, SessionOptions, TurnSettings } from "./providers/types.ts";
+import type { SettingsStore } from "./settings.ts";
+import { fallbackTitle, generateTitle } from "./titles.ts";
 import {
   dirtyRepos,
   ensureWorkspace,
@@ -57,12 +59,19 @@ export function workspaceSlug(title: string, id: string): string {
 export class ThreadService {
   readonly #db: Database;
   readonly #projects: ProjectStore;
+  readonly #settings: SettingsStore;
   readonly #emit: (event: ServerEvent) => void;
   readonly #live = new Map<string, LiveThread>();
 
-  constructor(db: Database, projects: ProjectStore, emit: (event: ServerEvent) => void) {
+  constructor(
+    db: Database,
+    projects: ProjectStore,
+    settings: SettingsStore,
+    emit: (event: ServerEvent) => void,
+  ) {
     this.#db = db;
     this.#projects = projects;
+    this.#settings = settings;
     this.#emit = emit;
   }
 
@@ -70,26 +79,23 @@ export class ThreadService {
     return this.#db.listThreads().map(toThread);
   }
 
-  async create(params: {
-    project: string;
-    title: string;
-    provider: ProviderKind;
-    accessMode: AccessMode;
-    isolated: boolean;
-    model?: string;
-  }): Promise<Thread> {
+  /** Starts the thread on its first message. The title is generated in the background. */
+  async create(params: Requests["threads.create"]["params"]): Promise<Thread> {
     const project = await this.#projects.get(params.project);
-    const title = params.title.trim();
-    if (!title) throw new Error("A thread needs a title");
+    const text = params.text.trim();
+    if (!text) throw new Error("Write the first message for the agent");
     const id = randomUUID();
-    const workspace = params.isolated ? workspaceSlug(title, id) : null;
+    // A provisional workspace name until the title is generated. Nothing is on disk before then,
+    // so renaming is free, and a restart in between leaves a usable name.
+    const workspace = params.isolated ? workspaceSlug("", id) : null;
     const now = Date.now();
     const thread: StoredThread = {
       id,
       project: project.name,
-      title,
+      title: fallbackTitle(text),
       provider: params.provider,
-      model: params.model?.trim() || null,
+      model: params.model,
+      effort: params.effort,
       accessMode: params.accessMode,
       workspace,
       branch: workspace ? `borkcode/${workspace}` : null,
@@ -100,13 +106,27 @@ export class ThreadService {
     };
     this.#db.insertThread(thread);
     this.#emit({ type: "thread.updated", thread: toThread(thread) });
+    const live = this.#liveThread(id);
+    // The workspace is named after the title, so it waits; main checkouts need no naming.
+    const naming = this.#nameThread(id, text, thread.title, workspace !== null);
     if (workspace) {
-      const live = this.#liveThread(id);
-      live.preparing = this.#prepare(thread).finally(() => {
-        live.preparing = null;
-      });
+      live.preparing = naming
+        .then(() => this.#prepare(id))
+        .finally(() => {
+          live.preparing = null;
+        });
     }
+    void this.send(id, text, { model: thread.model, effort: thread.effort }).catch((error: Error) =>
+      console.error(error),
+    );
     return toThread(thread);
+  }
+
+  rename(threadId: string, title: string): Thread {
+    this.#require(threadId);
+    const trimmed = title.trim();
+    if (!trimmed) throw new Error("A thread needs a title");
+    return toThread(this.#update(threadId, { title: trimmed }));
   }
 
   async get(threadId: string): Promise<ThreadDetail> {
@@ -124,25 +144,26 @@ export class ThreadService {
     };
   }
 
-  async send(threadId: string, text: string): Promise<void> {
+  async send(threadId: string, text: string, settings: TurnSettings): Promise<void> {
     const trimmed = text.trim();
     if (!trimmed) return;
     let thread = this.#require(threadId);
     if (thread.status === "running") throw new Error("The agent is still working on the last message");
     const live = this.#liveThread(threadId);
-    await live.preparing;
-    thread = this.#require(threadId);
-
     this.#upsertItem(threadId, { id: randomUUID(), kind: "user", text: trimmed });
-    this.#setStatus(threadId, "running");
+    await live.preparing;
+    thread = this.#update(threadId, { status: "running", model: settings.model, effort: settings.effort });
+
     try {
       // Fills in repos added to the project since the workspace was created.
       if (thread.workspace) await this.#addMissingRepos(thread);
       live.session ??= this.#openSession(thread);
       const session = await live.session;
-      await session.sendTurn(trimmed);
+      await session.sendTurn(trimmed, { model: thread.model, effort: thread.effort });
     } catch (error) {
+      const session = live.session;
       live.session = null;
+      void session?.then((open) => open.close(), () => undefined);
       this.#notice(threadId, "error", error instanceof Error ? error.message : String(error));
       this.#setStatus(threadId, "idle");
     }
@@ -183,13 +204,31 @@ export class ThreadService {
     return repoStatuses(await this.#projects.get(thread.project), thread.workspace);
   }
 
-  async #prepare(thread: StoredThread): Promise<void> {
+  /** Replaces the provisional title and, before a workspace exists, the workspace name too. */
+  async #nameThread(threadId: string, text: string, provisional: string, renameWorkspace: boolean): Promise<void> {
+    let generated: string | null = null;
     try {
-      await this.#addMissingRepos(thread);
-      this.#setStatus(thread.id, "idle");
+      generated = await generateTitle(text, (await this.#settings.get()).titleModel);
     } catch (error) {
-      this.#notice(thread.id, "error", `Could not create the workspace: ${error instanceof Error ? error.message : String(error)}`);
-      this.#setStatus(thread.id, "error");
+      this.#notice(threadId, "info", `Could not generate a title: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const thread = this.#db.getThread(threadId);
+    if (!thread) return;
+    // A manual rename made while the title was generating wins.
+    const title = generated && thread.title === provisional ? generated : thread.title;
+    const workspace = renameWorkspace ? workspaceSlug(title, threadId) : thread.workspace;
+    if (title === thread.title && workspace === thread.workspace) return;
+    this.#update(threadId, { title, workspace, branch: workspace ? `borkcode/${workspace}` : null });
+  }
+
+  async #prepare(threadId: string): Promise<void> {
+    if (!this.#db.getThread(threadId)) return;
+    try {
+      await this.#addMissingRepos(this.#require(threadId));
+      this.#setStatus(threadId, "idle");
+    } catch (error) {
+      this.#notice(threadId, "error", `Could not create the workspace: ${error instanceof Error ? error.message : String(error)}`);
+      this.#setStatus(threadId, "error");
     }
   }
 
@@ -239,6 +278,7 @@ export class ThreadService {
       instructions: buildInstructions(project, toThread(thread), cwd),
       accessMode: thread.accessMode,
       model: thread.model,
+      effort: thread.effort,
       resumeId: thread.providerSessionId,
       events: {
         sessionId: (id) => {
@@ -304,9 +344,14 @@ export class ThreadService {
     return thread;
   }
 
-  #setStatus(threadId: string, status: Thread["status"]): void {
-    const thread = this.#db.updateThread(threadId, { status });
+  #update(threadId: string, patch: Parameters<Database["updateThread"]>[1]): StoredThread {
+    const thread = this.#db.updateThread(threadId, patch);
     this.#emit({ type: "thread.updated", thread: toThread(thread) });
+    return thread;
+  }
+
+  #setStatus(threadId: string, status: Thread["status"]): void {
+    this.#update(threadId, { status });
   }
 
   #upsertItem(threadId: string, item: Item): void {

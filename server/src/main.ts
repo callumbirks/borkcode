@@ -12,12 +12,15 @@ import type {
 } from "shared/protocol";
 import { loadConfig } from "./config.ts";
 import { Database } from "./db.ts";
+import { listModels } from "./models.ts";
 import { ProjectStore } from "./projects.ts";
+import { SettingsStore } from "./settings.ts";
 import { ThreadService } from "./threads.ts";
 
 const config = loadConfig();
 const db = new Database(join(config.home, "state.sqlite"));
 const projects = new ProjectStore(config.home);
+const settings = new SettingsStore(config.home);
 const clients = new Set<WebSocket>();
 
 function broadcast(event: ServerEvent): void {
@@ -25,7 +28,7 @@ function broadcast(event: ServerEvent): void {
   for (const client of clients) client.send(payload);
 }
 
-const threads = new ThreadService(db, projects, broadcast);
+const threads = new ThreadService(db, projects, settings, broadcast);
 
 async function projectsChanged<T>(result: T): Promise<T> {
   broadcast({ type: "projects.changed", projects: await projects.list() });
@@ -46,11 +49,12 @@ const handlers: Handlers = {
   "threads.list": async () => threads.list(),
   "threads.create": (params) => threads.create(params),
   "threads.get": ({ threadId }) => threads.get(threadId),
-  "threads.send": async ({ threadId, text }) => {
+  "threads.send": async ({ threadId, text, model, effort }) => {
     // The turn runs in the background; progress arrives as events.
-    void threads.send(threadId, text).catch((error: Error) => console.error(error));
+    void threads.send(threadId, text, { model, effort }).catch((error: Error) => console.error(error));
     return null;
   },
+  "threads.rename": async ({ threadId, title }) => threads.rename(threadId, title),
   "threads.interrupt": async ({ threadId }) => {
     await threads.interrupt(threadId);
     return null;
@@ -63,6 +67,13 @@ const handlers: Handlers = {
   "approvals.respond": async ({ threadId, approvalId, allow }) => {
     threads.respondToApproval(threadId, approvalId, allow);
     return null;
+  },
+  "models.list": ({ provider }) => listModels(provider),
+  "settings.get": () => settings.get(),
+  "settings.update": async (params) => {
+    const next = await settings.update(params.settings);
+    broadcast({ type: "settings.changed", settings: next });
+    return next;
   },
 };
 

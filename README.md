@@ -9,6 +9,7 @@ Everything lives under `~/borkcode` (override with `BORKCODE_HOME`):
 ```
 ~/borkcode/
   state.sqlite                  threads and transcripts
+  settings.json                 app settings such as the title model (safe to hand-edit)
   projects/<project>/
     project.json                repos, base branches, setup commands (safe to hand-edit)
     files/                      shared project files, writable by every agent
@@ -20,6 +21,11 @@ A thread's workspace always holds every repo of its project as siblings, named e
 `repos/`, so relative paths such as `../vessel` work the same everywhere. All worktrees in a
 workspace share one branch, `borkcode/<thread>`. Deleting a thread removes its worktrees and keeps
 the branches. A thread can also run directly in the main clones instead.
+
+A thread starts from its first message. A small model, chosen under Settings (Codex `gpt-6-luna`
+at low effort by default), names it, and the workspace and branch are named after that title.
+Renaming a thread later changes only its displayed title. Model and effort can be switched
+between turns from the composer.
 
 Each repo can have a setup command, run inside every new worktree. It receives
 `BORKCODE_MAIN_REPO` (the main clone, handy for copying `.env` files), `BORKCODE_WORKSPACE`

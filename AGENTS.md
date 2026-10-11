@@ -45,8 +45,13 @@ inventing a fix.
 - **The agent's cwd is the workspace root,** which is not a git repo. Both providers accept this.
 - **Deleting a thread removes its worktrees but keeps its branches.** It refuses when a worktree
   has uncommitted changes, unless forced.
-- **The filesystem is the source of truth for projects** (`project.json`, safe to hand-edit).
-  SQLite holds threads and transcript items only.
+- **The filesystem is the source of truth for projects** (`project.json`) and settings
+  (`settings.json`), both safe to hand-edit. SQLite holds threads and transcript items only.
+- **Threads are named from their first message** by the model in `settings.json`. Isolated
+  threads wait for the title so their branch name means something; renaming later changes only
+  the displayed title.
+- **Model lists come from the CLIs** (Claude `supportedModels()`, Codex `model/list`), never a
+  hardcoded list. A null model or effort means the provider's default.
 - **Setup commands run once per new worktree,** sequentially in repo order, with
   `BORKCODE_MAIN_REPO`, `BORKCODE_WORKSPACE` and `BORKCODE_PROJECT` set.
 - **The agent's workspace orientation is injected** through each provider's system-instruction
@@ -83,6 +88,10 @@ inventing a fix.
   `codex app-server generate-ts --out <dir>`. `providers/codex.ts` hand-writes only the slice it
   uses; extend it from the generated types rather than guessing. The wire format is
   newline-delimited JSON-RPC without a `"jsonrpc"` field.
+- **Turn overrides stick.** Codex `turn/start` `model` and `effort` apply to later turns too, and
+  null means "no change", not "default". Codex reports each model's default effort, so the picker
+  never moves a Codex thread from a set effort back to null. Claude switches with `setModel` and
+  `applyFlagSettings({ effortLevel })`, where null does reset.
 - **Claude SDK types.** The source of truth is
   `server/node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`. With partial messages on,
   `assistant` messages arrive one content block at a time, after the matching `stream_event`
