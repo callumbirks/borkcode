@@ -45,11 +45,6 @@ test("linking a pull request reports changes only when something changed", () =>
   assert.equal(db.linkPullRequest("t2", pr), false);
   assert.equal(db.linkPullRequest("t2", { ...pr, state: "MERGED" }), true);
   assert.deepEqual(db.listPullRequests("t2"), [{ ...pr, state: "MERGED" }]);
-  // Merged after linking: news once for the thread's agent, and once for its parent's.
-  assert.deepEqual(db.takeStateChanges("t2", "thread"), [{ ...pr, state: "MERGED" }]);
-  assert.deepEqual(db.takeStateChanges("t2", "thread"), []);
-  assert.deepEqual(db.takeStateChanges("t2", "parent"), [{ ...pr, state: "MERGED" }]);
-  assert.deepEqual(db.takeStateChanges("t2", "parent"), []);
   db.deleteThread("t2");
   assert.deepEqual(db.listPullRequests("t2"), []);
 });
@@ -75,8 +70,6 @@ test("pull request links from before head commits were stored gain the column", 
   const db = new Database(path);
   const [pr] = db.listPullRequests("t3");
   assert.equal(pr?.headOid, "");
-  // Agents are not told about states they could already have seen.
-  assert.deepEqual(db.takeStateChanges("t3", "thread"), []);
   // Discovery fills it in later.
   assert.equal(db.linkPullRequest("t3", { ...pr!, headOid: "def" }), true);
   assert.equal(db.listPullRequests("t3")[0]?.headOid, "def");

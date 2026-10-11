@@ -35,6 +35,7 @@
         {/if}
       </div>
     {/if}
+    {#if item.fromBorkcode}<div class="from"><CornerDownRight size={12} />From borkcode</div>{/if}
     {#if item.steered}<div class="from">Read while working</div>{/if}
     {item.text}
   </div>

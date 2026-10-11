@@ -64,20 +64,15 @@ export function combine(texts: string[]): string {
   return texts.length === 1 ? texts[0]! : texts.join("\n\n---\n\n");
 }
 
-const STATE_CHANGES: Record<string, string> = { MERGED: "was merged", CLOSED: "was closed", OPEN: "was reopened" };
+const STATE_CHANGES: Record<string, string> = { MERGED: "was merged", CLOSED: "was closed" };
 
-/**
- * Opens a turn when pull requests changed state since the agent's last turn, such as the user
- * merging one on GitHub. `thread` names the child a pull request belongs to; null for the agent's own.
- */
-export function pullRequestNotice(changes: { pr: LinkedPullRequest; thread: string | null }[]): string | null {
-  if (changes.length === 0) return null;
-  const lines = changes.map(({ pr, thread }) =>
-    [
-      `${pr.repo}#${pr.number}`,
-      ...(thread ? [`(thread "${thread}")`] : []),
-      STATE_CHANGES[pr.state] ?? `is now ${pr.state.toLowerCase()}`,
-    ].join(" "),
-  );
-  return `Since your last turn: ${lines.join("; ")}.`;
+/** What wakes a thread when its pull requests were merged or closed, e.g. on GitHub by the user. */
+export function pullRequestNews(prs: LinkedPullRequest[]): string {
+  const lines = prs.map((pr) => `${pr.repo}#${pr.number} ${STATE_CHANGES[pr.state] ?? `is now ${pr.state.toLowerCase()}`}: ${pr.url}`);
+  return lines.join("\n");
+}
+
+/** News from borkcode itself, so the agent does not take it for the user's words. */
+export function borkcodeMessage(text: string): string {
+  return `From borkcode, not the user:\n\n${text}`;
 }
