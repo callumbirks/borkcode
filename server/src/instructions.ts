@@ -9,7 +9,7 @@ export function buildInstructions(
   context: {
     /** The thread's folder for temporary files. */
     scratch: string;
-    parent: { title: string } | null;
+    parent: { title: string; captain: boolean } | null;
     /** Where a handed-off thread's brief was saved, if it was. */
     brief: string | null;
   },
@@ -68,6 +68,9 @@ export function buildInstructions(
       `You were started by the agent of another thread, "${parent.title}". When it watches you, the final reply of each of your turns is sent to it, so end every turn with a reply that stands on its own: what you did, what is left, and any question you need answered.`,
       "The user may also message you directly. Act on it as usual; your reply still reaches your parent.",
       ...(brief ? [`Your brief, the first message from your parent, is saved at ${brief}. Re-read it if you lose track of the task.`] : []),
+      ...(parent.captain && thread.branch
+        ? ["Your parent is a captain, so you publish your own work. When you finish your work item, commit it, then push and open pull requests with open_pull_requests before your final reply, and include the pull request URLs in that reply. This counts as being asked to commit and push. If your parent later sends changes or extensions to the same work, commit them and call open_pull_requests again; it pushes the new commits to the existing pull requests."]
+        : []),
     );
   }
   if (thread.captain) {

@@ -69,13 +69,23 @@ test("captains may start threads unprompted; other threads only when asked", () 
 test("a child thread learns that its replies reach its parent", () => {
   const child = buildInstructions(project, thread("borkcode/fix-login-t1"), "/ws", DEFAULT_SETTINGS, {
     ...context,
-    parent: { title: "Plan the login work" },
+    parent: { title: "Plan the login work", captain: false },
     brief: "/ws/.scratch/brief.md",
   });
   assert.match(child, /started by the agent of another thread, "Plan the login work"/);
   assert.match(child, /your reply still reaches your parent/);
   assert.match(child, /saved at \/ws\/\.scratch\/brief\.md/);
   assert.doesNotMatch(buildInstructions(project, thread(null), "/ws", DEFAULT_SETTINGS, context), /Your parent thread/);
+});
+
+test("children of a captain open pull requests when their work item is done", () => {
+  const instructions = (captain: boolean) =>
+    buildInstructions(project, thread("borkcode/fix-login-t1"), "/ws", DEFAULT_SETTINGS, {
+      ...context,
+      parent: { title: "Plan the login work", captain },
+    });
+  assert.match(instructions(true), /open pull requests with open_pull_requests before your final reply/);
+  assert.doesNotMatch(instructions(false), /Your parent is a captain/);
 });
 
 test("working files go to the thread's scratch folder, not the project files", () => {
