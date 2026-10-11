@@ -61,6 +61,7 @@ test("captains may start threads unprompted; other threads only when asked", () 
   assert.match(captain, /You are a captain/);
   assert.match(captain, /do not need to be asked each time/);
   assert.match(captain, /delegate it to threads, even if it looks small/);
+  assert.match(captain, /send them to that thread with send_to_thread instead of starting a new one/);
   const regular = buildInstructions(project, thread("borkcode/fix-login-t1"), "/ws", DEFAULT_SETTINGS, context);
   assert.doesNotMatch(regular, /You are a captain/);
   assert.match(regular, /Only start threads when asked/);
