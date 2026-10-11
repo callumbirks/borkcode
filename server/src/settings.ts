@@ -1,13 +1,14 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { DelegationLimits, ModelChoice, Settings } from "shared/protocol";
+import type { ChildModelRule, DelegationLimits, ModelChoice, Settings } from "shared/protocol";
 import { isEffort } from "./providers/types.ts";
 
 export const DEFAULT_SETTINGS: Settings = {
   titleModel: { provider: "codex", model: "gpt-6-luna", effort: "low" },
   autoCommit: true,
   delegation: { wakesPerWindow: 8, windowMinutes: 10, maxAutomaticTurns: 50 },
+  childModelRules: [],
 };
 
 function readDelegation(value: unknown): DelegationLimits {
@@ -25,7 +26,7 @@ function readDelegation(value: unknown): DelegationLimits {
   };
 }
 
-function readModelChoice(value: unknown, fallback: ModelChoice): ModelChoice {
+function readModelChoice<T extends ModelChoice | null>(value: unknown, fallback: T): ModelChoice | T {
   if (!value || typeof value !== "object") return fallback;
   const { provider, model, effort } = value as Record<string, unknown>;
   if (provider !== "claude" && provider !== "codex") return fallback;
@@ -36,12 +37,29 @@ function readModelChoice(value: unknown, fallback: ModelChoice): ModelChoice {
   };
 }
 
+/** Drops rules that are malformed rather than guessing what they meant, keeping the rest in order. */
+function readChildModelRules(value: unknown): ChildModelRule[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((rule): ChildModelRule[] => {
+    if (!rule || typeof rule !== "object") return [];
+    const { when, use } = rule as Record<string, unknown>;
+    const parent = readModelChoice(when, null);
+    const child = readModelChoice(use, null);
+    if (!parent?.model || !child) return [];
+    // An unknown effort would otherwise widen the rule to any effort.
+    const effort = (when as Record<string, unknown>).effort;
+    if (effort != null && effort !== parent.effort) return [];
+    return [{ when: { provider: parent.provider, model: parent.model, effort: parent.effort }, use: child }];
+  });
+}
+
 /** Keeps known keys, falling back to defaults for anything missing or malformed. */
 function readSettings(raw: Record<string, unknown>): Settings {
   return {
     titleModel: readModelChoice(raw.titleModel, DEFAULT_SETTINGS.titleModel),
     autoCommit: typeof raw.autoCommit === "boolean" ? raw.autoCommit : DEFAULT_SETTINGS.autoCommit,
     delegation: readDelegation(raw.delegation),
+    childModelRules: readChildModelRules(raw.childModelRules),
   };
 }
 

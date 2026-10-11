@@ -27,7 +27,7 @@ import {
   userMessage,
 } from "./delegation.ts";
 import { buildInstructions } from "./instructions.ts";
-import { checkModelChoice } from "./models.ts";
+import { checkModelChoice, childModelChoice, listModels, matchChildModelRule, resolveDefaults } from "./models.ts";
 import type { ProjectStore } from "./projects.ts";
 import { ToolError } from "./errors.ts";
 import { git } from "./exec.ts";
@@ -79,12 +79,14 @@ export interface ThreadDeps {
   startSession: (provider: ProviderKind, options: SessionOptions) => Promise<ProviderSession>;
   generateTitle: typeof generateTitle;
   pullRequestStates: typeof fetchPullRequestStates;
+  listModels: typeof listModels;
 }
 
 const realDeps: ThreadDeps = {
   startSession: (provider, options) => providerSessions[provider](options),
   generateTitle,
   pullRequestStates: fetchPullRequestStates,
+  listModels,
 };
 
 /** How often open pull requests are checked for merges and closes. */
@@ -233,7 +235,8 @@ export class ThreadService {
 
   /**
    * Starts a thread on another thread's behalf, as a handoff. The child runs in a new worktree with
-   * its parent's access mode, and its model defaults to the parent's. Returns a summary for the agent.
+   * its parent's access mode. Its model defaults to the first matching child model rule's, else the
+   * parent's; explicit choices override that. Returns a summary for the agent.
    */
   async startThread(
     parentId: string,
@@ -249,13 +252,22 @@ export class ThreadService {
     const parent = this.#require(parentId);
     const message = request.message.trim();
     if (!message) throw new ToolError("The new thread needs a first message.");
-    const provider = request.provider ?? parent.provider;
-    const inherit = provider === parent.provider && request.model === undefined;
+    const parentChoice = { provider: parent.provider, model: parent.model, effort: parent.effort };
+    const rules = (await this.#settings.get().catch(() => DEFAULT_SETTINGS)).childModelRules;
+    const rule =
+      rules.length > 0
+        ? matchChildModelRule(
+            rules,
+            resolveDefaults(parentChoice, await this.#deps.listModels(parent.provider).catch(() => null)),
+          )
+        : undefined;
+    const { provider, ...unchecked } = childModelChoice(rule?.use ?? parentChoice, request);
     const choice = await checkModelChoice(
       provider,
-      request.model ?? (inherit ? parent.model : null),
-      request.effort ?? (inherit ? parent.effort : null),
+      unchecked.model,
+      unchecked.effort,
       request.effort !== undefined,
+      this.#deps.listModels,
     );
 
     let startBranch: string | null = null;
@@ -298,7 +310,7 @@ export class ThreadService {
     });
     this.#upsertItem(parentId, { id: randomUUID(), kind: "thread", threadId: child.id });
     return [
-      `Started thread "${child.title}" (id ${child.id}) with ${provider} ${choice.model ?? "default model"},`,
+      `Started thread "${child.title}" (id ${child.id}) with ${provider} ${choice.model ?? "default model"} at ${choice.effort ?? "default"} effort${rule ? ", picked by the user's child model rules" : ""},`,
       `starting from ${startBranch ?? "each repository's base branch"}. Its title is being generated from your message.`,
       request.watch
         ? "You are watching it: its final reply will come back to you as a message. Reply with send_to_thread only when it needs an answer or new instructions."

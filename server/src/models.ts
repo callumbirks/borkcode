@@ -1,4 +1,4 @@
-import type { Effort, ModelChoice, ModelOption, ProviderKind } from "shared/protocol";
+import type { ChildModelRule, Effort, ModelChoice, ModelOption, ProviderKind } from "shared/protocol";
 import { ToolError } from "./errors.ts";
 import { generateClaudeText, listClaudeModels } from "./providers/claude.ts";
 import { generateCodexText, listCodexModels } from "./providers/codex.ts";
@@ -37,9 +37,10 @@ export async function checkModelChoice(
   model: string | null,
   effort: Effort | null,
   effortExplicit: boolean,
+  lister: (provider: ProviderKind) => Promise<ModelOption[]> = listModels,
 ): Promise<{ model: string | null; effort: Effort | null }> {
   if (model === null && effort === null) return { model, effort };
-  const list = await listModels(provider).catch(() => null);
+  const list = await lister(provider).catch(() => null);
   if (!list) return { model, effort };
   const chosen = model === null ? list.find((option) => option.isDefault) : list.find((option) => option.id === model);
   if (!chosen) {
@@ -53,6 +54,43 @@ export async function checkModelChoice(
     return { model, effort: null };
   }
   return { model, effort };
+}
+
+/** Names the model and effort a null choice stands for, so rules can match a parent on defaults. */
+export function resolveDefaults(choice: ModelChoice, list: ModelOption[] | null): ModelChoice {
+  const option = list?.find((entry) => (choice.model === null ? entry.isDefault : entry.id === choice.model));
+  return {
+    provider: choice.provider,
+    model: choice.model ?? option?.id ?? null,
+    effort: choice.effort ?? option?.defaultEffort ?? null,
+  };
+}
+
+export function matchChildModelRule(rules: ChildModelRule[], parent: ModelChoice): ChildModelRule | undefined {
+  return rules.find(
+    ({ when }) =>
+      when.provider === parent.provider &&
+      when.model === parent.model &&
+      (when.effort === null || when.effort === parent.effort),
+  );
+}
+
+/**
+ * A child's model before checking: the agent's explicit choices over a base, which is the matching
+ * rule's target or else the parent's. Naming another provider than the base's drops the base's
+ * model and effort, and naming a model drops its effort, since neither carries over meaningfully.
+ */
+export function childModelChoice(
+  base: ModelChoice,
+  request: { provider?: ProviderKind; model?: string; effort?: Effort },
+): ModelChoice {
+  const provider = request.provider ?? base.provider;
+  const inherit = provider === base.provider && request.model === undefined;
+  return {
+    provider,
+    model: request.model ?? (inherit ? base.model : null),
+    effort: request.effort ?? (inherit ? base.effort : null),
+  };
 }
 
 export async function generateText(
