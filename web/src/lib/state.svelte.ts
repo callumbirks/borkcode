@@ -195,6 +195,15 @@ export const rpc = new RpcClient(handleEvent, (connected) => {
   if (connected) void refresh();
 });
 
+// Coming back to borkcode, often from merging on GitHub, is when merges should show without
+// waiting for the next poll. The server throttles it and reports changes as events.
+function checkPullRequests(): void {
+  if (document.visibilityState !== "visible" || !app.connected) return;
+  rpc.request("pullRequests.refresh", {}).catch(() => undefined);
+}
+document.addEventListener("visibilitychange", checkPullRequests);
+window.addEventListener("focus", checkPullRequests);
+
 export async function openThread(id: string): Promise<void> {
   try {
     app.detail = await rpc.request("threads.get", { threadId: id });

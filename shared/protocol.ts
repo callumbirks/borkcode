@@ -232,6 +232,11 @@ export interface Requests {
   "threads.repoStatus": { params: { threadId: string }; result: RepoStatus[] };
   /** Every thread's linked pull requests, keyed by thread id. `pullRequests.changed` keeps them current. */
   "pullRequests.list": { params: Record<string, never>; result: Record<string, LinkedPullRequest[]> };
+  /**
+   * Checks open pull requests now, as a poll would; sent when the user comes back to borkcode.
+   * Skipped if a check ran in the last few seconds. Changes arrive as `pullRequests.changed`.
+   */
+  "pullRequests.refresh": { params: Record<string, never>; result: null };
   "approvals.respond": {
     params: { threadId: string; approvalId: string; allow: boolean };
     result: null;

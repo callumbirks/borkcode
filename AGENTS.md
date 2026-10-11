@@ -105,9 +105,10 @@ inventing a fix.
   PR found on the thread's branch, so PRs opened by other means show up too.
 - **Open PRs are polled, not hooked.** Webhooks need a public endpoint, so the server asks `gh`
   (one GraphQL query per repo) every minute while any linked PR is open, and also before a turn
-  starts and when a thread is opened. A linked PR becoming merged or closed wakes the thread that
-  owns it through its inbox (kind `borkcode`, labelled as not from the user), which counts as an
-  automatic wake for the delegation limits. Parents hear through a watched child's report, not
+  starts, when a thread is opened, and when the user returns to the tab (at most every 15s). A
+  linked PR becoming merged or closed wakes the thread that owns it through its inbox (kind
+  `borkcode`, labelled as not from the user), which counts as an automatic wake for the
+  delegation limits. Parents hear through a watched child's report, not
   directly. A change found just before a turn starts joins that turn.
 - **Clients get everything by broadcast.** It's fine for one local user. Revisit if remote access
   or many clients arrive. Keep payloads small: stream deltas, not whole items.

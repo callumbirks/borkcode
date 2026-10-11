@@ -104,6 +104,11 @@ const handlers: Handlers = {
   },
   "threads.repoStatus": ({ threadId }) => threads.repoStatus(threadId),
   "pullRequests.list": async () => threads.allPullRequests(),
+  "pullRequests.refresh": async () => {
+    // Changes arrive as events, so the client need not wait for GitHub.
+    void threads.refreshPullRequestsOnReturn().catch((error: Error) => console.error(error));
+    return null;
+  },
   "approvals.respond": async ({ threadId, approvalId, allow }) => {
     threads.respondToApproval(threadId, approvalId, allow);
     return null;
