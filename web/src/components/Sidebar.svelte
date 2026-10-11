@@ -116,7 +116,9 @@
                     <Inbox size={10} />{thread.queued}
                   </span>
                 {/if}
-                {#if working}
+                {#if thread.waiting}
+                  <span class="time waiting" title="Waiting for your approval or answer">Needs you</span>
+                {:else if working}
                   <span class="time"><Spinner label={thread.status === "preparing" ? "Preparing" : "Working"} /></span>
                 {:else}
                   <span class="time">
@@ -273,6 +275,9 @@
     flex-shrink: 0;
     font-size: var(--text-2xs);
     color: var(--text-faint);
+  }
+  .time.waiting {
+    color: var(--status-warning);
   }
   .unread .title {
     font-weight: var(--weight-semibold);

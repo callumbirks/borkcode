@@ -159,6 +159,9 @@ inventing a fix.
   without aborting tools (`"now"` aborts them), but borkcode only steers while a tool call is
   running: a "next" message sent during the final response might start an untracked turn. Claude
   does not echo steered messages, so the transcript item is recorded by `threads.ts`.
+- **Codex asks questions only in plan mode by default.** `request_user_input` needs the
+  `features.default_mode_request_user_input` config, which the adapter sets. Claude's
+  `AskUserQuestion` reaches `canUseTool` in every permission mode, including bypass.
 - **Claude SDK types.** The source of truth is
   `server/node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`. With partial messages on,
   `assistant` messages arrive one content block at a time, after the matching `stream_event`

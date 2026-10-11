@@ -2,6 +2,7 @@
   import Archive from "@lucide/svelte/icons/archive";
   import ArchiveRestore from "@lucide/svelte/icons/archive-restore";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import CornerDownRight from "@lucide/svelte/icons/corner-down-right";
   import Crown from "@lucide/svelte/icons/crown";
   import Eye from "@lucide/svelte/icons/eye";
@@ -14,6 +15,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import type { AccessMode, Effort, Item } from "shared/protocol";
   import { isUnread, providerLabel } from "../lib/display.svelte";
+  import { answer, pick } from "../lib/questions";
   import { app, getDraft, go, openThread, rpc, setDraft } from "../lib/state.svelte";
   import ItemView from "./ItemView.svelte";
   import ModelPicker from "./ModelPicker.svelte";
@@ -134,6 +136,67 @@
     lastScrollTop = scrollTop;
   }
 
+  // A pending question takes over the composer: number keys pick options and typed text is a
+  // free-text answer. Several questions are answered one after another, then sent together.
+  const asking = $derived(detail?.questions[0] ?? null);
+  let step = $state(0);
+  let picks = $state<number[][]>([]);
+  let typed = $state<string[]>([]);
+  let collapsed = $state(false);
+  let askingId: string | null = null;
+  $effect(() => {
+    if ((asking?.id ?? null) === askingId) return;
+    askingId = asking?.id ?? null;
+    step = 0;
+    picks = asking?.questions.map(() => []) ?? [];
+    typed = asking?.questions.map(() => "") ?? [];
+    collapsed = false;
+  });
+  const question = $derived(asking?.questions[step]);
+  const lastStep = $derived(!asking || step === asking.questions.length - 1);
+  const currentAnswer = $derived(question ? answer(question, picks[step] ?? [], draft) : []);
+
+  function choose(index: number) {
+    if (!question) return;
+    picks[step] = pick(question, picks[step] ?? [], index);
+  }
+
+  /** Moves to another question, keeping what was typed for each. */
+  function goToStep(next: number) {
+    typed[step] = draft;
+    step = next;
+    setDraft(id, typed[step] ?? "");
+  }
+
+  async function submitAnswer() {
+    if (!asking || currentAnswer.length === 0) return;
+    if (!lastStep) return goToStep(step + 1);
+    typed[step] = draft;
+    const answers = asking.questions.map((each, index) => answer(each, picks[index] ?? [], typed[index] ?? ""));
+    if (answers.some((each) => each.length === 0)) {
+      error = "Answer every question first.";
+      return;
+    }
+    error = "";
+    try {
+      await rpc.request("questions.answer", { threadId: id, questionId: asking.id, answers });
+      setDraft(id, "");
+    } catch (cause) {
+      error = (cause as Error).message;
+    }
+  }
+
+  // Digits pick options while nothing is typed; once the user types, they are part of the answer.
+  function onWindowKeydown(event: KeyboardEvent) {
+    if (!question || event.ctrlKey || event.metaKey || event.altKey || !/^[1-9]$/.test(event.key)) return;
+    const target = event.target as HTMLElement | null;
+    const inComposer = target?.dataset.composer !== undefined;
+    if (!inComposer && target?.closest("input, textarea, select, [contenteditable]")) return;
+    if (inComposer && draft) return;
+    event.preventDefault();
+    choose(Number(event.key) - 1);
+  }
+
   // While the agent works, a message joins its turn at the next step or waits for the turn to end.
   async function send() {
     const threadId = id;
@@ -167,7 +230,7 @@
   function onKeydown(event: KeyboardEvent) {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
-      void send();
+      void (asking ? submitAnswer() : send());
     }
   }
 
@@ -198,6 +261,8 @@
     go({ view: "project", name: thread.project });
   }
 </script>
+
+<svelte:window onkeydown={onWindowKeydown} />
 
 {#if !detail || !thread}
   <div class="page muted">Loading thread…</div>
@@ -276,7 +341,7 @@
           {/each}
           {#if thread.status === "preparing"}
             <p class="status"><span class="dot running"></span>Preparing the workspace…</p>
-          {:else if thread.status === "running" && detail.approvals.length === 0}
+          {:else if thread.status === "running" && !thread.waiting}
             <p class="status"><span class="dot running"></span>Working…</p>
           {/if}
         </div>
@@ -305,12 +370,43 @@
             </span>
           </div>
         {/if}
+        {#if asking && question}
+          <div class="question" class:collapsed>
+            <button class="question-head ghost" onclick={() => (collapsed = !collapsed)} title={collapsed ? "Show options" : "Hide options"}>
+              <span class="question-header truncate">{question.header}</span>
+              {#if asking.questions.length > 1}<span class="question-step">{step + 1} of {asking.questions.length}</span>{/if}
+              {#if question.multiSelect}<span class="question-step">Pick any</span>{/if}
+              <ChevronDown size={14} />
+            </button>
+            <div class="question-text">{question.question}</div>
+            {#if !collapsed}
+              {#each question.options as option, index (index)}
+                <button class="option ghost" class:picked={picks[step]?.includes(index)} onclick={() => choose(index)}>
+                  <span class="option-text">
+                    <span class="option-label">{option.label}</span>
+                    {#if option.description}<span class="option-description">{option.description}</span>{/if}
+                  </span>
+                  {#if index < 9}<kbd>{index + 1}</kbd>{/if}
+                </button>
+              {/each}
+            {/if}
+          </div>
+        {/if}
         <div class="composer">
           <textarea
             bind:value={() => draft, (text) => setDraft(id, text)}
             onkeydown={onKeydown}
+            data-composer
             rows="2"
-            placeholder={busy ? "Message the agent; it reads this at its next step" : "Message the agent"}
+            placeholder={question
+              ? question.options.length === 0
+                ? "Type your answer"
+                : question.multiSelect
+                  ? "Type your own answer, or leave this blank to use the selected options"
+                  : "Type your own answer, or leave this blank to use the selected option"
+              : busy
+                ? "Message the agent; it reads this at its next step"
+                : "Message the agent"}
           ></textarea>
           <div class="actions">
             <ModelPicker provider={thread.provider} bind:model bind:effort compact />
@@ -334,7 +430,12 @@
                 <Square size={12} fill="currentColor" />
               </button>
             {/if}
-            {#if thread.status !== "running" || draft.trim()}
+            {#if asking}
+              {#if step > 0}<button class="ghost" onclick={() => goToStep(step - 1)}>Back</button>{/if}
+              <button class="primary answer" onclick={submitAnswer} disabled={currentAnswer.length === 0}>
+                {lastStep ? "Submit answer" : "Next"}
+              </button>
+            {:else if thread.status !== "running" || draft.trim()}
               <button class="primary icon" title="Send (Enter)" onclick={send} disabled={!draft.trim()}>
                 <ArrowUp size={16} />
               </button>
@@ -473,7 +574,78 @@
   .waiting span {
     flex: 1;
   }
+  .question {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-0-5);
+    margin-bottom: calc(-1 * var(--radius-xl));
+    padding: var(--space-2) var(--space-3) calc(var(--radius-xl) + var(--space-2));
+    background: var(--surface-overlay);
+    border: 1px solid var(--border-subtle);
+    border-bottom: none;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    max-height: 50vh;
+    overflow-y: auto;
+  }
+  .question-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 0;
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+  }
+  .question-header {
+    flex: 1;
+    text-align: left;
+  }
+  .question-step {
+    flex-shrink: 0;
+    color: var(--text-faint);
+  }
+  .question.collapsed .question-head :global(svg) {
+    transform: rotate(180deg);
+  }
+  .question-text {
+    margin-bottom: var(--space-1);
+    color: var(--text-primary);
+  }
+  .option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-1-5) var(--space-2);
+    border: 1px solid transparent;
+    text-align: left;
+  }
+  .option.picked {
+    border-color: var(--accent);
+    background: var(--surface-hover);
+  }
+  .option-text {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+  }
+  .option-label {
+    color: var(--text-primary);
+  }
+  .option-description {
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+  }
+  kbd {
+    flex-shrink: 0;
+    font-family: inherit;
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+  }
+  .actions .answer {
+    border-radius: var(--radius-full);
+  }
   .composer {
+    position: relative;
     background: var(--surface-raised);
     border: 1px solid var(--border-default);
     border-radius: var(--radius-xl);
