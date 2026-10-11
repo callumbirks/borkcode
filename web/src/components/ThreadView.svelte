@@ -8,7 +8,6 @@
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import Square from "@lucide/svelte/icons/square";
   import Trash2 from "@lucide/svelte/icons/trash-2";
-  import { tick } from "svelte";
   import type { Effort, Item } from "shared/protocol";
   import { providerLabel } from "../lib/display.svelte";
   import { app, go, openThread, rpc } from "../lib/state.svelte";
@@ -82,18 +81,27 @@
     if (app.connected) void openThread(id);
   });
 
-  // Follow new output while the user is at the bottom of the transcript.
-  const lastItem = $derived(detail?.items.at(-1));
-  const progress = $derived(
-    `${detail?.items.length}:${lastItem && "text" in lastItem ? lastItem.text.length : 0}:${detail?.approvals.length}`,
-  );
-  $effect.pre(() => {
-    void progress;
+  // Pin the transcript to the bottom, including when a thread opens, until the user scrolls up.
+  // Watching size rather than items also follows growth that isn't a new item: streamed tool
+  // output, expanded groups, late layout.
+  let pinned = true;
+  $effect(() => {
     const element = transcript;
-    if (!element) return;
-    const atBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
-    if (atBottom) void tick().then(() => element.scrollTo({ top: element.scrollHeight }));
+    const column = element?.firstElementChild;
+    if (!element || !column) return;
+    pinned = true;
+    const observer = new ResizeObserver(() => {
+      if (pinned) element.scrollTop = element.scrollHeight;
+    });
+    observer.observe(column);
+    observer.observe(element);
+    return () => observer.disconnect();
   });
+
+  function onTranscriptScroll() {
+    if (!transcript) return;
+    pinned = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 80;
+  }
 
   async function send() {
     const text = draft.trim();
@@ -182,7 +190,7 @@
         </div>
         <button class="ghost icon delete" title="Delete thread" onclick={remove}><Trash2 size={16} /></button>
       </header>
-      <div class="transcript" bind:this={transcript}>
+      <div class="transcript" bind:this={transcript} onscroll={onTranscriptScroll}>
         <div class="column">
           {#each segments as segment (segment.kind === "item" ? segment.item.id : segment.id)}
             {#if segment.kind === "item"}
