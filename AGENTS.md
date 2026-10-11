@@ -91,8 +91,9 @@ inventing a fix.
   lists archived children, marked as such.
 - **Messages for a busy agent queue in a per-thread inbox** (SQLite, so they survive restarts):
   the user's, a parent's, and children's reports. Delivery steers them into the running turn at
-  its next step when the provider allows, otherwise they start the next turn together. After the
-  user stops a turn, nothing is delivered until they send or resume: stop means stop.
+  its next step when the provider allows, otherwise they start the next turn together. A stop
+  holds what was waiting when the turn was stopped until the user sends or resumes; messages that
+  arrive later, such as a child's report or a PR merge or close notice, start a turn as usual.
 - **A watched child reports every turn that isn't stopped,** including turns the user started, to
   its parent. `watch: true` on `start_thread`, or any message from the parent, makes it watched.
   Captains are a role chosen at creation, with their own instructions and their own worktree.
