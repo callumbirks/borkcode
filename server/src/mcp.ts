@@ -81,7 +81,7 @@ function buildServer({ threads, files }: Services, threadId: string): McpServer 
         "The new thread sees only your message, not this conversation, so make it self-contained: the goal, what has been decided or tried, the relevant files and pull requests, and what done looks like.",
         "Do not name a branch for it: it works on a new branch of its own, which it already knows.",
         "However long the brief, send it as the message: it is saved as brief.md in the new thread's scratch folder, so the thread can re-read it and it is cleaned up with the thread. Write a brief to a project file only when the user asks for one.",
-        "The new thread uses this thread's access mode, and this thread's provider and model unless you choose others; give them only if the user asked for them.",
+        "The new thread uses this thread's access mode, and the provider and model the user's child model rules pick for it (else this thread's) unless you choose others; give them only if the user asked for them.",
         "The user may be asked to approve.",
       ].join(" "),
       inputSchema: {
@@ -99,9 +99,9 @@ function buildServer({ threads, files }: Services, threadId: string): McpServer 
               "this_branch: a branch from this thread's current commits, to continue this work with fresh context; " +
               "its pull requests will include this thread's commits. Commit first, since uncommitted changes do not carry over.",
           ),
-        provider: z.enum(["claude", "codex"]).optional().describe("Agent for the new thread; defaults to this thread's"),
-        model: z.string().optional().describe("Model id, as the provider lists it; defaults to this thread's model when the provider is the same"),
-        effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional().describe("Reasoning effort; defaults to this thread's"),
+        provider: z.enum(["claude", "codex"]).optional().describe("Agent for the new thread; defaults to the child model rules' or this thread's"),
+        model: z.string().optional().describe("Model id, as the provider lists it; defaults to the child model rules' or this thread's model when the provider is the same"),
+        effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional().describe("Reasoning effort; defaults to the model's own when you choose a model or another provider, else to the child model rules' or this thread's"),
       },
     },
     ({ message, watch, start_from, provider, model, effort }) =>
