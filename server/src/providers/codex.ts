@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { tmpdir } from "node:os";
 import { createInterface } from "node:readline";
-import type { AccessMode, Item, ModelOption } from "shared/protocol";
+import type { AccessMode, Item, ModelOption, Question } from "shared/protocol";
 import {
   isEffort,
   truncate,
@@ -57,6 +57,14 @@ interface CodexModel {
   isDefault: boolean;
   supportedReasoningEfforts: { reasoningEffort: string }[];
   defaultReasoningEffort: string;
+}
+
+/** `item/tool/requestUserInput`, which the request_user_input tool sends. */
+interface CodexUserInputQuestion {
+  id: string;
+  header: string;
+  question: string;
+  options: { label: string; description: string }[] | null;
 }
 
 type JsonRpcMessage = {
@@ -305,6 +313,20 @@ function toItem(item: CodexItem): Item | null {
   }
 }
 
+export function codexQuestions(questions: CodexUserInputQuestion[]): Question[] {
+  return questions.map((question) => ({
+    header: question.header,
+    question: question.question,
+    options: question.options ?? [],
+    multiSelect: false,
+  }));
+}
+
+/** Codex takes answers keyed by question id. */
+export function codexAnswers(questions: CodexUserInputQuestion[], answers: string[][]) {
+  return Object.fromEntries(questions.map((question, index) => [question.id, { answers: answers[index] ?? [] }]));
+}
+
 function approvalPolicy(accessMode: AccessMode) {
   return accessMode === "full" ? "never" : "on-request";
 }
@@ -380,6 +402,12 @@ export async function startCodexSession(options: SessionOptions): Promise<Provid
         const allowed = await events.approval({ title: "Apply file changes?", detail });
         return { decision: allowed ? "accept" : "decline" };
       }
+      if (method === "item/tool/requestUserInput") {
+        const questions = params.questions as CodexUserInputQuestion[];
+        const answers = await events.question(params.itemId as string, codexQuestions(questions));
+        // Unanswered questions get empty answers; the turn is stopping anyway.
+        return { answers: codexAnswers(questions, answers ?? questions.map(() => [])) };
+      }
       // borkcode's own tools ask the user themselves when they need to.
       if (method === "mcpServer/elicitation/request" && params.serverName === "borkcode") {
         return { action: "accept", content: {}, _meta: null };
@@ -403,6 +431,8 @@ export async function startCodexSession(options: SessionOptions): Promise<Provid
       "mcp_servers.borkcode.url": options.mcpUrl,
       // Publishing waits for the user's approval, which can outlast the default timeout.
       "mcp_servers.borkcode.tool_timeout_sec": 3600,
+      // Codex offers request_user_input only in plan mode unless this is on.
+      "features.default_mode_request_user_input": true,
     },
   };
   let started: { thread: { id: string } } | null = null;

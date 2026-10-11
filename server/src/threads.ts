@@ -9,6 +9,8 @@ import type {
   LinkedPullRequest,
   Project,
   ProviderKind,
+  Question,
+  QuestionRequest,
   RepoConfig,
   RepoStatus,
   Requests,
@@ -99,6 +101,7 @@ interface LiveThread {
   /** Streaming assistant/reasoning items of the current turn, ahead of the database. */
   streaming: Map<string, Item>;
   approvals: Map<string, { approval: Approval; resolve: (allowed: boolean) => void }>;
+  questions: Map<string, { request: QuestionRequest; resolve: (answers: string[][] | null) => void }>;
   /** Identifies this thread's agent session to the borkcode MCP endpoint. */
   mcpToken: string | null;
   /** A turn is being started or is running. Set synchronously, so two deliveries cannot both start one. */
@@ -162,7 +165,7 @@ export class ThreadService {
   }
 
   list(): Thread[] {
-    return this.#db.listThreads().map(toThread);
+    return this.#db.listThreads().map((thread) => this.#toThread(thread));
   }
 
   /** Starts the thread on its first message. The title is generated in the background. */
@@ -210,7 +213,7 @@ export class ThreadService {
       updatedAt: now,
     };
     this.#db.insertThread(thread);
-    this.#emit({ type: "thread.updated", thread: toThread(thread) });
+    this.#emit({ type: "thread.updated", thread: this.#toThread(thread) });
     const live = this.#liveThread(id);
     // The workspace is named after the title, so it waits; main checkouts need no naming.
     const naming = this.#nameThread(id, text, thread.title, workspace !== null);
@@ -228,7 +231,7 @@ export class ThreadService {
       text,
     });
     void this.#deliver(id);
-    return toThread(thread);
+    return this.#toThread(thread);
   }
 
   /**
@@ -351,7 +354,7 @@ export class ThreadService {
     this.#require(threadId);
     const trimmed = title.trim();
     if (!trimmed) throw new Error("A thread needs a title");
-    return toThread(this.#update(threadId, { title: trimmed }));
+    return this.#toThread(this.#update(threadId, { title: trimmed }));
   }
 
   /** Reading is not activity, so the thread keeps its place in the lists. */
@@ -420,10 +423,11 @@ export class ThreadService {
       .listItems(threadId)
       .map((item) => live?.streaming.get(item.id) ?? item);
     return {
-      thread: toThread(thread),
+      thread: this.#toThread(thread),
       workspacePath: workspacePath(project, thread.workspace),
       items,
       approvals: [...(live?.approvals.values() ?? [])].map((entry) => entry.approval),
+      questions: [...(live?.questions.values() ?? [])].map((entry) => entry.request),
     };
   }
 
@@ -611,7 +615,7 @@ export class ThreadService {
     const reply = [...live.streaming.values()].findLast((item) => item.kind === "assistant" && item.text.trim());
     for (const item of live.streaming.values()) this.#db.upsertItem(threadId, item);
     live.streaming.clear();
-    this.#declineApprovals(threadId);
+    this.#dropPending(threadId);
     const stored = this.#db.getThread(threadId);
     if (!stored) return;
     if (outcome.status === "failed") this.#notice(threadId, "error", outcome.error);
@@ -655,7 +659,7 @@ export class ThreadService {
 
   async interrupt(threadId: string): Promise<void> {
     const live = this.#live.get(threadId);
-    this.#declineApprovals(threadId);
+    this.#dropPending(threadId);
     if (live?.session) await (await live.session).interrupt();
   }
 
@@ -663,6 +667,18 @@ export class ThreadService {
     const entry = this.#live.get(threadId)?.approvals.get(approvalId);
     if (!entry) throw new Error("That approval is no longer pending");
     entry.resolve(allowed);
+  }
+
+  answerQuestion(threadId: string, questionId: string, answers: string[][]): void {
+    const entry = this.#live.get(threadId)?.questions.get(questionId);
+    if (!entry) throw new Error("That question is no longer pending");
+    if (
+      answers.length !== entry.request.questions.length ||
+      !answers.every((answer) => Array.isArray(answer) && answer.every((part) => typeof part === "string"))
+    ) {
+      throw new Error("Give one answer per question");
+    }
+    entry.resolve(answers);
   }
 
   async delete(threadId: string, force: boolean): Promise<void> {
@@ -675,7 +691,7 @@ export class ThreadService {
       if (dirty.length > 0) throw new WorkspaceDirtyError(dirty);
     }
     // Stop the agent before its workspace disappears underneath it.
-    this.#declineApprovals(threadId);
+    this.#dropPending(threadId);
     if (live?.mcpToken) this.#mcpTokens.delete(live.mcpToken);
     if (live?.session) (await live.session.catch(() => null))?.close();
     this.#live.delete(threadId);
@@ -685,7 +701,7 @@ export class ThreadService {
     this.#emit({ type: "thread.deleted", threadId });
     for (const orphan of orphans) {
       const child = this.#db.getThread(orphan);
-      if (child) this.#emit({ type: "thread.updated", thread: toThread(child) });
+      if (child) this.#emit({ type: "thread.updated", thread: this.#toThread(child) });
     }
   }
 
@@ -865,7 +881,7 @@ export class ThreadService {
     return this.#deps.startSession(thread.provider, {
       cwd,
       writableRoots,
-      instructions: buildInstructions(project, toThread(thread), cwd, settings, {
+      instructions: buildInstructions(project, this.#toThread(thread), cwd, settings, {
         scratch,
         parent: thread.parentId ? (this.#db.getThread(thread.parentId) ?? null) : null,
         brief: thread.parentId && existsSync(brief) ? brief : null,
@@ -893,13 +909,14 @@ export class ThreadService {
         },
         turnEnded: (outcome) => this.#turnEnded(threadId, outcome),
         approval: (request) => this.#requestApproval(threadId, request),
+        question: (id, questions) => this.#askQuestion(threadId, id, questions),
         closed: () => {
           live.session = null;
           if (live.mcpToken === mcpToken) {
             this.#mcpTokens.delete(mcpToken);
             live.mcpToken = null;
           }
-          this.#declineApprovals(threadId);
+          this.#dropPending(threadId);
         },
       },
     });
@@ -913,6 +930,7 @@ export class ThreadService {
         preparing: null,
         streaming: new Map(),
         approvals: new Map(),
+        questions: new Map(),
         mcpToken: null,
         active: false,
         steering: false,
@@ -979,10 +997,33 @@ export class ThreadService {
         resolve: (allowed) => {
           live.approvals.delete(approval.id);
           this.#emit({ type: "approval.resolved", threadId, approvalId: approval.id });
+          this.#emitThread(threadId);
           resolve(allowed);
         },
       });
       this.#emit({ type: "approval.requested", threadId, approval });
+      this.#emitThread(threadId);
+    });
+  }
+
+  /** The item records the questions, and their answers once given, so the transcript reads well later. */
+  #askQuestion(threadId: string, id: string, questions: Question[]): Promise<string[][] | null> {
+    const live = this.#liveThread(threadId);
+    return new Promise((resolve) => {
+      const request: QuestionRequest = { id, questions };
+      live.questions.set(id, {
+        request,
+        resolve: (answers) => {
+          live.questions.delete(id);
+          this.#upsertItem(threadId, { id, kind: "question", questions, answers });
+          this.#emit({ type: "question.resolved", threadId, questionId: id });
+          this.#emitThread(threadId);
+          resolve(answers);
+        },
+      });
+      this.#upsertItem(threadId, { id, kind: "question", questions, answers: null });
+      this.#emit({ type: "question.requested", threadId, question: request });
+      this.#emitThread(threadId);
     });
   }
 
@@ -1070,10 +1111,16 @@ export class ThreadService {
     for (const [threadId, pullRequests] of updated) this.#linkPullRequests(threadId, pullRequests);
   }
 
-  #declineApprovals(threadId: string): void {
-    for (const entry of [...(this.#live.get(threadId)?.approvals.values() ?? [])]) {
-      entry.resolve(false);
-    }
+  /** Declines approvals and drops questions, once nobody can act on them: the turn stopped or ended. */
+  #dropPending(threadId: string): void {
+    const live = this.#live.get(threadId);
+    for (const entry of [...(live?.approvals.values() ?? [])]) entry.resolve(false);
+    for (const entry of [...(live?.questions.values() ?? [])]) entry.resolve(null);
+  }
+
+  #toThread(thread: StoredThread): Thread {
+    const live = this.#live.get(thread.id);
+    return toThread(thread, (live?.approvals.size ?? 0) + (live?.questions.size ?? 0) > 0);
   }
 
   #require(threadId: string): StoredThread {
@@ -1084,14 +1131,14 @@ export class ThreadService {
 
   #update(threadId: string, patch: Parameters<Database["updateThread"]>[1]): StoredThread {
     const thread = this.#db.updateThread(threadId, patch);
-    this.#emit({ type: "thread.updated", thread: toThread(thread) });
+    this.#emit({ type: "thread.updated", thread: this.#toThread(thread) });
     return thread;
   }
 
   /** Broadcasts a thread after a change made directly in the database, such as its queue. */
   #emitThread(threadId: string): void {
     const thread = this.#db.getThread(threadId);
-    if (thread) this.#emit({ type: "thread.updated", thread: toThread(thread) });
+    if (thread) this.#emit({ type: "thread.updated", thread: this.#toThread(thread) });
   }
 
   #setStatus(threadId: string, status: Thread["status"]): void {

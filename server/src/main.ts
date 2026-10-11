@@ -117,6 +117,10 @@ const handlers: Handlers = {
     threads.respondToApproval(threadId, approvalId, allow);
     return null;
   },
+  "questions.answer": async ({ threadId, questionId, answers }) => {
+    threads.answerQuestion(threadId, questionId, answers);
+    return null;
+  },
   "models.list": ({ provider }) => listModels(provider),
   "settings.get": () => settings.get(),
   "settings.update": async (params) => {

@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import type { Item, LinkedPullRequest, ServerEvent } from "shared/protocol";
+import type { Item, LinkedPullRequest, Question, ServerEvent } from "shared/protocol";
 import { Database } from "./db.ts";
 import { ProjectStore } from "./projects.ts";
 import type { PullRequestState } from "./pullRequests.ts";
@@ -57,6 +57,10 @@ class FakeAgent implements ProviderSession {
 
   fail(error: string) {
     this.#events.turnEnded({ status: "failed", error });
+  }
+
+  ask(id: string, questions: Question[]) {
+    return this.#events.question(id, questions);
   }
 }
 
@@ -485,4 +489,48 @@ test("coming back to borkcode checks open pull requests, at most once in a short
   assert.equal(await comeBack(), false);
   t.mock.timers.tick(15_000);
   assert.equal(await comeBack(), true);
+});
+
+const pick: Question = {
+  header: "Next step",
+  question: "What next?",
+  options: [
+    { label: "Tests", description: "Write the tests first." },
+    { label: "Docs", description: "Write the docs first." },
+  ],
+  multiSelect: false,
+};
+
+test("a question waits for the user's answer, which reaches the agent and stays in the transcript", async () => {
+  const { thread, agent } = await startThread("ask me");
+  await agent.turn(1);
+  const answered = agent.ask("q1", [pick, { ...pick, question: "Which also?", multiSelect: true }]);
+
+  const pending = await threads.get(thread.id);
+  assert.deepEqual(pending.questions.map((request) => request.id), ["q1"]);
+  assert.equal(pending.thread.waiting, true);
+  assert.throws(() => threads.answerQuestion(thread.id, "q1", [["Tests"]]), /one answer per question/);
+
+  threads.answerQuestion(thread.id, "q1", [["Tests"], ["Docs", "and a changelog"]]);
+  assert.deepEqual(await answered, [["Tests"], ["Docs", "and a changelog"]]);
+  const after = await threads.get(thread.id);
+  assert.deepEqual(after.questions, []);
+  assert.equal(after.thread.waiting, false);
+  const item = after.items.find((entry) => entry.id === "q1");
+  assert.deepEqual(item?.kind === "question" && item.answers, [["Tests"], ["Docs", "and a changelog"]]);
+  assert.throws(() => threads.answerQuestion(thread.id, "q1", [["Tests"]]), /no longer pending/);
+  agent.finish("ok");
+});
+
+test("stopping the turn drops a pending question unanswered", async () => {
+  const { thread, agent } = await startThread("ask then stop");
+  await agent.turn(1);
+  const answered = agent.ask("q2", [pick]);
+  await threads.interrupt(thread.id);
+  assert.equal(await answered, null);
+  const after = await threads.get(thread.id);
+  assert.deepEqual(after.questions, []);
+  assert.equal(after.thread.waiting, false);
+  const item = after.items.find((entry) => entry.id === "q2");
+  assert.equal(item?.kind === "question" && item.answers, null);
 });

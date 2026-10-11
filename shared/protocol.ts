@@ -109,6 +109,8 @@ export interface Thread {
   respondedAt: number | null;
   /** When the user last read the thread. It is unread while `respondedAt` is later. */
   readAt: number | null;
+  /** The agent is blocked on the user: an approval or a question is pending. */
+  waiting: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -139,7 +141,29 @@ export type Item =
     }
   | { id: string; kind: "notice"; level: "info" | "error"; text: string }
   /** This thread's agent started another thread. */
-  | { id: string; kind: "thread"; threadId: string };
+  | { id: string; kind: "thread"; threadId: string }
+  /**
+   * The agent asked the user. Answers line up with `questions`, and stay null while the question is
+   * pending or if it was dropped unanswered because the turn stopped.
+   */
+  | { id: string; kind: "question"; questions: Question[]; answers: string[][] | null };
+
+/** A question the agent asks the user, with options to pick from. A typed answer is always allowed. */
+export interface Question {
+  /** A short label, such as "Next step". */
+  header: string;
+  question: string;
+  /** Empty when only a typed answer makes sense. */
+  options: { label: string; description: string }[];
+  /** More than one option may be picked. */
+  multiSelect: boolean;
+}
+
+/** Questions the agent is waiting on, asked together and answered together. Shares its id with its item. */
+export interface QuestionRequest {
+  id: string;
+  questions: Question[];
+}
 
 export interface Approval {
   id: string;
@@ -175,6 +199,7 @@ export interface ThreadDetail {
   workspacePath: string;
   items: Item[];
   approvals: Approval[];
+  questions: QuestionRequest[];
 }
 
 export interface Requests {
@@ -250,6 +275,14 @@ export interface Requests {
     params: { threadId: string; approvalId: string; allow: boolean };
     result: null;
   };
+  /**
+   * One answer per question: the picked option labels, plus any typed answer. The agent gets
+   * them as the result of its question tool.
+   */
+  "questions.answer": {
+    params: { threadId: string; questionId: string; answers: string[][] };
+    result: null;
+  };
   "models.list": { params: { provider: ProviderKind }; result: ModelOption[] };
   "settings.get": { params: Record<string, never>; result: Settings };
   "settings.update": { params: { settings: Settings }; result: Settings };
@@ -268,6 +301,8 @@ export type ServerEvent =
   | { type: "item.delta"; threadId: string; itemId: string; text: string }
   | { type: "approval.requested"; threadId: string; approval: Approval }
   | { type: "approval.resolved"; threadId: string; approvalId: string }
+  | { type: "question.requested"; threadId: string; question: QuestionRequest }
+  | { type: "question.resolved"; threadId: string; questionId: string }
   | { type: "pullRequests.changed"; threadId: string; pullRequests: LinkedPullRequest[] };
 
 export type ClientMessage = { id: number; method: RequestMethod; params: unknown };
