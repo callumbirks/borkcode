@@ -28,6 +28,8 @@ function thread(branch: string | null): Thread {
     queued: 0,
     paused: false,
     archivedAt: null,
+    respondedAt: null,
+    readAt: null,
     createdAt: 0,
     updatedAt: 0,
   };

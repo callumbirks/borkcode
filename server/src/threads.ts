@@ -204,6 +204,8 @@ export class ThreadService {
       paused: false,
       queued: 0,
       archivedAt: null,
+      respondedAt: null,
+      readAt: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -350,6 +352,14 @@ export class ThreadService {
     const trimmed = title.trim();
     if (!trimmed) throw new Error("A thread needs a title");
     return toThread(this.#update(threadId, { title: trimmed }));
+  }
+
+  /** Reading is not activity, so the thread keeps its place in the lists. */
+  markRead(threadId: string): void {
+    const thread = this.#require(threadId);
+    if (thread.respondedAt !== null && (thread.readAt ?? 0) < thread.respondedAt) {
+      this.#update(threadId, { readAt: Date.now() });
+    }
   }
 
   /**
@@ -602,10 +612,15 @@ export class ThreadService {
     for (const item of live.streaming.values()) this.#db.upsertItem(threadId, item);
     live.streaming.clear();
     this.#declineApprovals(threadId);
-    if (!this.#db.getThread(threadId)) return;
+    const stored = this.#db.getThread(threadId);
+    if (!stored) return;
     if (outcome.status === "failed") this.#notice(threadId, "error", outcome.error);
     if (outcome.status === "interrupted") this.#notice(threadId, "info", "Interrupted");
-    const thread = this.#update(threadId, { status: "idle" });
+    // A watched child's reply is its parent's to read, unless the user took part in the turn.
+    const forUser = outcome.status !== "interrupted" && !(stored.watched && stored.parentId && !live.userJoined);
+    // Strictly after the last read, even within the same millisecond, so the response shows as unread.
+    const respondedAt = Math.max(Date.now(), (stored.readAt ?? 0) + 1);
+    const thread = this.#update(threadId, { status: "idle", ...(forUser ? { respondedAt } : {}) });
     if (thread.watched && outcome.status !== "interrupted") {
       void this.#reportToParent(thread, outcome, reply && "text" in reply ? reply.text : null, live.userJoined);
     }
