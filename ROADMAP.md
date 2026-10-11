@@ -17,10 +17,12 @@ What borkcode has shipped and what may come next. The constraints every change w
 
 ## In progress
 
-- **PR status.** Pull request state stays current by polling GitHub, and agents hear about merges
-  at their next turn. Each thread in the sidebar shows icons for its open, merged and closed
-  PRs, and PR links in agent messages render as rich links with their state. Plan:
-  `plans/pr-status.md` in the shared project files.
+- **PR status.** Pull request state stays current by polling GitHub, and each thread in the
+  sidebar shows icons for its open, merged and closed PRs (done). Still to come: a thread wakes
+  when one of its PRs is merged or closed, and PR links in agent messages render as rich links
+  with their state. Plan: `plans/pr-status.md` in the shared project files.
+- **Archived threads.** Archive a thread to tuck it away on an Archived page while keeping its
+  data. Child threads also sort newest first.
 
 ## Next
 
