@@ -4,10 +4,11 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import {
   query,
+  type PermissionMode,
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { Item, ModelOption } from "shared/protocol";
+import type { AccessMode, Item, ModelOption } from "shared/protocol";
 import {
   truncate,
   type ProviderSession,
@@ -147,13 +148,20 @@ function toolResultText(content: unknown): string {
   return "";
 }
 
+// Ask mode lets Claude approve workspace edits; unresolved actions still reach canUseTool.
+function permissionMode(accessMode: AccessMode): PermissionMode {
+  return accessMode === "full" ? "bypassPermissions" : "acceptEdits";
+}
+
 export async function startClaudeSession(options: SessionOptions): Promise<ProviderSession> {
   const { events } = options;
   const turns = new TurnQueue();
-  const full = options.accessMode === "full";
   const claudeBinary = findClaudeBinary();
   const model = modelOption(options.model);
-  let current = { model: options.model, effort: options.effort };
+  // Starting in bypass mode would make the SDK warn that canUseTool is shadowed, but canUseTool is
+  // needed once the thread switches to ask mode. So every session starts asking, and the first turn
+  // switches to full access.
+  let current = { model: options.model, effort: options.effort, accessMode: "ask" as AccessMode };
 
   const conversation = query({
     prompt: turns,
@@ -161,9 +169,9 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
       cwd: options.cwd,
       additionalDirectories: options.writableRoots,
       ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
-      // Let Claude approve workspace edits; unresolved actions still reach canUseTool.
-      permissionMode: full ? "bypassPermissions" : "acceptEdits",
-      ...(full ? { allowDangerouslySkipPermissions: true } : {}),
+      permissionMode: permissionMode("ask"),
+      // Only permits bypassing; set even in ask mode so the thread can switch to full access later.
+      allowDangerouslySkipPermissions: true,
       mcpServers: { borkcode: { type: "http", url: options.mcpUrl } },
       canUseTool: async (toolName, input) => {
         // borkcode's own tools ask the user themselves when they need to.
@@ -301,6 +309,9 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
       // A null effort level resets to the model's default.
       if (settings.effort !== current.effort) {
         await conversation.applyFlagSettings({ effortLevel: settings.effort });
+      }
+      if (settings.accessMode !== current.accessMode) {
+        await conversation.setPermissionMode(permissionMode(settings.accessMode));
       }
       current = settings;
       turnActive = true;

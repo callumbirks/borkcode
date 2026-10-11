@@ -73,15 +73,15 @@ const handlers: Handlers = {
   "threads.list": async () => threads.list(),
   "threads.create": (params) => threads.create(params),
   "threads.get": ({ threadId }) => threads.get(threadId),
-  "threads.send": async ({ threadId, text, model, effort }) => {
+  "threads.send": async ({ threadId, text, model, effort, accessMode }) => {
     // The turn runs in the background; progress arrives as events.
-    void threads.send(threadId, text, { model, effort }).catch((error: Error) => console.error(error));
+    void threads.send(threadId, text, { model, effort, accessMode }).catch((error: Error) => console.error(error));
     return null;
   },
   "threads.rename": async ({ threadId, title }) => threads.rename(threadId, title),
-  "threads.publish": async ({ threadId, model, effort }) => {
+  "threads.publish": async ({ threadId, model, effort, accessMode }) => {
     // Like threads.send, the turn runs in the background.
-    void threads.publish(threadId, { model, effort }).catch((error: Error) => console.error(error));
+    void threads.publish(threadId, { model, effort, accessMode }).catch((error: Error) => console.error(error));
     return null;
   },
   "threads.resume": async ({ threadId }) => {

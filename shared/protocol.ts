@@ -200,14 +200,14 @@ export interface Requests {
     result: Thread;
   };
   "threads.get": { params: { threadId: string }; result: ThreadDetail };
-  /** Model and effort apply to this turn and are remembered for the next. */
+  /** Model, effort and access mode apply to this turn and are remembered for the next. */
   "threads.send": {
-    params: { threadId: string; text: string; model: string | null; effort: Effort | null };
+    params: { threadId: string; text: string; model: string | null; effort: Effort | null; accessMode: AccessMode };
     result: null;
   };
   /** Asks the agent to commit, push and open pull requests through its borkcode tool. */
   "threads.publish": {
-    params: { threadId: string; model: string | null; effort: Effort | null };
+    params: { threadId: string; model: string | null; effort: Effort | null; accessMode: AccessMode };
     result: null;
   };
   /** Changes only the displayed title; the workspace and branch keep their names. */

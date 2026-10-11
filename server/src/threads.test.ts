@@ -7,13 +7,14 @@ import { after, test } from "node:test";
 import type { Item, ServerEvent } from "shared/protocol";
 import { Database } from "./db.ts";
 import { ProjectStore } from "./projects.ts";
-import type { ProviderSession, SessionEvents } from "./providers/types.ts";
+import type { ProviderSession, SessionEvents, TurnSettings } from "./providers/types.ts";
 import { SettingsStore } from "./settings.ts";
 import { ThreadService } from "./threads.ts";
 
 /** A scripted agent: records what it is sent and ends turns when the test says so. */
 class FakeAgent implements ProviderSession {
   readonly turns: string[] = [];
+  readonly settings: TurnSettings[] = [];
   readonly steers: string[] = [];
   /** Whether a message can join the running turn, as when a tool call is in progress. */
   steerable = false;
@@ -24,8 +25,9 @@ class FakeAgent implements ProviderSession {
     this.#events = events;
   }
 
-  async sendTurn(text: string) {
+  async sendTurn(text: string, settings: TurnSettings) {
     this.turns.push(text);
+    this.settings.push(settings);
     for (const wake of this.#waiting.splice(0)) wake();
   }
 
@@ -117,18 +119,29 @@ test("a message to a busy thread joins its turn at the next step, or waits for t
   const { thread, agent } = await startThread("first task");
   assert.equal(await agent.turn(1), "first task");
 
-  await threads.send(thread.id, "while you work", { model: null, effort: null });
+  await threads.send(thread.id, "while you work", { model: null, effort: null, accessMode: "full" });
   assert.equal((await threads.get(thread.id)).thread.queued, 1);
   agent.finish("done with the first");
   assert.equal(await agent.turn(2), "while you work");
 
   agent.steerable = true;
-  await threads.send(thread.id, "and also this", { model: null, effort: null });
+  await threads.send(thread.id, "and also this", { model: null, effort: null, accessMode: "full" });
   assert.deepEqual(agent.steers, ["and also this"]);
   const steered = (await userItems(thread.id)).at(-1);
   assert.equal(steered?.text, "and also this");
   assert.equal(steered?.steered, true);
   assert.equal((await threads.get(thread.id)).thread.queued, 0);
+  agent.finish("done");
+});
+
+test("a changed access mode is saved and applies to the next turn", async () => {
+  const { thread, agent } = await startThread("careful now");
+  await agent.turn(1);
+  agent.finish("ok");
+  await threads.send(thread.id, "go ahead", { model: null, effort: null, accessMode: "ask" });
+  await agent.turn(2);
+  assert.equal(agent.settings[1]?.accessMode, "ask");
+  assert.equal((await threads.get(thread.id)).thread.accessMode, "ask");
   agent.finish("done");
 });
 
@@ -150,7 +163,7 @@ test("a watched child reports every turn to its parent, including turns the user
   parentAgent.finish("waiting on the user");
 
   // The user answers the child directly; the outcome still reaches the parent.
-  await threads.send(child!.id, "Use SQLite", { model: null, effort: null });
+  await threads.send(child!.id, "Use SQLite", { model: null, effort: null, accessMode: "full" });
   assert.equal(await childAgent.turn(2), "Use SQLite");
   childAgent.finish("Built it with SQLite.");
   const secondReport = await parentAgent.turn(3);
@@ -201,12 +214,12 @@ test("deliveries between threads pause at the limit and resume when the user ste
     childAgent.finish("report one");
     await parentAgent.turn(2);
     parentAgent.finish("ok");
-    await threads.send(child!.id, "more", { model: null, effort: null });
+    await threads.send(child!.id, "more", { model: null, effort: null, accessMode: "full" });
     await childAgent.turn(2);
     childAgent.finish("report two");
     await parentAgent.turn(3);
     parentAgent.finish("ok");
-    await threads.send(child!.id, "more again", { model: null, effort: null });
+    await threads.send(child!.id, "more again", { model: null, effort: null, accessMode: "full" });
     await childAgent.turn(3);
     const paused = broadcastOf(
       (event) => event.type === "thread.updated" && event.thread.id === parent.id && event.thread.paused,

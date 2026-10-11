@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { tmpdir } from "node:os";
 import { createInterface } from "node:readline";
-import type { Item, ModelOption } from "shared/protocol";
+import type { AccessMode, Item, ModelOption } from "shared/protocol";
 import {
   isEffort,
   truncate,
@@ -305,9 +305,21 @@ function toItem(item: CodexItem): Item | null {
   }
 }
 
+function approvalPolicy(accessMode: AccessMode) {
+  return accessMode === "full" ? "never" : "on-request";
+}
+
+/** The turn-level equivalent of thread/start's `sandbox` and writable-roots config. */
+function sandboxPolicy(accessMode: AccessMode, writableRoots: string[]) {
+  return accessMode === "full"
+    ? { type: "dangerFullAccess" }
+    : { type: "workspaceWrite", writableRoots, networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false };
+}
+
 export async function startCodexSession(options: SessionOptions): Promise<ProviderSession> {
   const { events } = options;
   const full = options.accessMode === "full";
+  let currentAccess = options.accessMode;
   let threadId: string | null = null;
   let turnId: string | null = null;
   let turnActive = false;
@@ -383,7 +395,7 @@ export async function startCodexSession(options: SessionOptions): Promise<Provid
   const threadParams = {
     cwd: options.cwd,
     model: options.model,
-    approvalPolicy: full ? "never" : "on-request",
+    approvalPolicy: approvalPolicy(options.accessMode),
     sandbox: full ? "danger-full-access" : "workspace-write",
     developerInstructions: options.instructions,
     config: {
@@ -408,12 +420,16 @@ export async function startCodexSession(options: SessionOptions): Promise<Provid
       turnActive = true;
       try {
         // Overrides stick for later turns, and null means "no change" rather than "default".
+        const switchAccess = settings.accessMode !== currentAccess;
         const response = await connection.request<{ turn: CodexTurn }>("turn/start", {
           threadId,
           input: [{ type: "text", text, text_elements: [] }],
           model: settings.model,
           effort: settings.effort,
+          approvalPolicy: switchAccess ? approvalPolicy(settings.accessMode) : null,
+          sandboxPolicy: switchAccess ? sandboxPolicy(settings.accessMode, options.writableRoots) : null,
         });
+        currentAccess = settings.accessMode;
         turnId ??= response.turn.id;
       } catch (error) {
         endTurn({ status: "failed", error: error instanceof Error ? error.message : String(error) });

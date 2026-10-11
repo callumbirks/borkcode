@@ -365,8 +365,13 @@ export class ThreadService {
     const thread = this.#require(threadId);
     this.#resetLimits(threadId);
     // Saved now so they apply to the next turn, even when this message joins a running one.
-    if (settings.model !== thread.model || settings.effort !== thread.effort || thread.paused) {
-      this.#db.updateThread(threadId, { model: settings.model, effort: settings.effort, paused: false });
+    if (
+      settings.model !== thread.model ||
+      settings.effort !== thread.effort ||
+      settings.accessMode !== thread.accessMode ||
+      thread.paused
+    ) {
+      this.#db.updateThread(threadId, { ...settings, paused: false });
     }
     this.#db.enqueue({ threadId, fromThreadId: null, kind: "message", text: trimmed });
     this.#emitThread(threadId);
@@ -485,7 +490,7 @@ export class ThreadService {
       if (thread.workspace) await this.#addMissingRepos(thread);
       live.session ??= this.#openSession(thread);
       const session = await live.session;
-      await session.sendTurn(text, { model: thread.model, effort: thread.effort });
+      await session.sendTurn(text, { model: thread.model, effort: thread.effort, accessMode: thread.accessMode });
     } catch (error) {
       const session = live.session;
       live.session = null;

@@ -209,6 +209,7 @@ export class Database {
         | "title"
         | "model"
         | "effort"
+        | "accessMode"
         | "workspace"
         | "branch"
         | "watched"
@@ -222,7 +223,7 @@ export class Database {
     this.#db
       .prepare(
         `UPDATE threads SET status = ?, provider_session_id = ?, title = ?, model = ?, effort = ?,
-          workspace = ?, branch = ?, watched = ?, paused = ?, updated_at = ? WHERE id = ?`,
+          access_mode = ?, workspace = ?, branch = ?, watched = ?, paused = ?, updated_at = ? WHERE id = ?`,
       )
       .run(
         next.status,
@@ -230,6 +231,7 @@ export class Database {
         next.title,
         next.model,
         next.effort,
+        next.accessMode,
         next.workspace,
         next.branch,
         Number(next.watched),

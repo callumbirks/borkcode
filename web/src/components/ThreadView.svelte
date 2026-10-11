@@ -8,10 +8,9 @@
   import GitBranch from "@lucide/svelte/icons/git-branch";
   import GitPullRequestArrow from "@lucide/svelte/icons/git-pull-request-arrow";
   import ShieldAlert from "@lucide/svelte/icons/shield-alert";
-  import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import Square from "@lucide/svelte/icons/square";
   import Trash2 from "@lucide/svelte/icons/trash-2";
-  import type { Effort, Item } from "shared/protocol";
+  import type { AccessMode, Effort, Item } from "shared/protocol";
   import { providerLabel } from "../lib/display.svelte";
   import { app, go, openThread, rpc } from "../lib/state.svelte";
   import ItemView from "./ItemView.svelte";
@@ -47,12 +46,14 @@
   // component stays mounted when switching threads, so reload them for each thread.
   let model = $state<string | null>(null);
   let effort = $state<Effort | null>(null);
+  let accessMode = $state<AccessMode>("ask");
   let picksLoadedFor: string | null = null;
   $effect(() => {
     if (!thread || picksLoadedFor === thread.id) return;
     picksLoadedFor = thread.id;
     model = thread.model;
     effort = thread.effort;
+    accessMode = thread.accessMode;
   });
 
   let editingTitle = $state(false);
@@ -121,7 +122,7 @@
     error = "";
     draft = "";
     try {
-      await rpc.request("threads.send", { threadId: id, text, model, effort });
+      await rpc.request("threads.send", { threadId: id, text, model, effort, accessMode });
     } catch (cause) {
       draft = text;
       error = (cause as Error).message;
@@ -137,7 +138,7 @@
     if (busy) return;
     error = "";
     try {
-      await rpc.request("threads.publish", { threadId: id, model, effort });
+      await rpc.request("threads.publish", { threadId: id, model, effort, accessMode });
     } catch (cause) {
       error = (cause as Error).message;
     }
@@ -207,11 +208,6 @@
           <span class="chip" title={thread.branch ?? "Runs in the main checkouts"}>
             <GitBranch size={12} />{thread.branch ?? "main checkout"}
           </span>
-          {#if thread.accessMode === "full"}
-            <span class="chip" title="Acts without asking"><ShieldCheck size={12} />Full access</span>
-          {:else}
-            <span class="chip" title="Asks before risky actions"><ShieldAlert size={12} />Asks first</span>
-          {/if}
         </div>
         <button class="ghost icon delete" title="Delete thread" onclick={remove}><Trash2 size={16} /></button>
       </header>
@@ -274,6 +270,10 @@
           ></textarea>
           <div class="actions">
             <ModelPicker provider={thread.provider} bind:model bind:effort compact />
+            <select title="Access, applied from the next message" bind:value={accessMode}>
+              <option value="ask">Ask first</option>
+              <option value="full">Full access</option>
+            </select>
             <span class="spacer"></span>
             {#if thread.workspace}
               <button
@@ -460,5 +460,19 @@
   }
   .actions .icon {
     border-radius: var(--radius-full);
+  }
+  /* Matches ModelPicker's compact selects beside it. */
+  .actions select {
+    background: none;
+    border-color: transparent;
+    color: var(--text-secondary);
+    padding: var(--space-1) var(--space-1-5);
+  }
+  .actions select:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+  .actions select:focus {
+    border-color: transparent;
   }
 </style>

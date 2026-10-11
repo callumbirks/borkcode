@@ -33,14 +33,18 @@ export interface SessionOptions {
 }
 
 /** Null model or effort means the provider's default. */
-export interface TurnSettings {
+export interface ModelSettings {
   model: string | null;
   effort: Effort | null;
 }
 
+export interface TurnSettings extends ModelSettings {
+  accessMode: AccessMode;
+}
+
 export interface ProviderSession {
   /**
-   * Starts a turn, switching model and effort first if they changed. Resolves once the provider
+   * Starts a turn, switching model, effort and access mode first if they changed. Resolves once the provider
    * accepts it; the end arrives as `turnEnded`.
    */
   sendTurn(text: string, settings: TurnSettings): Promise<void>;
@@ -55,7 +59,7 @@ export interface ProviderSession {
 }
 
 /** A single tool-less completion, used for small jobs such as naming threads. */
-export interface TextRequest extends TurnSettings {
+export interface TextRequest extends ModelSettings {
   instructions: string;
   prompt: string;
   signal: AbortSignal;
