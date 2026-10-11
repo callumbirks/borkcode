@@ -20,6 +20,34 @@
     return id ? app.threads.find((thread) => thread.id === id) : undefined;
   });
 
+  /** Lines a message from another thread shows while collapsed; keep in step with `.clip`. */
+  const collapsedLines = 5;
+  let expanded = $state(false);
+  let collapsible = $state(false);
+
+  /** Measures whether the text overflows the collapsed height, again whenever its size changes. */
+  function measure(node: HTMLElement) {
+    const observer = new ResizeObserver(() => {
+      collapsible = node.offsetHeight > collapsedLines * parseFloat(getComputedStyle(node).lineHeight) + 1;
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }
+
+  /** Toggles on a click anywhere except a link, and not when the click ended a text selection. */
+  function toggle(event: MouseEvent) {
+    if (!collapsible || (event.target as Element).closest("a")) return;
+    if (window.getSelection()?.toString()) return;
+    expanded = !expanded;
+  }
+
+  function toggleByKey(event: KeyboardEvent) {
+    if (!collapsible || event.target !== event.currentTarget) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    expanded = !expanded;
+  }
+
   /**
    * An attachment that renders markdown, with PR links as chips, and mounts the chips' icons.
    * It reruns when the text or any PR's state changes.
@@ -38,18 +66,31 @@
   }
 </script>
 
-{#if item.kind === "user"}
+{#if item.kind === "user" && item.fromThreadId}
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex: it is focusable only while it is a button -->
+  <div
+    class="user agent"
+    class:collapsible
+    class:collapsed={collapsible && !expanded}
+    role={collapsible ? "button" : undefined}
+    tabindex={collapsible ? 0 : undefined}
+    aria-expanded={collapsible ? expanded : undefined}
+    onclick={toggle}
+    onkeydown={toggleByKey}
+  >
+    <div class="from">
+      <CornerDownRight size={12} />
+      {#if linked}
+        From <a href="#/thread/{linked.id}">{linked.title}</a>
+      {:else}
+        From a thread that was since deleted
+      {/if}
+    </div>
+    {#if item.steered}<div class="from">Read while working</div>{/if}
+    <div class="clip"><div {@attach measure}>{item.text}</div></div>
+  </div>
+{:else if item.kind === "user"}
   <div class="user">
-    {#if item.fromThreadId}
-      <div class="from">
-        <CornerDownRight size={12} />
-        {#if linked}
-          From <a href="#/thread/{linked.id}">{linked.title}</a>
-        {:else}
-          From a thread that was since deleted
-        {/if}
-      </div>
-    {/if}
     {#if item.fromBorkcode}<div class="from"><CornerDownRight size={12} />From borkcode</div>{/if}
     {#if item.steered}<div class="from">Read while working</div>{/if}
     {item.text}
@@ -124,6 +165,21 @@
     padding: var(--space-2-5) var(--space-3);
     white-space: pre-wrap;
     word-break: break-word;
+  }
+  .agent {
+    background: var(--accent-soft);
+    border-color: transparent;
+  }
+  .collapsible {
+    cursor: pointer;
+  }
+  .collapsible:focus-visible {
+    outline: 2px solid var(--focus-ring);
+  }
+  .collapsed .clip {
+    max-height: 5lh;
+    overflow: hidden;
+    mask-image: linear-gradient(to bottom, #000 40%, transparent);
   }
   .assistant {
     color: var(--text-primary);
