@@ -17,7 +17,7 @@ export const app = $state({
   threads: [] as Thread[],
   /** Every thread's linked pull requests, keyed by thread id, oldest first. */
   pullRequests: {} as Record<string, LinkedPullRequest[]>,
-  /** The open thread's transcript and pending approvals. */
+  /** The open thread's transcript, pending approvals and questions. */
   detail: null as ThreadDetail | null,
   settings: null as Settings | null,
   settingsError: null as string | null,
@@ -163,6 +163,14 @@ function handleEvent(event: ServerEvent): void {
     case "approval.resolved":
       if (detail?.thread.id === event.threadId) {
         detail.approvals = detail.approvals.filter((approval) => approval.id !== event.approvalId);
+      }
+      return;
+    case "question.requested":
+      if (detail?.thread.id === event.threadId) upsertById(detail.questions, event.question);
+      return;
+    case "question.resolved":
+      if (detail?.thread.id === event.threadId) {
+        detail.questions = detail.questions.filter((question) => question.id !== event.questionId);
       }
       return;
   }

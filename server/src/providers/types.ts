@@ -1,4 +1,4 @@
-import type { AccessMode, Approval, Effort, Item } from "shared/protocol";
+import type { AccessMode, Approval, Effort, Item, Question } from "shared/protocol";
 
 export type TurnOutcome = { status: "completed" | "interrupted" } | { status: "failed"; error: string };
 
@@ -15,6 +15,11 @@ export interface SessionEvents {
   closed(): void;
   /** Asks the user to approve an action. Resolves false when declined or abandoned. */
   approval(request: Omit<Approval, "id">): Promise<boolean>;
+  /**
+   * Asks the user questions, recording them as an item with this id. Resolves with one answer per
+   * question, or null when the turn stopped or the session ended first.
+   */
+  question(id: string, questions: Question[]): Promise<string[][] | null>;
 }
 
 export interface SessionOptions {

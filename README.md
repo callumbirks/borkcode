@@ -42,6 +42,10 @@ In "ask" mode, Claude automatically approves ordinary edits and common filesyste
 inside the workspace and shared project files. Edits outside those directories, protected files,
 and other shell commands may still need approval. "Full" mode bypasses normal permission prompts.
 
+When the agent asks you a question with options, in either mode, it appears above the composer.
+Press an option's number to pick it, type in the composer to answer in your own words, and press
+Enter to submit. Threads waiting on an answer or an approval show "Needs you" in the sidebar.
+
 **Push & PR** in a worktree thread asks the agent to commit anything outstanding and publish
 through borkcode's `open_pull_requests` tool. borkcode pushes the thread's branch under the same
 name, opens one pull request per repo with changes (ready for review), and links sibling pull

@@ -8,7 +8,7 @@ import {
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { AccessMode, Item, ModelOption } from "shared/protocol";
+import type { AccessMode, Item, ModelOption, Question } from "shared/protocol";
 import {
   truncate,
   type ProviderSession,
@@ -148,6 +148,38 @@ function toolResultText(content: unknown): string {
   return "";
 }
 
+/** Reads AskUserQuestion's input, skipping anything malformed rather than failing the tool call. */
+export function claudeQuestions(input: Record<string, unknown>): Question[] {
+  const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+  if (!Array.isArray(input.questions)) return [];
+  return input.questions.flatMap((entry: unknown, index): Question[] => {
+    if (!entry || typeof entry !== "object") return [];
+    const record = entry as Record<string, unknown>;
+    const question = text(record.question);
+    if (!question) return [];
+    const options = Array.isArray(record.options) ? (record.options as unknown[]) : [];
+    return [
+      {
+        header: text(record.header) || `Question ${index + 1}`,
+        question,
+        options: options.flatMap((option) => {
+          if (!option || typeof option !== "object") return [];
+          const { label, description } = option as Record<string, unknown>;
+          return text(label) ? [{ label: text(label), description: text(description) }] : [];
+        }),
+        multiSelect: record.multiSelect === true,
+      },
+    ];
+  });
+}
+
+/** AskUserQuestion takes answers keyed by question text, with several picks joined by commas. */
+export function claudeAnswers(questions: Question[], answers: string[][]): Record<string, string> {
+  return Object.fromEntries(questions.map((question, index) => [question.question, (answers[index] ?? []).join(", ")]));
+}
+
+const QUESTION_TOOL = "AskUserQuestion";
+
 // Ask mode lets Claude approve workspace edits; unresolved actions still reach canUseTool.
 function permissionMode(accessMode: AccessMode): PermissionMode {
   return accessMode === "full" ? "bypassPermissions" : "acceptEdits";
@@ -173,9 +205,18 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
       // Only permits bypassing; set even in ask mode so the thread can switch to full access later.
       allowDangerouslySkipPermissions: true,
       mcpServers: { borkcode: { type: "http", url: options.mcpUrl } },
-      canUseTool: async (toolName, input) => {
+      // AskUserQuestion reaches this in every permission mode, since only the user can answer it.
+      canUseTool: async (toolName, input, { toolUseID }) => {
         // borkcode's own tools ask the user themselves when they need to.
         if (toolName.startsWith("mcp__borkcode__")) return { behavior: "allow", updatedInput: input };
+        if (toolName === QUESTION_TOOL) {
+          const questions = claudeQuestions(input);
+          if (questions.length === 0) return { behavior: "deny", message: "The questions could not be read." };
+          const answers = await events.question(toolUseID, questions);
+          return answers
+            ? { behavior: "allow", updatedInput: { ...input, answers: claudeAnswers(questions, answers) } }
+            : { behavior: "deny", message: "The user did not answer; the turn was stopped." };
+        }
         const allowed = await events.approval({
           title: `Allow ${toolName}?`,
           detail: summarizeToolInput(toolName, input),
@@ -248,7 +289,8 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
             if (id || block.thinking) {
               events.item({ id: id ?? randomUUID(), kind: "reasoning", text: block.thinking });
             }
-          } else if (block.type === "tool_use") {
+          } else if (block.type === "tool_use" && block.name !== QUESTION_TOOL) {
+            // The question's own item stands for it in the transcript.
             const item: Extract<Item, { kind: "tool" }> = {
               id: block.id,
               kind: "tool",

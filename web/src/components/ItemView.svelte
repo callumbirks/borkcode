@@ -4,6 +4,7 @@
   import CornerDownRight from "@lucide/svelte/icons/corner-down-right";
   import GitFork from "@lucide/svelte/icons/git-fork";
   import Info from "@lucide/svelte/icons/info";
+  import MessageCircleQuestionMark from "@lucide/svelte/icons/message-circle-question-mark";
   import DOMPurify from "dompurify";
   import { mount, unmount } from "svelte";
   import type { Item } from "shared/protocol";
@@ -90,6 +91,22 @@
     </summary>
     {#if item.output}<pre class="body">{item.output}</pre>{/if}
   </details>
+{:else if item.kind === "question"}
+  {@const answers = item.answers}
+  {#if answers}
+    <div class="asked">
+      {#each item.questions as question, index (index)}
+        <div class="notice"><MessageCircleQuestionMark size={14} /><span>{question.question}</span></div>
+        <div class="answer">{answers[index]?.join(", ")}</div>
+      {/each}
+    </div>
+  {:else}
+    {@const pending = app.detail?.questions.some((request) => request.id === item.id)}
+    <div class="notice">
+      <MessageCircleQuestionMark size={14} />
+      <span>{pending ? "Input requested" : "Question left unanswered"}</span>
+    </div>
+  {/if}
 {:else if item.kind === "notice"}
   <div class="notice {item.level}">
     {#if item.level === "error"}<CircleAlert size={14} />{:else}<Info size={14} />{/if}
@@ -246,6 +263,17 @@
   .notice :global(svg) {
     flex-shrink: 0;
     margin-top: 3px;
+  }
+  .asked {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .answer {
+    margin-left: var(--space-6);
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
   }
   .notice.error {
     color: var(--status-danger);

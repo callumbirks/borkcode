@@ -4,7 +4,8 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { Item, LinkedPullRequest, Thread } from "shared/protocol";
 
-export interface StoredThread extends Thread {
+/** `waiting` is live state, added by the thread service. */
+export interface StoredThread extends Omit<Thread, "waiting"> {
   /** Provider-native session or thread id, used to resume after a restart. */
   providerSessionId: string | null;
   /** Branch the workspace starts from instead of each repo's base, for handoffs that continue work. */
@@ -82,8 +83,8 @@ function fromRow(row: ThreadRow): StoredThread {
   };
 }
 
-export function toThread({ providerSessionId: _, startBranch: __, ...thread }: StoredThread): Thread {
-  return thread;
+export function toThread({ providerSessionId: _, startBranch: __, ...thread }: StoredThread, waiting: boolean): Thread {
+  return { ...thread, waiting };
 }
 
 export class Database {
