@@ -753,6 +753,13 @@ export class ThreadService {
     }
   }
 
+  /** The thread's project and the root of its workspace, the agent's working directory. */
+  async location(threadId: string): Promise<{ project: Project; root: string }> {
+    const thread = this.#require(threadId);
+    const project = await this.#projects.get(thread.project);
+    return { project, root: workspacePath(project, thread.workspace) };
+  }
+
   /** Also links any pull request found on the thread's branch, so PRs opened by hand show up. */
   async repoStatus(threadId: string): Promise<RepoStatus[]> {
     const thread = this.#require(threadId);

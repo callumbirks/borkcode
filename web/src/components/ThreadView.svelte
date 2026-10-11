@@ -28,6 +28,7 @@
   import AttachButton from "./AttachButton.svelte";
   import ComposerAttachments from "./ComposerAttachments.svelte";
   import ItemView from "./ItemView.svelte";
+  import MentionPicker from "./MentionPicker.svelte";
   import ModelPicker from "./ModelPicker.svelte";
   import RepoPanel from "./RepoPanel.svelte";
   import WorkGroup from "./WorkGroup.svelte";
@@ -265,7 +266,11 @@
     }
   }
 
+  let composer = $state<HTMLTextAreaElement>();
+  let mentions = $state<MentionPicker>();
+
   function onKeydown(event: KeyboardEvent) {
+    if (mentions?.keydown(event)) return;
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       void (asking ? submitAnswer() : send());
@@ -438,8 +443,10 @@
           ondragleave={() => (dragging = false)}
           ondrop={onDrop}
         >
+          <MentionPicker bind:this={mentions} threadId={id} textarea={composer} text={draft} onchange={(text) => setDraft(id, text)} />
           <ComposerAttachments threadId={id} />
           <textarea
+            bind:this={composer}
             bind:value={() => draft, (text) => setDraft(id, text)}
             onkeydown={onKeydown}
             onpaste={onPaste}

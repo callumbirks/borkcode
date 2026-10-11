@@ -82,6 +82,20 @@ export interface ProjectFile {
   modifiedAt: number;
 }
 
+/** A file the composer's `@` picker offers. */
+export interface FileMention {
+  kind: "file";
+  /** The repo holding the file, or null for a shared project file. */
+  repo: string | null;
+  /** Relative to the repo, or to the project files folder. */
+  path: string;
+  /** The text inserted into the message, such as `@borkcode/server/src/main.ts`. */
+  reference: string;
+}
+
+/** Something the composer's `@` picker can insert. Other kinds, such as threads, join this union. */
+export type Mention = FileMention;
+
 export type ThreadStatus = "preparing" | "idle" | "running" | "error";
 
 export interface Thread {
@@ -250,6 +264,8 @@ export interface Requests {
   "files.delete": { params: { project: string; path: string }; result: null };
   /** Deletes a folder and everything in it. Returns how many files were removed. */
   "files.deleteFolder": { params: { project: string; path: string }; result: number };
+  /** The best matches for an `@` reference in a thread's composer, at most 50. */
+  "mentions.search": { params: { threadId: string; query: string }; result: Mention[] };
   "threads.list": { params: Record<string, never>; result: Thread[] };
   "threads.create": {
     params: {

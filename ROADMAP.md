@@ -29,7 +29,10 @@ What borkcode has shipped and what may come next. The constraints every change w
 9. **Child thread model rules.** Rules in Settings pick a new child thread's model and effort from
    its parent's, matching on model alone or model and effort, first match wins. An agent's
    explicit choice still wins, and with no match the child copies its parent.
-10. **Images in the prompt.** Paste, drop or attach images in the chatbox and send them with the
+10. **`@` file references.** Typing `@` in the chatbox suggests files across all the project's
+    repos, plus shared project files, narrowing as you type. Picking one puts a reference to it in
+    the message.
+11. **Images in the prompt.** Paste, drop or attach images in the chatbox and send them with the
     message, even with no text. They upload to the server over HTTP as thread attachments, show as
     thumbnails in the transcript, and reach Claude as image blocks and Codex as local images.
 
@@ -37,25 +40,22 @@ What borkcode has shipped and what may come next. The constraints every change w
 
 Not prioritized yet. The order below is a suggestion.
 
-1. **`@` file references.** Typing `@` in the chatbox suggests files across all the project's
-   repos, plus shared project files, narrowing as you type. Picking one puts a reference to it in
-   the message, as in other harnesses.
-2. **Rich file paths.** File paths in the thread become links that open a preview in a sidebar. The
+1. **Rich file paths.** File paths in the thread become links that open a preview in a sidebar. The
    server serves workspace files over HTTP for this, which the next three items reuse.
-3. **Images in tool calls.** When the agent views an image file, the expanded tool call shows the
+2. **Images in tool calls.** When the agent views an image file, the expanded tool call shows the
    image instead of a "not a text file" message. Open question: render it in the thread, in the
    sidebar, or as a thumbnail in the thread that opens in the sidebar.
-4. **HTML visualizations.** A tool that lets the agent show HTML it writes, rendered in the
+3. **HTML visualizations.** A tool that lets the agent show HTML it writes, rendered in the
    thread, instead of the user opening a separate file.
-5. **Remote and mobile over Tailscale.** Use borkcode from another device on the same tailnet while
+4. **Remote and mobile over Tailscale.** Use borkcode from another device on the same tailnet while
    the server runs on the main machine. The tailnet is the access boundary, so the server only
    needs to listen beyond localhost (it already reads `HOST`). The web client needs a layout
    that works on a phone, and file previews must keep working.
-6. **Mark as read or unread.** Actions to mark a thread read or unread by hand, building on the
+5. **Mark as read or unread.** Actions to mark a thread read or unread by hand, building on the
    automatic unread indicator.
-7. **`@` thread references.** `@` also suggests other threads in the project that aren't
-    archived, so one thread can read through another's transcript. Builds on `@` file references.
-9. **File uploads.** Attach any file to a message, not just images, from any device viewing
+6. **`@` thread references.** `@` also suggests other threads in the project that aren't
+   archived, so one thread can read through another's transcript. Builds on `@` file references.
+7. **File uploads.** Attach any file to a message, not just images, from any device viewing
    borkcode, including remote ones. Builds on the attachments behind images in the prompt, and
    comes after remote and mobile access.
 

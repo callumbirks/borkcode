@@ -15,6 +15,7 @@ import { loadConfig } from "./config.ts";
 import { Database } from "./db.ts";
 import { FileStore } from "./files.ts";
 import { handleMcpRequest } from "./mcp.ts";
+import { MentionSearch } from "./mentions.ts";
 import { listModels } from "./models.ts";
 import { ProjectStore } from "./projects.ts";
 import { SettingsStore } from "./settings.ts";
@@ -46,6 +47,8 @@ const threads = new ThreadService(
   `http://${mcpHost}:${config.port}/mcp/`,
   new AttachmentStore(config.home),
 );
+
+const mentions = new MentionSearch(files, (threadId) => threads.location(threadId));
 
 async function projectsChanged<T>(result: T): Promise<T> {
   broadcast({ type: "projects.changed", projects: await projects.list() });
@@ -79,6 +82,7 @@ const handlers: Handlers = {
     return null;
   },
   "files.deleteFolder": ({ project, path }) => files.deleteFolder(project, path),
+  "mentions.search": ({ threadId, query }) => mentions.search(threadId, query),
   "threads.list": async () => threads.list(),
   "threads.create": (params) => threads.create(params),
   "threads.get": ({ threadId }) => threads.get(threadId),

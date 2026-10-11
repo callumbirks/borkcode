@@ -38,6 +38,12 @@ at low effort by default), names it, and the workspace and branch are named afte
 Renaming a thread later changes only its displayed title. Model and effort can be switched
 between turns from the composer.
 
+Type `@` in the composer to reference a file from any of the project's repos or its shared project
+files. Suggestions narrow as you type; arrow keys move, Enter or Tab inserts, Escape closes. Repo
+files are inserted as `@<repo>/<path>`, relative to the agent's working directory, and project
+files by their absolute path. Claude reads referenced files into the message itself; Codex sees
+the path and opens the file when it needs it.
+
 Paste, drag in or attach (the paperclip) PNG, JPEG, GIF or WebP images, up to 20 MB each, to send
 them with a message; a message can be just images. They upload as soon as you add them, and Send
 waits until they have. The agent sees each image and is also told where it is saved, so it can use

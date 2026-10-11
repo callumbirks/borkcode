@@ -172,6 +172,9 @@ inventing a fix.
 - **Codex asks questions only in plan mode by default.** `request_user_input` needs the
   `features.default_mode_request_user_input` config, which the adapter sets. Claude's
   `AskUserQuestion` reaches `canUseTool` in every permission mode, including bypass.
+- **Claude expands `@path` in prompts.** The CLI, also under the SDK, turns each `@path` (or
+  `@"path with spaces"`) in a user message into an inlined Read result. Codex passes the text
+  through. The composer's `@` picker relies on this and inserts paths, never file contents.
 - **Claude SDK types.** The source of truth is
   `server/node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`. With partial messages on,
   `assistant` messages arrive one content block at a time, after the matching `stream_event`
