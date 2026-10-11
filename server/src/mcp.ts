@@ -80,7 +80,7 @@ function buildServer({ threads, files }: Services, threadId: string): McpServer 
         "Start a new thread in this project, running in its own new worktree, to hand work off or to delegate it.",
         "The new thread sees only your message, not this conversation, so make it self-contained: the goal, what has been decided or tried, the relevant files and pull requests, and what done looks like.",
         "Do not name a branch for it: it works on a new branch of its own, which it already knows.",
-        "For a long brief, first write it to a project file (for example handoffs/<topic>.md) with write_project_file, and tell the new thread to read it.",
+        "However long the brief, send it as the message: it is saved as brief.md in the new thread's scratch folder, so the thread can re-read it and it is cleaned up with the thread. Write a brief to a project file only when the user asks for one.",
         "The new thread uses this thread's access mode, and this thread's provider and model unless you choose others; give them only if the user asked for them.",
         "The user may be asked to approve.",
       ].join(" "),

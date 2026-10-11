@@ -17,9 +17,11 @@ Everything lives under `~/borkcode` (override with `BORKCODE_HOME`):
     worktrees/<thread>/<repo>/  one git worktree per repo for each thread
 ```
 
-`files/` holds a project's shared files: notes, specs and plans that you and every agent in the
-project can read and write. Edit them from the project page; agents reach them through borkcode's
-tools or their own, and changes show up live.
+`files/` holds a project's shared files: specs, plans and decisions that you and every agent in the
+project can read and write. Browse and edit them from the project page, where folders collapse and
+can be deleted whole; agents reach them through borkcode's tools or their own, and changes show up
+live. Temporary files an agent makes go in its thread's scratch folder instead (`.scratch/` in the
+thread's workspace), which is deleted with the thread.
 
 A thread's workspace always holds every repo of its project as siblings, named exactly like in
 `repos/`, so relative paths such as `../vessel` work the same everywhere. All worktrees in a

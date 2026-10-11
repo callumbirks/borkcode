@@ -183,6 +183,8 @@ export interface Requests {
     result: ProjectFile;
   };
   "files.delete": { params: { project: string; path: string }; result: null };
+  /** Deletes a folder and everything in it. Returns how many files were removed. */
+  "files.deleteFolder": { params: { project: string; path: string }; result: number };
   "threads.list": { params: Record<string, never>; result: Thread[] };
   "threads.create": {
     params: {

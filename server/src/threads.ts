@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   Approval,
@@ -52,6 +53,7 @@ import {
   mainRepoPath,
   removeWorkspace,
   repoStatuses,
+  scratchPath,
   runRepoSetup,
   WorkspaceDirtyError,
   workspacePath,
@@ -189,7 +191,7 @@ export class ThreadService {
     const naming = this.#nameThread(id, text, thread.title, workspace !== null);
     if (workspace) {
       live.preparing = naming
-        .then(() => this.#prepare(id))
+        .then(() => this.#prepare(id, params.parentId ? text : null))
         .finally(() => {
           live.preparing = null;
         });
@@ -580,6 +582,7 @@ export class ThreadService {
     if (live?.session) (await live.session.catch(() => null))?.close();
     this.#live.delete(threadId);
     if (thread.workspace) await removeWorkspace(project, thread.workspace, true);
+    else await rm(scratchPath(project, thread), { recursive: true, force: true });
     const orphans = this.#db.deleteThread(threadId);
     this.#emit({ type: "thread.deleted", threadId });
     for (const orphan of orphans) {
@@ -683,10 +686,17 @@ export class ThreadService {
     this.#update(threadId, { title, workspace, branch: workspace ? `borkcode/${workspace}` : null });
   }
 
-  async #prepare(threadId: string): Promise<void> {
+  /** Creates the workspace. A handed-off thread also gets its brief saved, to re-read after compaction. */
+  async #prepare(threadId: string, brief: string | null): Promise<void> {
     if (!this.#db.getThread(threadId)) return;
     try {
-      await this.#addMissingRepos(this.#require(threadId));
+      const thread = this.#require(threadId);
+      await this.#addMissingRepos(thread);
+      if (brief) {
+        const scratch = scratchPath(await this.#projects.get(thread.project), thread);
+        await mkdir(scratch, { recursive: true });
+        await writeFile(join(scratch, "brief.md"), `${brief}\n`);
+      }
       this.#setStatus(threadId, "idle");
     } catch (error) {
       this.#notice(threadId, "error", `Could not create the workspace: ${error instanceof Error ? error.message : String(error)}`);
@@ -732,6 +742,10 @@ export class ThreadService {
         if (existsSync(gitDir)) writableRoots.push(gitDir);
       }
     }
+    const scratch = scratchPath(project, thread);
+    await mkdir(scratch, { recursive: true });
+    if (!thread.workspace) writableRoots.push(scratch);
+    const brief = join(scratch, "brief.md");
     const threadId = thread.id;
     const live = this.#liveThread(threadId);
     if (live.mcpToken) this.#mcpTokens.delete(live.mcpToken);
@@ -746,13 +760,11 @@ export class ThreadService {
     return this.#deps.startSession(thread.provider, {
       cwd,
       writableRoots,
-      instructions: buildInstructions(
-        project,
-        toThread(thread),
-        cwd,
-        settings,
-        thread.parentId ? (this.#db.getThread(thread.parentId) ?? null) : null,
-      ),
+      instructions: buildInstructions(project, toThread(thread), cwd, settings, {
+        scratch,
+        parent: thread.parentId ? (this.#db.getThread(thread.parentId) ?? null) : null,
+        brief: thread.parentId && existsSync(brief) ? brief : null,
+      }),
       accessMode: thread.accessMode,
       model: thread.model,
       effort: thread.effort,

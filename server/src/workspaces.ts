@@ -14,6 +14,18 @@ export function workspacePath(project: Project, workspace: string | null): strin
     : join(project.path, "worktrees", workspace);
 }
 
+/**
+ * A thread's folder for temporary files, outside every repo so nothing lands in git. In a thread
+ * workspace it sits in the workspace root, inside the agent's working directory and removed with
+ * the workspace; repo names start with a letter or digit, so ".scratch" never collides with one.
+ * Main-checkout threads share their workspace, so theirs lives under the project instead.
+ */
+export function scratchPath(project: Project, thread: { id: string; workspace: string | null }): string {
+  return thread.workspace
+    ? join(workspacePath(project, thread.workspace), ".scratch")
+    : join(project.path, "scratch", thread.id);
+}
+
 export function mainRepoPath(project: Project, repo: RepoConfig): string {
   return join(project.path, "repos", repo.name);
 }

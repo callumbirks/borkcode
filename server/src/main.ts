@@ -70,6 +70,7 @@ const handlers: Handlers = {
     await files.delete(project, path);
     return null;
   },
+  "files.deleteFolder": ({ project, path }) => files.deleteFolder(project, path),
   "threads.list": async () => threads.list(),
   "threads.create": (params) => threads.create(params),
   "threads.get": ({ threadId }) => threads.get(threadId),

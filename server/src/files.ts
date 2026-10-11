@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, watch, type FSWatcher } from "node:fs";
-import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, realpath, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import type { ProjectFile } from "shared/protocol";
 import { ToolError } from "./errors.ts";
@@ -77,6 +77,28 @@ export class FileStore {
     const info = await stat(full).catch(() => null);
     if (!info?.isFile()) throw new ToolError(`There is no project file ${path}.`);
     await rm(full);
+    await this.#pruneEmptyFolders(project, dirname(full));
+  }
+
+  /** Removes a folder and everything in it. Returns how many files went with it. */
+  async deleteFolder(project: string, path: string): Promise<number> {
+    const full = await this.#resolve(project, path);
+    const info = await stat(full).catch(() => null);
+    if (!info?.isDirectory()) throw new ToolError(`There is no project folder ${path}.`);
+    const files: ProjectFile[] = [];
+    await walk(full, full, files);
+    await rm(full, { recursive: true });
+    await this.#pruneEmptyFolders(project, dirname(full));
+    return files.length;
+  }
+
+  /** The list shows files only, so folders emptied by a delete would linger unseen. */
+  async #pruneEmptyFolders(project: string, dir: string): Promise<void> {
+    const root = this.root(project);
+    for (let current = dir; current.startsWith(root + sep); current = dirname(current)) {
+      if ((await readdir(current)).length > 0) return;
+      await rmdir(current);
+    }
   }
 
   /** Broadcasts the project's file list whenever its folder changes. Safe to call repeatedly. */

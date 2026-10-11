@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -66,4 +67,19 @@ test("changes made outside borkcode are broadcast", async () => {
   });
   await writeFile(join(files.root("demo"), "from-agent.md"), "hello\n");
   assert.ok((await changed).some((file) => file.path === "from-agent.md"));
+});
+
+test("deleting a folder removes everything in it, and emptied folders above it go too", async () => {
+  await files.write("demo", "mockups/hud/index.html", "<html></html>");
+  await files.write("demo", "mockups/hud/assets/logo.svg", "<svg/>");
+  await files.write("demo", "keep/notes.md", "keep me");
+  assert.equal(await files.deleteFolder("demo", "mockups/hud"), 2);
+  assert.ok(!existsSync(join(files.root("demo"), "mockups")));
+  assert.ok((await files.list("demo")).some((file) => file.path === "keep/notes.md"));
+
+  await files.delete("demo", "keep/notes.md");
+  assert.ok(!existsSync(join(files.root("demo"), "keep")));
+  assert.ok(existsSync(files.root("demo")));
+  await assert.rejects(files.deleteFolder("demo", "."), /path is required/);
+  await assert.rejects(files.deleteFolder("demo", "../repos"), /outside the project files folder/);
 });

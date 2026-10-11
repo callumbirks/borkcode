@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -155,6 +156,8 @@ test("a watched child reports every turn to its parent, including turns the user
   const [child] = threads.list().filter((thread) => thread.parentId === parent.id);
   const childAgent = await agentOf(child!.id);
   assert.match(await childAgent.turn(1), /Message from your parent thread[\s\S]*build it/);
+  const { workspacePath } = await threads.get(child!.id);
+  assert.equal(await readFile(join(workspacePath, ".scratch", "brief.md"), "utf8"), "build it\n");
 
   childAgent.finish("Which database should I use?");
   const firstReport = await parentAgent.turn(2);
@@ -236,4 +239,24 @@ test("deliveries between threads pause at the limit and resume when the user ste
   } finally {
     await rm(settings.path, { force: true });
   }
+});
+
+test("a main-checkout thread's scratch folder is deleted with the thread", async () => {
+  const thread = await threads.create({
+    project: "demo",
+    text: "look around",
+    provider: "claude",
+    model: null,
+    effort: null,
+    accessMode: "full",
+    isolated: false,
+    captain: false,
+  });
+  const agent = await agentOf(thread.id);
+  await agent.turn(1);
+  const scratch = join(projects.projectPath("demo"), "scratch", thread.id);
+  assert.ok(existsSync(scratch));
+  agent.finish("done");
+  await threads.delete(thread.id, false);
+  assert.ok(!existsSync(scratch));
 });

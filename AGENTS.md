@@ -77,6 +77,12 @@ inventing a fix.
   or their own; the server watches the folder, so every change reaches the UI however it was
   made. Saves from the UI carry the mtime they loaded and are refused if the file changed since,
   so an agent's edit is never silently overwritten.
+- **Each thread has a scratch folder for temporary files,** so working files stay out of the
+  repos and out of project files. Worktree threads use `.scratch/` in the workspace root (inside
+  the agent's cwd, so no approvals; never a repo name, since those start with a letter or digit),
+  removed with the workspace. Main-checkout threads use `<project>/scratch/<thread id>/`, passed
+  as a writable root and deleted with the thread. A handed-off thread's brief is saved there as
+  `brief.md` so it survives compaction; briefs go to project files only when the user asks.
 - **Threads can start threads** through the `start_thread` tool, which goes through the same path
   as the new-thread form. Children always get a new worktree and inherit the parent's access mode
   (so ask-mode parents approve each handoff), and its provider and model unless told otherwise.

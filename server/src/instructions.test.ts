@@ -32,11 +32,13 @@ function thread(branch: string | null): Thread {
   };
 }
 
+const context = { scratch: "/ws/.scratch", parent: null, brief: null };
+
 const AUTO = /without waiting to be asked/;
 const ON_REQUEST = /Only commit when the user asks/;
 
 test("worktree threads commit as they go when auto-commit is on", () => {
-  const text = buildInstructions(project, thread("borkcode/fix-login-t1"), "/ws", DEFAULT_SETTINGS);
+  const text = buildInstructions(project, thread("borkcode/fix-login-t1"), "/ws", DEFAULT_SETTINGS, context);
   assert.match(text, AUTO);
   assert.match(text, /Commit on borkcode\/fix-login-t1/);
   assert.doesNotMatch(text, ON_REQUEST);
@@ -46,8 +48,8 @@ test("threads commit only on request when auto-commit is off or in the main chec
   const off = buildInstructions(project, thread("borkcode/fix-login-t1"), "/ws", {
     ...DEFAULT_SETTINGS,
     autoCommit: false,
-  });
-  const main = buildInstructions(project, thread(null), "/ws", DEFAULT_SETTINGS);
+  }, context);
+  const main = buildInstructions(project, thread(null), "/ws", DEFAULT_SETTINGS, context);
   for (const text of [off, main]) {
     assert.match(text, ON_REQUEST);
     assert.doesNotMatch(text, AUTO);
@@ -55,17 +57,28 @@ test("threads commit only on request when auto-commit is off or in the main chec
 });
 
 test("captains may start threads unprompted; other threads only when asked", () => {
-  const captain = buildInstructions(project, { ...thread("borkcode/fix-login-t1"), captain: true }, "/ws", DEFAULT_SETTINGS);
+  const captain = buildInstructions(project, { ...thread("borkcode/fix-login-t1"), captain: true }, "/ws", DEFAULT_SETTINGS, context);
   assert.match(captain, /You are a captain/);
   assert.match(captain, /do not need to be asked each time/);
-  const regular = buildInstructions(project, thread("borkcode/fix-login-t1"), "/ws", DEFAULT_SETTINGS);
+  const regular = buildInstructions(project, thread("borkcode/fix-login-t1"), "/ws", DEFAULT_SETTINGS, context);
   assert.doesNotMatch(regular, /You are a captain/);
   assert.match(regular, /Only start threads when asked/);
 });
 
 test("a child thread learns that its replies reach its parent", () => {
-  const child = buildInstructions(project, thread("borkcode/fix-login-t1"), "/ws", DEFAULT_SETTINGS, { title: "Plan the login work" });
+  const child = buildInstructions(project, thread("borkcode/fix-login-t1"), "/ws", DEFAULT_SETTINGS, {
+    ...context,
+    parent: { title: "Plan the login work" },
+    brief: "/ws/.scratch/brief.md",
+  });
   assert.match(child, /started by the agent of another thread, "Plan the login work"/);
   assert.match(child, /your reply still reaches your parent/);
-  assert.doesNotMatch(buildInstructions(project, thread(null), "/ws", DEFAULT_SETTINGS), /Your parent thread/);
+  assert.match(child, /saved at \/ws\/\.scratch\/brief\.md/);
+  assert.doesNotMatch(buildInstructions(project, thread(null), "/ws", DEFAULT_SETTINGS, context), /Your parent thread/);
+});
+
+test("working files go to the thread's scratch folder, not the project files", () => {
+  const text = buildInstructions(project, thread("borkcode/fix-login-t1"), "/ws", DEFAULT_SETTINGS, context);
+  assert.match(text, /use your scratch folder, \/ws\/\.scratch\. It is outside every repository/);
+  assert.match(text, /never working files/);
 });

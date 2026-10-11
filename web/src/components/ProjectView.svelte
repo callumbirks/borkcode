@@ -1,10 +1,10 @@
 <script lang="ts">
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
-  import FileText from "@lucide/svelte/icons/file-text";
   import Plus from "@lucide/svelte/icons/plus";
   import type { AccessMode, Effort, ProviderKind } from "shared/protocol";
   import { providerLabel, relativeTime } from "../lib/display.svelte";
   import { app, go, loadFiles, rpc } from "../lib/state.svelte";
+  import FileTree from "./FileTree.svelte";
   import ModelPicker from "./ModelPicker.svelte";
   import RepoEditor from "./RepoEditor.svelte";
 
@@ -33,10 +33,6 @@
     } catch (cause) {
       fileError = (cause as Error).message;
     }
-  }
-
-  function formatSize(bytes: number): string {
-    return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
   }
 
   let repoUrl = $state("");
@@ -182,16 +178,7 @@
       <section class="card">
         <div class="section-label">Shared files <span class="count">{files.length}</span></div>
         <p class="muted hint">Notes, specs and plans that you and every thread of this project can read and write.</p>
-        <div class="list">
-          {#each files as file (file.path)}
-            <button class="list-row" onclick={() => go({ view: "file", project: name, path: file.path })}>
-              <FileText size={16} class="muted" />
-              <code class="truncate grow">{file.path}</code>
-              <span class="time">{formatSize(file.size)}</span>
-              <span class="time">{relativeTime(file.modifiedAt)}</span>
-            </button>
-          {/each}
-        </div>
+        <FileTree project={name} {files} />
         <form class="inline" onsubmit={createFile}>
           <input bind:value={newPath} placeholder="New file, e.g. specs/login.md" required />
           <button type="submit"><Plus size={14} />Create</button>

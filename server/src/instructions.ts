@@ -6,8 +6,15 @@ export function buildInstructions(
   thread: Thread,
   cwd: string,
   settings: Settings,
-  parent: { title: string } | null = null,
+  context: {
+    /** The thread's folder for temporary files. */
+    scratch: string;
+    parent: { title: string } | null;
+    /** Where a handed-off thread's brief was saved, if it was. */
+    brief: string | null;
+  },
 ): string {
+  const { scratch, parent, brief } = context;
   const repoLines = project.repos.map((repo) =>
     thread.branch
       ? `- ${repo.name}/ (branch ${thread.branch}, based on ${repo.baseBranch})`
@@ -24,7 +31,8 @@ export function buildInstructions(
     thread.branch
       ? `Each repository is a git worktree already checked out on ${thread.branch}, which belongs to this thread alone. Do not create other branches unless asked.`
       : "These are the project's main clones, shared with the user. Do not switch branches unless asked.",
-    `The project has shared files, such as notes, specs and plans, that every thread of this project and the user can read and write. They live in ${project.path}/files. Use the borkcode list_project_files, read_project_file and write_project_file tools, or your own file tools at that path. Check them when the user refers to a spec, plan or note, and write there when asked to leave something for other threads.`,
+    `The project has shared files: specs, plans and decisions that the user and every thread of this project can read, now and after this thread is gone. They live in ${project.path}/files. Use the borkcode list_project_files, read_project_file and write_project_file tools, or your own file tools at that path. Check them when the user refers to a spec, plan or note. Put something there only when the user or other threads will need it later; never working files.`,
+    `For temporary files, such as experiments, generated assets, downloads, logs and mockups, use your scratch folder, ${scratch}. It is outside every repository, and it is deleted with this thread.`,
     "",
     "## Committing",
   ];
@@ -47,7 +55,7 @@ export function buildInstructions(
       ? "You may start threads whenever the work calls for it; see the captain section below."
       : "When the user asks you to hand work off or delegate it to a new thread, use the borkcode start_thread tool. Only start threads when asked.",
     "Choose watch true when you are to keep track of the work or follow it up: each of the thread's final replies then comes back to you as a message. Choose false for a plain handoff that the user will follow themselves.",
-    "The new thread sees only your message, so make it self-contained: the goal, what has been decided or tried, the relevant files and pull requests, and what done looks like. Do not tell it which branch to use: it gets a branch of its own and knows its name. For a long brief, write it to a project file first and tell the new thread to read it.",
+    "The new thread sees only your message, so make it self-contained: the goal, what has been decided or tried, the relevant files and pull requests, and what done looks like. Do not tell it which branch to use: it gets a branch of its own and knows its name. However long the brief, send it as the message: borkcode saves it as brief.md in the new thread's scratch folder so it can re-read it. Write a brief to a project file only when the user asks for one.",
     thread.branch
       ? "Use start_from this_branch to continue your own work with fresh context, and base for separate work."
       : "You work in the main checkouts, so new threads start from each repository's base branch.",
@@ -59,6 +67,7 @@ export function buildInstructions(
       "## Your parent thread",
       `You were started by the agent of another thread, "${parent.title}". When it watches you, the final reply of each of your turns is sent to it, so end every turn with a reply that stands on its own: what you did, what is left, and any question you need answered.`,
       "The user may also message you directly. Act on it as usual; your reply still reaches your parent.",
+      ...(brief ? [`Your brief, the first message from your parent, is saved at ${brief}. Re-read it if you lose track of the task.`] : []),
     );
   }
   if (thread.captain) {
