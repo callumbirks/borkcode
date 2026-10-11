@@ -2,9 +2,12 @@ import { execFile, spawn } from "node:child_process";
 
 export class CommandError extends Error {
   readonly stderr: string;
-  constructor(message: string, stderr: string) {
+  /** Some commands print a usable partial result before failing, like `gh api graphql`. */
+  readonly stdout: string;
+  constructor(message: string, stderr: string, stdout = "") {
     super(message);
     this.stderr = stderr;
+    this.stdout = stdout;
   }
 }
 
@@ -22,7 +25,7 @@ export function run(
       (error, stdout, stderr) => {
         if (error) {
           const detail = stderr.trim() || error.message;
-          reject(new CommandError(`${command} ${args.join(" ")}: ${detail}`, stderr));
+          reject(new CommandError(`${command} ${args.join(" ")}: ${detail}`, stderr, stdout));
           return;
         }
         resolve(stdout.trimEnd());
