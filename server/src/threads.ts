@@ -17,7 +17,15 @@ import type {
   ThreadDetail,
 } from "shared/protocol";
 import { toThread, type Database, type InboxMessage, type StoredThread } from "./db.ts";
-import { combine, limitReached, parentMessage, pullRequestNotice, report, userMessage } from "./delegation.ts";
+import {
+  borkcodeMessage,
+  combine,
+  limitReached,
+  parentMessage,
+  pullRequestNews,
+  report,
+  userMessage,
+} from "./delegation.ts";
 import { buildInstructions } from "./instructions.ts";
 import { checkModelChoice } from "./models.ts";
 import type { ProjectStore } from "./projects.ts";
@@ -99,6 +107,8 @@ interface LiveThread {
   wakes: number[];
   /** The user messaged the thread during the current turn; its report says so. */
   userJoined: boolean;
+  /** Pull requests are being checked before a turn starts; that delivery takes what arrives meanwhile. */
+  refreshing: boolean;
 }
 
 const PUBLISH_MESSAGE = [
@@ -412,6 +422,18 @@ export class ThreadService {
   async #deliver(threadId: string): Promise<void> {
     // Called on every tool call, so skip reading settings when nothing is waiting.
     if (this.#db.listInbox(threadId).length === 0) return;
+    const waiting = this.#liveThread(threadId);
+    if (waiting.refreshing) return;
+    const stored = this.#db.getThread(threadId);
+    if (!waiting.active && stored) {
+      // Before a turn starts, so a merge it finds joins this turn rather than waking the next.
+      waiting.refreshing = true;
+      try {
+        await this.#refreshPullRequests([stored]);
+      } finally {
+        waiting.refreshing = false;
+      }
+    }
     const limits = (await this.#settings.get().catch(() => DEFAULT_SETTINGS)).delegation;
     // Everything from here to the first await runs at once, so two deliveries cannot claim the
     // same messages or start two turns.
@@ -420,7 +442,7 @@ export class ThreadService {
     const messages = this.#db.listInbox(threadId);
     if (!thread || messages.length === 0 || live.steering) return;
     if (live.active && !live.session) return;
-    const automatic = messages.some((message) => message.fromThreadId !== null);
+    const automatic = messages.some((message) => !fromUser(message));
     if (automatic) {
       if (thread.paused) return;
       const reason = limitReached(live.wakes, this.#familyWakes.get(this.#rootOf(thread)) ?? 0, Date.now(), limits);
@@ -461,11 +483,12 @@ export class ThreadService {
         kind: "user",
         text: message.text,
         ...(message.fromThreadId ? { fromThreadId: message.fromThreadId } : {}),
+        ...(message.kind === "borkcode" ? { fromBorkcode: true } : {}),
         ...(steered ? { steered: true } : {}),
       });
     }
     const live = this.#liveThread(thread.id);
-    if (messages.some((message) => message.fromThreadId === null)) live.userJoined = true;
+    if (messages.some(fromUser)) live.userJoined = true;
     const fromParent = messages.some(
       (message) => message.kind === "message" && message.fromThreadId !== null && message.fromThreadId === thread.parentId,
     );
@@ -480,9 +503,10 @@ export class ThreadService {
 
   /** What the agent reads: the user's lone message as typed, anything else labelled by sender. */
   #compose(thread: StoredThread, messages: InboxMessage[]): string {
-    if (messages.length === 1 && messages[0]!.fromThreadId === null) return messages[0]!.text;
+    if (messages.length === 1 && fromUser(messages[0]!)) return messages[0]!.text;
     return combine(
       messages.map((message) => {
+        if (message.kind === "borkcode") return borkcodeMessage(message.text);
         if (message.fromThreadId === null) return userMessage(message.text);
         if (message.kind === "message" && message.fromThreadId === thread.parentId) {
           return parentMessage(this.#db.getThread(message.fromThreadId)?.title ?? "your parent", message.text);
@@ -500,17 +524,9 @@ export class ThreadService {
     try {
       // Fills in repos added to the project since the workspace was created.
       if (thread.workspace) await this.#addMissingRepos(thread);
-      // The agent should start from current pull request states.
-      const refreshing = this.#refreshPullRequests([thread, ...this.#db.listChildren(threadId)]);
       live.session ??= this.#openSession(thread);
       const session = await live.session;
-      await refreshing;
-      const news = this.#pullRequestNotice(thread);
-      await session.sendTurn(news ? `${news}\n\n${text}` : text, {
-        model: thread.model,
-        effort: thread.effort,
-        accessMode: thread.accessMode,
-      });
+      await session.sendTurn(text, { model: thread.model, effort: thread.effort, accessMode: thread.accessMode });
     } catch (error) {
       const session = live.session;
       live.session = null;
@@ -838,6 +854,7 @@ export class ThreadService {
         steering: false,
         wakes: [],
         userJoined: false,
+        refreshing: false,
       };
       this.#live.set(threadId, live);
     }
@@ -905,11 +922,24 @@ export class ThreadService {
     });
   }
 
+  /**
+   * Links or refreshes pull requests. One that was linked before and is now merged or closed wakes
+   * the thread, which reports to its parent if watched; the inbox keeps the news across restarts.
+   */
   #linkPullRequests(threadId: string, pullRequests: LinkedPullRequest[]): void {
     if (!this.#db.getThread(threadId)) return;
+    const before = new Map(this.#db.listPullRequests(threadId).map((pr) => [pr.url, pr.state]));
     const changed = pullRequests.filter((pr) => this.#db.linkPullRequest(threadId, pr)).length > 0;
     if (changed) {
       this.#emit({ type: "pullRequests.changed", threadId, pullRequests: this.#db.listPullRequests(threadId) });
+    }
+    const ended = pullRequests.filter(
+      (pr) => before.has(pr.url) && before.get(pr.url) !== pr.state && (pr.state === "MERGED" || pr.state === "CLOSED"),
+    );
+    if (ended.length > 0) {
+      this.#db.enqueue({ threadId, fromThreadId: null, kind: "borkcode", text: pullRequestNews(ended) });
+      this.#emitThread(threadId);
+      void this.#deliver(threadId);
     }
     if (pullRequests.some((pr) => pr.state === "OPEN")) this.#pollPullRequests();
   }
@@ -964,19 +994,6 @@ export class ThreadService {
     for (const [threadId, pullRequests] of updated) this.#linkPullRequests(threadId, pullRequests);
   }
 
-  /**
-   * What the agent should know at the start of its turn about pull requests that changed state
-   * since its last one: its own, and for a parent its children's. Not worth waking it for.
-   */
-  #pullRequestNotice(thread: StoredThread): string | null {
-    return pullRequestNotice([
-      ...this.#db.takeStateChanges(thread.id, "thread").map((pr) => ({ pr, thread: null })),
-      ...this.#db.listChildren(thread.id).flatMap((child) =>
-        this.#db.takeStateChanges(child.id, "parent").map((pr) => ({ pr, thread: child.title })),
-      ),
-    ]);
-  }
-
   #declineApprovals(threadId: string): void {
     for (const entry of [...(this.#live.get(threadId)?.approvals.values() ?? [])]) {
       entry.resolve(false);
@@ -1014,4 +1031,9 @@ export class ThreadService {
   #notice(threadId: string, level: "info" | "error", text: string): void {
     this.#upsertItem(threadId, { id: randomUUID(), kind: "notice", level, text });
   }
+}
+
+/** Typed by the user, as opposed to sent by another thread or by borkcode. */
+function fromUser(message: InboxMessage): boolean {
+  return message.fromThreadId === null && message.kind !== "borkcode";
 }

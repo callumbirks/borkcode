@@ -80,7 +80,7 @@ function emit(event: ServerEvent) {
 }
 
 /** Pull request states as GitHub would report them, and every batch of URLs asked about. */
-const github = new Map<string, PullRequestState>();
+const remote = new Map<string, PullRequestState>();
 const lookups: string[][] = [];
 
 const db = new Database(":memory:");
@@ -94,7 +94,7 @@ const threads = new ThreadService(db, projects, settings, emit, "http://test/mcp
   generateTitle: async (text) => `Title ${text.slice(0, 12)}`,
   pullRequestStates: async (urls) => {
     lookups.push(urls);
-    return new Map(urls.flatMap((url) => (github.has(url) ? [[url, github.get(url)!] as const] : [])));
+    return new Map(urls.flatMap((url) => (remote.has(url) ? [[url, remote.get(url)!] as const] : [])));
   },
 });
 
@@ -271,15 +271,17 @@ test("a main-checkout thread's scratch folder is deleted with the thread", async
   assert.ok(!existsSync(scratch));
 });
 
-test("pull requests merged between turns are news at the start of the next turn, for the thread and its parent", async () => {
+test("a merged or closed pull request wakes its thread, and a watched child's report reaches its parent", async () => {
   const { thread: parent, agent: parentAgent } = await startThread("lead the work");
   await parentAgent.turn(1);
   parentAgent.finish("ok");
-  await threads.startThread(parent.id, { message: "do a part", watch: false, startFrom: "base" });
+  await threads.startThread(parent.id, { message: "do a part", watch: true, startFrom: "base" });
   const [child] = threads.list().filter((thread) => thread.parentId === parent.id);
   const childAgent = await agentOf(child!.id);
   await childAgent.turn(1);
   childAgent.finish("opened a PR");
+  await parentAgent.turn(2);
+  parentAgent.finish("waiting for review");
 
   const pr = (number: number): LinkedPullRequest => ({
     repo: "demo",
@@ -289,36 +291,43 @@ test("pull requests merged between turns are news at the start of the next turn,
     title: `PR ${number}`,
     headOid: "abc",
   });
+  const github = (number: number, state: string) => remote.set(pr(number).url, { state, title: `PR ${number}`, headOid: "abc" });
   db.linkPullRequest(parent.id, pr(3));
   db.linkPullRequest(child!.id, pr(7));
+  db.linkPullRequest(child!.id, pr(8));
 
-  // The poll sees the child's PR merged on GitHub and tells clients right away.
-  github.set(pr(7).url, { state: "MERGED", title: "PR 7", headOid: "abc" });
-  const childChanged = broadcastOf(
-    (event) => event.type === "pullRequests.changed" && event.threadId === child!.id && event.pullRequests[0]?.state === "MERGED",
-  );
+  // A title change is not news; a merge wakes the child, whose report wakes the parent.
+  remote.set(pr(3).url, { state: "OPEN", title: "Renamed", headOid: "abc" });
+  github(7, "MERGED");
   await threads.refreshOpenPullRequests();
-  await childChanged;
+  assert.equal(await childAgent.turn(2), `From borkcode, not the user:\n\ndemo#7 was merged: ${pr(7).url}`);
+  assert.equal((await userItems(child!.id)).at(-1)?.fromBorkcode, true);
+  childAgent.finish("Synced past demo#7.");
+  const report = await parentAgent.turn(3);
+  assert.match(report, /Report from thread[\s\S]*demo #7 MERGED[\s\S]*Synced past demo#7\./);
+  parentAgent.finish("told the user");
 
-  await threads.send(child!.id, "carry on", { model: null, effort: null, accessMode: "full" });
-  assert.equal(await childAgent.turn(2), "Since your last turn: demo#7 was merged.\n\ncarry on");
-  childAgent.finish("synced");
-
-  // The parent's own PR is closed after the last poll; its turn checks before starting.
-  github.set(pr(3).url, { state: "CLOSED", title: "PR 3", headOid: "abc" });
-  await threads.send(parent.id, "status?", { model: null, effort: null, accessMode: "full" });
-  assert.match(
-    await parentAgent.turn(2),
-    /^Since your last turn: demo#3 was closed; demo#7 \(thread "[^"]+"\) was merged\.\n\nstatus\?$/,
-  );
+  // The parent's own pull request wakes the parent the same way.
+  github(3, "CLOSED");
+  await threads.refreshOpenPullRequests();
+  assert.match(await parentAgent.turn(4), /^From borkcode, not the user:\n\ndemo#3 was closed: /);
   parentAgent.finish("noted");
 
-  await threads.send(parent.id, "and now?", { model: null, effort: null, accessMode: "full" });
-  assert.equal(await parentAgent.turn(3), "and now?");
-  parentAgent.finish("nothing new");
+  // A merge found as the user's message starts a turn joins that turn instead of waking the next.
+  github(8, "MERGED");
+  await threads.send(child!.id, "carry on", { model: null, effort: null, accessMode: "full" });
+  const joined = await childAgent.turn(3);
+  assert.match(joined, /demo#8 was merged/);
+  assert.match(joined, /Message from the user:\n\ncarry on/);
+  childAgent.finish("done");
+  await parentAgent.turn(5);
+  parentAgent.finish("ok");
 
-  // Nothing is open any more, so there is nothing to poll.
+  // Nothing is open any more, so there is nothing to poll, and nothing is told twice.
   const asked = lookups.length;
   await threads.refreshOpenPullRequests();
   assert.equal(lookups.length, asked);
+  assert.deepEqual([...db.listInbox(child!.id), ...db.listInbox(parent.id)], []);
+  assert.equal(childAgent.turns.length, 3);
+  assert.equal(parentAgent.turns.length, 5);
 });

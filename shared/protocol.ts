@@ -110,6 +110,8 @@ export type Item =
       text: string;
       /** Set when another thread's agent sent this message: a handoff, a request or a report. */
       fromThreadId?: string;
+      /** Sent by borkcode itself, such as news that a pull request was merged. */
+      fromBorkcode?: boolean;
       /** Delivered into a turn that was already running, at its next step. */
       steered?: boolean;
     }
