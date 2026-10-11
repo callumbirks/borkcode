@@ -94,6 +94,10 @@ const handlers: Handlers = {
     await threads.interrupt(threadId);
     return null;
   },
+  "threads.archive": async ({ threadId, archived }) => {
+    threads.setArchived(threadId, archived);
+    return null;
+  },
   "threads.delete": async ({ threadId, force }) => {
     await threads.delete(threadId, force ?? false);
     return null;

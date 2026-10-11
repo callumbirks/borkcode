@@ -322,3 +322,40 @@ test("pull requests merged between turns are news at the start of the next turn,
   await threads.refreshOpenPullRequests();
   assert.equal(lookups.length, asked);
 });
+
+test("archiving takes the subtree along, refuses while any of it works, and a message brings it back", async () => {
+  const { thread: parent, agent: parentAgent } = await startThread("plan the work");
+  await parentAgent.turn(1);
+  await threads.startThread(parent.id, { message: "a part", watch: true, startFrom: "base" });
+  const [child] = threads.list().filter((thread) => thread.parentId === parent.id);
+  const childAgent = await agentOf(child!.id);
+  await childAgent.turn(1);
+  const archivedAt = (id: string) => threads.list().find((thread) => thread.id === id)?.archivedAt ?? null;
+
+  assert.throws(() => threads.setArchived(parent.id, true), /still working/);
+  parentAgent.finish("handed off");
+  // The child is still working, so the parent cannot go either.
+  assert.throws(() => threads.setArchived(parent.id, true), /still working/);
+  assert.equal(archivedAt(parent.id), null);
+
+  childAgent.finish("built the part");
+  await parentAgent.turn(2);
+  parentAgent.finish("noted");
+
+  threads.setArchived(parent.id, true);
+  assert.notEqual(archivedAt(parent.id), null);
+  assert.notEqual(archivedAt(child!.id), null);
+
+  // Unarchiving the child restores its parent too, so it stays nested.
+  threads.setArchived(child!.id, false);
+  assert.equal(archivedAt(parent.id), null);
+  assert.equal(archivedAt(child!.id), null);
+
+  // A parent's message unarchives an archived child before it works on it.
+  threads.setArchived(child!.id, true);
+  assert.equal(archivedAt(parent.id), null);
+  threads.sendToThread(parent.id, child!.id, "one more thing");
+  assert.match(await childAgent.turn(2), /one more thing/);
+  assert.equal(archivedAt(child!.id), null);
+  childAgent.finish("done");
+});

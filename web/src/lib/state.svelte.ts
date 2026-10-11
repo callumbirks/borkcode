@@ -79,6 +79,7 @@ export function loadModels(provider: ProviderKind): Promise<void> {
 export type Route =
   | { view: "home" }
   | { view: "settings" }
+  | { view: "archived" }
   | { view: "project"; name: string }
   | { view: "file"; project: string; path: string }
   | { view: "thread"; id: string };
@@ -91,6 +92,7 @@ function parseRoute(): Route {
   if (view === "project" && id) return { view: "project", name: decodeURIComponent(id) };
   if (view === "thread" && id) return { view: "thread", id };
   if (view === "settings") return { view: "settings" };
+  if (view === "archived") return { view: "archived" };
   return { view: "home" };
 }
 
@@ -105,11 +107,13 @@ export function go(route: Route): void {
       ? "#/"
       : route.view === "settings"
         ? "#/settings"
-        : route.view === "project"
-          ? `#/project/${encodeURIComponent(route.name)}`
-          : route.view === "file"
-            ? `#/project/${encodeURIComponent(route.project)}/file/${encodeURIComponent(route.path)}`
-            : `#/thread/${route.id}`;
+        : route.view === "archived"
+          ? "#/archived"
+          : route.view === "project"
+            ? `#/project/${encodeURIComponent(route.name)}`
+            : route.view === "file"
+              ? `#/project/${encodeURIComponent(route.project)}/file/${encodeURIComponent(route.path)}`
+              : `#/thread/${route.id}`;
 }
 
 function upsertById<T extends { id: string }>(list: T[], value: T): void {

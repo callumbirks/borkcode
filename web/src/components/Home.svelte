@@ -21,7 +21,7 @@
 
   const threadCounts = $derived.by(() => {
     const counts = new Map<string, number>();
-    for (const thread of app.threads) counts.set(thread.project, (counts.get(thread.project) ?? 0) + 1);
+    for (const thread of app.threads.filter((thread) => thread.archivedAt === null)) counts.set(thread.project, (counts.get(thread.project) ?? 0) + 1);
     return counts;
   });
 </script>

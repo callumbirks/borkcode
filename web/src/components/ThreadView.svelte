@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Archive from "@lucide/svelte/icons/archive";
+  import ArchiveRestore from "@lucide/svelte/icons/archive-restore";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import CornerDownRight from "@lucide/svelte/icons/corner-down-right";
   import Crown from "@lucide/svelte/icons/crown";
@@ -157,6 +159,11 @@
     await rpc.request("approvals.respond", { threadId: id, approvalId, allow }).catch(() => undefined);
   }
 
+  async function setArchived(archived: boolean) {
+    error = "";
+    await rpc.request("threads.archive", { threadId: id, archived }).catch((cause: Error) => (error = cause.message));
+  }
+
   async function remove() {
     if (!thread) return;
     const what = thread.workspace ? "this thread and its worktrees (branches are kept)" : "this thread";
@@ -193,6 +200,11 @@
           <a class="chip" href="#/project/{encodeURIComponent(thread.project)}" title="Project">
             <Folder size={12} />{thread.project}
           </a>
+          {#if thread.archivedAt}
+            <a class="chip" href="#/archived" title="Hidden from the sidebar and project page">
+              <Archive size={12} />Archived
+            </a>
+          {/if}
           {#if thread.captain}
             <span class="chip" title="Coordinates the threads it starts"><Crown size={12} />Captain</span>
           {/if}
@@ -211,6 +223,20 @@
             <GitBranch size={12} />{thread.branch ?? "main checkout"}
           </span>
         </div>
+        {#if thread.archivedAt}
+          <button class="ghost icon archive" title="Unarchive thread" onclick={() => setArchived(false)}>
+            <ArchiveRestore size={16} />
+          </button>
+        {:else}
+          <button
+            class="ghost icon archive"
+            title={busy ? "Stop the thread to archive it" : "Archive thread and the threads it started"}
+            disabled={busy}
+            onclick={() => setArchived(true)}
+          >
+            <Archive size={16} />
+          </button>
+        {/if}
         <button class="ghost icon delete" title="Delete thread" onclick={remove}><Trash2 size={16} /></button>
       </header>
       <div class="transcript" bind:this={transcript} onscroll={onTranscriptScroll}>
@@ -355,8 +381,11 @@
     color: var(--text-primary);
     text-decoration: none;
   }
-  .delete {
+  .archive {
     margin-left: auto;
+    flex-shrink: 0;
+  }
+  .delete {
     flex-shrink: 0;
   }
   .delete:hover:not(:disabled) {

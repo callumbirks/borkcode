@@ -28,6 +28,11 @@ A thread's workspace always holds every repo of its project as siblings, named e
 workspace share one branch, `borkcode/<thread>`. Deleting a thread removes its worktrees and keeps
 the branches. A thread can also run directly in the main clones instead.
 
+Archiving a thread tucks it and the threads it started away on the **Archived** page, keeping its
+transcript, workspace, branch and pull requests. It can't be archived while any of them is working.
+Unarchive it from there or from the thread itself; a message to an archived thread, from you or
+from its parent, also brings it back.
+
 A thread starts from its first message. A small model, chosen under Settings (Codex `gpt-6-luna`
 at low effort by default), names it, and the workspace and branch are named after that title.
 Renaming a thread later changes only its displayed title. Model and effort can be switched

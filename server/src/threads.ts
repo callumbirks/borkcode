@@ -190,6 +190,7 @@ export class ThreadService {
       watched: params.watched,
       paused: false,
       queued: 0,
+      archivedAt: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -322,7 +323,7 @@ export class ThreadService {
           .listItems(child.id)
           .findLast((item) => item.kind === "assistant" && item.text.trim());
         return [
-          `- "${child.title}" (id ${child.id}): ${child.status}, ${child.provider} ${child.model ?? "default model"}, branch ${child.branch}`,
+          `- "${child.title}" (id ${child.id}): ${child.status}${child.archivedAt ? " (archived by the user)" : ""}, ${child.provider} ${child.model ?? "default model"}, branch ${child.branch}`,
           ...pullRequests.map((pr) => `  ${pr.repo} #${pr.number} ${pr.state}: ${pr.url}`),
           lastReply && "text" in lastReply ? `  Latest reply: ${truncate(lastReply.text, 600)}` : "  No reply yet.",
         ].join("\n");
@@ -336,6 +337,54 @@ export class ThreadService {
     const trimmed = title.trim();
     if (!trimmed) throw new Error("A thread needs a title");
     return toThread(this.#update(threadId, { title: trimmed }));
+  }
+
+  /**
+   * Archiving takes the subtree along, so children never surface at the top level, and is refused
+   * while any of it is working. Unarchiving also restores archived ancestors, so the thread stays
+   * nested under its parent. Workspaces, branches and transcripts are untouched either way.
+   */
+  setArchived(threadId: string, archived: boolean): void {
+    const thread = this.#require(threadId);
+    const subtree = this.#subtree(thread);
+    if (archived) {
+      const busy = subtree.find(
+        (each) => each.status === "preparing" || each.status === "running" || this.#live.get(each.id)?.active,
+      );
+      if (busy) {
+        throw new Error(`"${busy.title}" is still working. Stop it or wait for its turn to end, then archive.`);
+      }
+    }
+    const changed = [...(archived ? [] : this.#ancestors(thread)), ...subtree].filter(
+      (each) => (each.archivedAt !== null) !== archived,
+    );
+    this.#db.setArchived(
+      changed.map((each) => each.id),
+      archived ? Date.now() : null,
+    );
+    for (const each of changed) this.#emitThread(each.id);
+  }
+
+  /** The thread and every thread below it. */
+  #subtree(thread: StoredThread): StoredThread[] {
+    const found = [thread];
+    for (let index = 0; index < found.length; index++) {
+      for (const child of this.#db.listChildren(found[index]!.id)) {
+        if (!found.some((each) => each.id === child.id)) found.push(child);
+      }
+    }
+    return found;
+  }
+
+  #ancestors(thread: StoredThread): StoredThread[] {
+    const found: StoredThread[] = [];
+    for (let current = thread; current.parentId && found.length < 100; ) {
+      const parent = this.#db.getThread(current.parentId);
+      if (!parent) break;
+      found.push(parent);
+      current = parent;
+    }
+    return found;
   }
 
   async get(threadId: string): Promise<ThreadDetail> {
@@ -419,6 +468,8 @@ export class ThreadService {
     const live = this.#liveThread(threadId);
     const messages = this.#db.listInbox(threadId);
     if (!thread || messages.length === 0 || live.steering) return;
+    // Nothing works out of sight: a waiting message brings an archived thread back.
+    if (thread.archivedAt !== null) this.setArchived(threadId, false);
     if (live.active && !live.session) return;
     const automatic = messages.some((message) => message.fromThreadId !== null);
     if (automatic) {
@@ -558,13 +609,7 @@ export class ThreadService {
 
   /** The top of a thread's tree, which the family-wide limit is counted against. */
   #rootOf(thread: StoredThread): string {
-    let current = thread;
-    for (let depth = 0; current.parentId && depth < 100; depth++) {
-      const parent = this.#db.getThread(current.parentId);
-      if (!parent) break;
-      current = parent;
-    }
-    return current.id;
+    return (this.#ancestors(thread).at(-1) ?? thread).id;
   }
 
   #resetLimits(threadId: string): void {

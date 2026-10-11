@@ -12,7 +12,7 @@
 
   const project = $derived(app.projects.find((candidate) => candidate.name === name));
   const threads = $derived(
-    app.threads.filter((thread) => thread.project === name).sort((a, b) => b.updatedAt - a.updatedAt),
+    app.threads.filter((thread) => thread.project === name && thread.archivedAt === null).sort((a, b) => b.updatedAt - a.updatedAt),
   );
 
   const files = $derived(app.files[name] ?? []);

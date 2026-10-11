@@ -47,6 +47,7 @@ interface ThreadRow {
   watched: number;
   paused: number;
   queued: number;
+  archived_at: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -70,6 +71,7 @@ function fromRow(row: ThreadRow): StoredThread {
     watched: row.watched === 1,
     paused: row.paused === 1,
     queued: row.queued,
+    archivedAt: row.archived_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -104,6 +106,7 @@ export class Database {
         captain INTEGER NOT NULL DEFAULT 0,
         watched INTEGER NOT NULL DEFAULT 0,
         paused INTEGER NOT NULL DEFAULT 0,
+        archived_at INTEGER,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
@@ -146,6 +149,7 @@ export class Database {
     for (const column of ["captain", "watched", "paused"]) {
       if (missing(column)) this.#db.exec(`ALTER TABLE threads ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
     }
+    if (missing("archived_at")) this.#db.exec(`ALTER TABLE threads ADD COLUMN archived_at INTEGER`);
     const prColumns = this.#db.prepare(`PRAGMA table_info(pull_requests)`).all() as unknown as { name: string }[];
     if (!prColumns.some((column) => column.name === "head_oid")) {
       this.#db.exec(`ALTER TABLE pull_requests ADD COLUMN head_oid TEXT NOT NULL DEFAULT ''`);
@@ -184,8 +188,8 @@ export class Database {
       .prepare(
         `INSERT INTO threads (id, project, title, provider, model, effort, access_mode, workspace,
           branch, status, provider_session_id, parent_id, start_branch, captain, watched, paused,
-          created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          archived_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         thread.id,
@@ -204,6 +208,7 @@ export class Database {
         Number(thread.captain),
         Number(thread.watched),
         Number(thread.paused),
+        thread.archivedAt,
         thread.createdAt,
         thread.updatedAt,
       );
@@ -250,6 +255,12 @@ export class Database {
         id,
       );
     return next;
+  }
+
+  /** Archiving is not activity, so it leaves updated_at alone and threads keep their place. */
+  setArchived(ids: string[], archivedAt: number | null): void {
+    const update = this.#db.prepare(`UPDATE threads SET archived_at = ? WHERE id = ?`);
+    for (const id of ids) update.run(archivedAt, id);
   }
 
   enqueue(message: Omit<InboxMessage, "id" | "createdAt">): void {

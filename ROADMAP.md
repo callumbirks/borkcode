@@ -14,6 +14,8 @@ What borkcode has shipped and what may come next. The constraints every change w
    delegation limits.
 4. **Per-thread drafts.** Each thread keeps its unsent chatbox text, in the browser's
    localStorage, so switching threads or reloading doesn't lose it.
+5. **Archived threads.** Threads and their subtrees can be archived out of the sidebar onto an
+   Archived page, and come back when unarchived or messaged.
 
 ## Next
 
