@@ -10,7 +10,7 @@ import Plug from "@lucide/svelte/icons/plug";
 import Search from "@lucide/svelte/icons/search";
 import SquareTerminal from "@lucide/svelte/icons/square-terminal";
 import Wrench from "@lucide/svelte/icons/wrench";
-import type { LinkedPullRequest, ProviderKind } from "shared/protocol";
+import type { ProviderKind } from "shared/protocol";
 
 /** Ticks once a minute so relative times stay current without repainting every frame. */
 export const clock = $state({ now: Date.now() });
@@ -29,13 +29,7 @@ export function relativeTime(timestamp: number): string {
 
 export const providerLabel: Record<ProviderKind, string> = { claude: "Claude", codex: "Codex" };
 
-export type PullRequestState = "open" | "merged" | "closed";
-
-/** GitHub's OPEN, MERGED or CLOSED. Pair with the `pr-<state>` colour classes in app.css. */
-export function pullRequestState(pr: LinkedPullRequest): PullRequestState {
-  const state = pr.state.toLowerCase();
-  return state === "merged" || state === "closed" ? state : "open";
-}
+export { pullRequestState, type PullRequestState } from "./pullRequests.ts";
 
 export const pullRequestIcon = { open: GitPullRequest, merged: GitMerge, closed: GitPullRequestClosed };
 
