@@ -305,7 +305,7 @@
       threadId={id}
       status={thread.status}
       workspacePath={detail.workspacePath}
-      pullRequests={detail.pullRequests}
+      pullRequests={app.pullRequests[detail.thread.id] ?? []}
     />
   </div>
 {/if}

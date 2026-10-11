@@ -352,7 +352,6 @@ export class ThreadService {
       workspacePath: workspacePath(project, thread.workspace),
       items,
       approvals: [...(live?.approvals.values() ?? [])].map((entry) => entry.approval),
-      pullRequests: this.#db.listPullRequests(threadId),
     };
   }
 
@@ -630,6 +629,13 @@ export class ThreadService {
 
   projectOf(threadId: string): string {
     return this.#require(threadId).project;
+  }
+
+  /** Every thread's pull requests, keyed by thread id, for clients. */
+  allPullRequests(): Record<string, LinkedPullRequest[]> {
+    const byThread: Record<string, LinkedPullRequest[]> = {};
+    for (const { threadId, pr } of this.#db.listPullRequestLinks()) (byThread[threadId] ??= []).push(pr);
+    return byThread;
   }
 
   async listPullRequests(threadId: string): Promise<LinkedPullRequest[]> {

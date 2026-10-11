@@ -99,6 +99,7 @@ const handlers: Handlers = {
     return null;
   },
   "threads.repoStatus": ({ threadId }) => threads.repoStatus(threadId),
+  "pullRequests.list": async () => threads.allPullRequests(),
   "approvals.respond": async ({ threadId, approvalId, allow }) => {
     threads.respondToApproval(threadId, approvalId, allow);
     return null;

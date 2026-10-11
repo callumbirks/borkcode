@@ -1,13 +1,16 @@
 import Bot from "@lucide/svelte/icons/bot";
 import FilePen from "@lucide/svelte/icons/file-pen";
 import FileText from "@lucide/svelte/icons/file-text";
+import GitMerge from "@lucide/svelte/icons/git-merge";
+import GitPullRequest from "@lucide/svelte/icons/git-pull-request";
+import GitPullRequestClosed from "@lucide/svelte/icons/git-pull-request-closed";
 import Globe from "@lucide/svelte/icons/globe";
 import ListTodo from "@lucide/svelte/icons/list-todo";
 import Plug from "@lucide/svelte/icons/plug";
 import Search from "@lucide/svelte/icons/search";
 import SquareTerminal from "@lucide/svelte/icons/square-terminal";
 import Wrench from "@lucide/svelte/icons/wrench";
-import type { ProviderKind } from "shared/protocol";
+import type { LinkedPullRequest, ProviderKind } from "shared/protocol";
 
 /** Ticks once a minute so relative times stay current without repainting every frame. */
 export const clock = $state({ now: Date.now() });
@@ -25,6 +28,16 @@ export function relativeTime(timestamp: number): string {
 }
 
 export const providerLabel: Record<ProviderKind, string> = { claude: "Claude", codex: "Codex" };
+
+export type PullRequestState = "open" | "merged" | "closed";
+
+/** GitHub's OPEN, MERGED or CLOSED. Pair with the `pr-<state>` colour classes in app.css. */
+export function pullRequestState(pr: LinkedPullRequest): PullRequestState {
+  const state = pr.state.toLowerCase();
+  return state === "merged" || state === "closed" ? state : "open";
+}
+
+export const pullRequestIcon = { open: GitPullRequest, merged: GitMerge, closed: GitPullRequestClosed };
 
 // Tool names differ by provider: Claude says "Bash" or "mcp__server__tool", Codex "shell" or "server.tool".
 export function toolIcon(name: string) {

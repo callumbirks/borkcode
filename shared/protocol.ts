@@ -161,7 +161,6 @@ export interface ThreadDetail {
   workspacePath: string;
   items: Item[];
   approvals: Approval[];
-  pullRequests: LinkedPullRequest[];
 }
 
 export interface Requests {
@@ -219,6 +218,8 @@ export interface Requests {
   "threads.resume": { params: { threadId: string }; result: null };
   "threads.delete": { params: { threadId: string; force?: boolean }; result: null };
   "threads.repoStatus": { params: { threadId: string }; result: RepoStatus[] };
+  /** Every thread's linked pull requests, keyed by thread id. `pullRequests.changed` keeps them current. */
+  "pullRequests.list": { params: Record<string, never>; result: Record<string, LinkedPullRequest[]> };
   "approvals.respond": {
     params: { threadId: string; approvalId: string; allow: boolean };
     result: null;
