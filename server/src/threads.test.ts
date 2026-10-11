@@ -4,12 +4,14 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import { after, test } from "node:test";
 import type { Item, LinkedPullRequest, Question, ServerEvent } from "shared/protocol";
+import { AttachmentStore } from "./attachments.ts";
 import { Database } from "./db.ts";
 import { ProjectStore } from "./projects.ts";
 import type { PullRequestState } from "./pullRequests.ts";
-import type { ProviderSession, SessionEvents, TurnSettings } from "./providers/types.ts";
+import type { ProviderSession, SessionEvents, TurnAttachment, TurnSettings } from "./providers/types.ts";
 import { SettingsStore } from "./settings.ts";
 import { ThreadService } from "./threads.ts";
 
@@ -18,6 +20,8 @@ class FakeAgent implements ProviderSession {
   readonly turns: string[] = [];
   readonly settings: TurnSettings[] = [];
   readonly steers: string[] = [];
+  /** Attachments sent with each turn, then with each steer. */
+  readonly attachments: TurnAttachment[][] = [];
   /** Whether a message can join the running turn, as when a tool call is in progress. */
   steerable = false;
   readonly #events: SessionEvents;
@@ -27,14 +31,18 @@ class FakeAgent implements ProviderSession {
     this.#events = events;
   }
 
-  async sendTurn(text: string, settings: TurnSettings) {
+  async sendTurn(text: string, settings: TurnSettings, attachments: TurnAttachment[]) {
     this.turns.push(text);
+    this.attachments.push(attachments);
     this.settings.push(settings);
     for (const wake of this.#waiting.splice(0)) wake();
   }
 
-  async steer(text: string) {
-    if (this.steerable) this.steers.push(text);
+  async steer(text: string, attachments: TurnAttachment[]) {
+    if (this.steerable) {
+      this.steers.push(text);
+      this.attachments.push(attachments);
+    }
     return this.steerable;
   }
 
@@ -91,9 +99,15 @@ function emit(event: ServerEvent) {
 const remote = new Map<string, PullRequestState>();
 const lookups: string[][] = [];
 
-const db = new Database(":memory:");
-const threads = new ThreadService(db, projects, settings, emit, "http://test/mcp/", {
-  startSession: async (_provider, options) => {
+const attachments = new AttachmentStore(home);
+/** A 1x1 PNG. */
+const PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+const fakeDeps = {
+  startSession: async (_provider: string, options: { cwd: string; events: SessionEvents }) => {
     const agent = new FakeAgent(options.events);
     agents.push({ cwd: options.cwd, agent });
     agentStarted();
@@ -108,12 +122,14 @@ const threads = new ThreadService(db, projects, settings, emit, "http://test/mcp
     provider === "claude"
       ? [{ id: "opus-5-5", name: "Opus 5.5", isDefault: true, efforts: ["medium", "xhigh"], defaultEffort: "xhigh" }]
       : [{ id: "gpt-6.1-sol", name: "GPT 6.1 Sol", isDefault: true, efforts: ["low", "high"], defaultEffort: "low" }],
-});
+} satisfies ConstructorParameters<typeof ThreadService>[6];
+const db = new Database(":memory:");
+const threads = new ThreadService(db, projects, settings, emit, "http://test/mcp/", attachments, fakeDeps);
 
 /** The agent session of a thread, once its first turn has opened one. */
-async function agentOf(threadId: string): Promise<FakeAgent> {
+async function agentOf(threadId: string, service = threads): Promise<FakeAgent> {
   for (;;) {
-    const { workspacePath } = await threads.get(threadId);
+    const { workspacePath } = await service.get(threadId);
     const found = agents.find((entry) => entry.cwd === workspacePath);
     if (found) return found.agent;
     await new Promise<void>((resolve) => (agentStarted = resolve));
@@ -571,4 +587,58 @@ test("stopping the turn drops a pending question unanswered", async () => {
   assert.equal(after.thread.waiting, false);
   const item = after.items.find((entry) => entry.id === "q2");
   assert.equal(item?.kind === "question" && item.answers, null);
+});
+
+test("attachments go with a message to the agent, steered or queued across a restart, and leave with the thread", async () => {
+  const dbPath = join(home, "restart.sqlite");
+  const before = new ThreadService(new Database(dbPath), projects, settings, emit, "http://test/mcp/", attachments, fakeDeps);
+  const thread = await before.create({
+    project: "demo",
+    text: "first task",
+    provider: "claude",
+    model: null,
+    effort: null,
+    accessMode: "full",
+    isolated: true,
+    captain: false,
+  });
+  const agent = await agentOf(thread.id, before);
+  await agent.turn(1);
+  const upload = () => before.upload(thread.id, "shot.png", "image/png", Readable.from([PNG]));
+  const settingsNow = { model: null, effort: null, accessMode: "full" as const };
+
+  agent.steerable = true;
+  const steered = await upload();
+  await before.send(thread.id, "", settingsNow, [steered.id]);
+  assert.deepEqual(agent.steers, [""]);
+  assert.deepEqual(
+    agent.attachments.at(-1)?.map((each) => each.id),
+    [steered.id],
+  );
+  assert.deepEqual(await readFile(agent.attachments.at(-1)![0]!.path), PNG);
+
+  agent.steerable = false;
+  const queued = await upload();
+  await before.send(thread.id, "and this one", settingsNow, [queued.id]);
+  assert.throws(() => before.send(thread.id, "missing", settingsNow, [randomUUID()]), /attach the file again/);
+
+  // A restart ends the agent with the message still waiting.
+  const restarted = new ThreadService(new Database(dbPath), projects, settings, emit, "http://test/mcp/", attachments, fakeDeps);
+  const resumed = new Promise<void>((resolve) => (agentStarted = resolve));
+  restarted.resumeQueued();
+  await resumed;
+  const next = agents.at(-1)!.agent;
+  assert.equal(await next.turn(1), "and this one");
+  assert.deepEqual(next.attachments[0], [{ ...queued, path: attachments.path(thread.id, queued) }]);
+  const items = (await restarted.get(thread.id)).items.filter((item) => item.kind === "user");
+  assert.deepEqual(
+    items.map((item) => item.attachments?.map((each) => each.id) ?? []),
+    [[], [steered.id], [queued.id]],
+  );
+  assert.equal(restarted.attachmentFile(thread.id, queued.id)?.name, "shot.png");
+
+  next.finish("done");
+  await restarted.delete(thread.id, true);
+  assert.equal(restarted.attachmentFile(thread.id, queued.id), null);
+  assert.ok(!existsSync(attachments.dir(thread.id)));
 });

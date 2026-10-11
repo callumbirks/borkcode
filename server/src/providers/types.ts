@@ -1,4 +1,4 @@
-import type { AccessMode, Approval, Effort, Item, Question } from "shared/protocol";
+import type { AccessMode, Approval, Attachment, Effort, Item, Question } from "shared/protocol";
 
 export type TurnOutcome = { status: "completed" | "interrupted" } | { status: "failed"; error: string };
 
@@ -47,18 +47,23 @@ export interface TurnSettings extends ModelSettings {
   accessMode: AccessMode;
 }
 
+/** A file sent with a message, stored on this machine at `path`. */
+export interface TurnAttachment extends Attachment {
+  path: string;
+}
+
 export interface ProviderSession {
   /**
    * Starts a turn, switching model, effort and access mode first if they changed. Resolves once the provider
    * accepts it; the end arrives as `turnEnded`.
    */
-  sendTurn(text: string, settings: TurnSettings): Promise<void>;
+  sendTurn(text: string, settings: TurnSettings, attachments: TurnAttachment[]): Promise<void>;
   /**
    * Adds a message to the running turn at its next step, without interrupting a tool call.
    * Resolves false when that is not possible right now, and the caller should wait for the turn
    * to end instead.
    */
-  steer(text: string): Promise<boolean>;
+  steer(text: string, attachments: TurnAttachment[]): Promise<boolean>;
   interrupt(): Promise<void>;
   close(): void;
 }
@@ -78,4 +83,13 @@ export function isEffort(value: unknown): value is Effort {
 
 export function truncate(text: string, max = 8000): string {
   return text.length <= max ? text : `${text.slice(0, max)}\n… (${text.length - max} more characters)`;
+}
+
+/**
+ * Images reach the model as pixels, but its tools can only use a file by path, so every attachment
+ * is also named with its path, e.g. for an agent asked to commit a screenshot.
+ */
+export function withAttachmentPaths(text: string, attachments: TurnAttachment[]): string {
+  const notes = attachments.map((attachment) => `[Attached file "${attachment.name}" is saved at: ${attachment.path}]`);
+  return [text, ...notes].filter(Boolean).join("\n\n");
 }

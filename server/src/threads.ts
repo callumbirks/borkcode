@@ -4,6 +4,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   Approval,
+  Attachment,
   Effort,
   Item,
   LinkedPullRequest,
@@ -18,6 +19,7 @@ import type {
   Thread,
   ThreadDetail,
 } from "shared/protocol";
+import type { AttachmentStore } from "./attachments.ts";
 import { toThread, type Database, type InboxMessage, type StoredThread } from "./db.ts";
 import {
   borkcodeMessage,
@@ -54,6 +56,7 @@ import {
   truncate,
   type ProviderSession,
   type SessionOptions,
+  type TurnAttachment,
   type TurnOutcome,
   type TurnSettings,
 } from "./providers/types.ts";
@@ -141,6 +144,7 @@ export class ThreadService {
   readonly #emit: (event: ServerEvent) => void;
   /** Agent sessions reach the MCP endpoint at this URL followed by their token. */
   readonly #mcpBaseUrl: string;
+  readonly #attachments: AttachmentStore;
   readonly #deps: ThreadDeps;
   readonly #live = new Map<string, LiveThread>();
   readonly #mcpTokens = new Map<string, string>();
@@ -155,6 +159,7 @@ export class ThreadService {
     settings: SettingsStore,
     emit: (event: ServerEvent) => void,
     mcpBaseUrl: string,
+    attachments: AttachmentStore,
     deps: ThreadDeps = realDeps,
   ) {
     this.#db = db;
@@ -162,6 +167,7 @@ export class ThreadService {
     this.#settings = settings;
     this.#emit = emit;
     this.#mcpBaseUrl = mcpBaseUrl;
+    this.#attachments = attachments;
     this.#deps = deps;
     this.#pollPullRequests();
   }
@@ -455,13 +461,29 @@ export class ThreadService {
   }
 
   /**
-   * A message from the user. Starts a turn when the agent is free; otherwise it joins the running
-   * turn at its next step, or waits for the turn to end. Messaging a thread also resets its
-   * delegation limits, since the user is now in the loop.
+   * A message from the user, with ids of files uploaded to the thread. Starts a turn when the agent
+   * is free; otherwise it joins the running turn at its next step, or waits for the turn to end.
+   * Messaging a thread also resets its delegation limits, since the user is now in the loop.
+   * Throws right away, rather than from the returned turn, when an attachment is unknown.
    */
-  async send(threadId: string, text: string, settings: TurnSettings): Promise<void> {
-    const trimmed = text.trim();
-    if (!trimmed) return;
+  send(threadId: string, text: string, settings: TurnSettings, attachmentIds: string[] = []): Promise<void> {
+    this.#require(threadId);
+    return this.#send(threadId, text.trim(), settings, this.#attachments.resolve(threadId, attachmentIds));
+  }
+
+  /** Stores an upload for a later message. */
+  async upload(threadId: string, name: string, mimeType: string, body: AsyncIterable<Uint8Array>): Promise<Attachment> {
+    this.#require(threadId);
+    return this.#attachments.save(threadId, name, mimeType, body);
+  }
+
+  /** The file behind an attachment, or null if the thread has no such attachment. */
+  attachmentFile(threadId: string, attachmentId: string): TurnAttachment | null {
+    return this.#db.getThread(threadId) ? this.#attachments.get(threadId, attachmentId) : null;
+  }
+
+  async #send(threadId: string, trimmed: string, settings: TurnSettings, attachments: Attachment[]): Promise<void> {
+    if (!trimmed && attachments.length === 0) return;
     const thread = this.#require(threadId);
     this.#resetLimits(threadId);
     // Saved now so they apply to the next turn, even when this message joins a running one.
@@ -473,7 +495,7 @@ export class ThreadService {
     ) {
       this.#db.updateThread(threadId, { ...settings, paused: false });
     }
-    this.#db.enqueue({ threadId, fromThreadId: null, kind: "message", text: trimmed });
+    this.#db.enqueue({ threadId, fromThreadId: null, kind: "message", text: trimmed, attachments });
     this.#emitThread(threadId);
     await this.#deliver(threadId);
   }
@@ -538,7 +560,9 @@ export class ThreadService {
       live.steering = true;
       try {
         const session = await live.session!.catch(() => null);
-        const steered = session ? await session.steer(this.#compose(thread, messages)) : false;
+        const steered = session
+          ? await session.steer(this.#compose(thread, messages), this.#turnAttachments(thread, messages))
+          : false;
         if (!steered) return;
         this.#db.removeFromInbox(messages.map((message) => message.id));
         this.#accepted(thread, messages, true, automatic);
@@ -552,7 +576,7 @@ export class ThreadService {
     live.userJoined = false;
     this.#db.removeFromInbox(messages.map((message) => message.id));
     this.#accepted(thread, messages, false, automatic);
-    await this.#runTurn(threadId, this.#compose(thread, messages));
+    await this.#runTurn(threadId, this.#compose(thread, messages), this.#turnAttachments(thread, messages));
   }
 
   /** Records delivered messages in the transcript. A parent's message makes it watch the thread. */
@@ -562,6 +586,7 @@ export class ThreadService {
         id: randomUUID(),
         kind: "user",
         text: message.text,
+        ...(message.attachments.length > 0 ? { attachments: message.attachments } : {}),
         ...(message.fromThreadId ? { fromThreadId: message.fromThreadId } : {}),
         ...(message.kind === "borkcode" ? { fromBorkcode: true } : {}),
         ...(steered ? { steered: true } : {}),
@@ -597,7 +622,13 @@ export class ThreadService {
     );
   }
 
-  async #runTurn(threadId: string, text: string): Promise<void> {
+  #turnAttachments(thread: StoredThread, messages: InboxMessage[]): TurnAttachment[] {
+    return messages.flatMap((message) =>
+      message.attachments.map((attachment) => ({ ...attachment, path: this.#attachments.path(thread.id, attachment) })),
+    );
+  }
+
+  async #runTurn(threadId: string, text: string, attachments: TurnAttachment[]): Promise<void> {
     const live = this.#liveThread(threadId);
     await live.preparing;
     if (!this.#db.getThread(threadId)) return;
@@ -607,7 +638,11 @@ export class ThreadService {
       if (thread.workspace) await this.#addMissingRepos(thread);
       live.session ??= this.#openSession(thread);
       const session = await live.session;
-      await session.sendTurn(text, { model: thread.model, effort: thread.effort, accessMode: thread.accessMode });
+      await session.sendTurn(
+        text,
+        { model: thread.model, effort: thread.effort, accessMode: thread.accessMode },
+        attachments,
+      );
     } catch (error) {
       const session = live.session;
       live.session = null;
@@ -709,6 +744,7 @@ export class ThreadService {
     this.#live.delete(threadId);
     if (thread.workspace) await removeWorkspace(project, thread.workspace, true);
     else await rm(scratchPath(project, thread), { recursive: true, force: true });
+    await this.#attachments.remove(threadId);
     const orphans = this.#db.deleteThread(threadId);
     this.#emit({ type: "thread.deleted", threadId });
     for (const orphan of orphans) {
@@ -878,6 +914,10 @@ export class ThreadService {
     const scratch = scratchPath(project, thread);
     await mkdir(scratch, { recursive: true });
     if (!thread.workspace) writableRoots.push(scratch);
+    // So the agent's tools can use the files the user attached, which its prompt names by path.
+    const attachments = this.#attachments.dir(thread.id);
+    await mkdir(attachments, { recursive: true });
+    writableRoots.push(attachments);
     const brief = join(scratch, "brief.md");
     const threadId = thread.id;
     const live = this.#liveThread(threadId);

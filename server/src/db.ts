@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Item, LinkedPullRequest, Thread } from "shared/protocol";
+import type { Attachment, Item, LinkedPullRequest, Thread } from "shared/protocol";
 
 /** `waiting` is live state, added by the thread service. */
 export interface StoredThread extends Omit<Thread, "waiting"> {
@@ -25,6 +25,8 @@ export interface InboxMessage {
    */
   kind: "message" | "handoff" | "report" | "borkcode";
   text: string;
+  /** Files the user sent with the message. */
+  attachments: Attachment[];
   createdAt: number;
 }
 
@@ -124,6 +126,7 @@ export class Database {
         from_thread_id TEXT,
         kind TEXT NOT NULL,
         text TEXT NOT NULL,
+        attachments TEXT NOT NULL DEFAULT '[]',
         created_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS items (
@@ -173,6 +176,9 @@ export class Database {
     const inboxColumns = this.#db.prepare(`PRAGMA table_info(inbox)`).all() as unknown as { name: string }[];
     if (!inboxColumns.some((column) => column.name === "kind")) {
       this.#db.exec(`ALTER TABLE inbox ADD COLUMN kind TEXT NOT NULL DEFAULT 'message'`);
+    }
+    if (!inboxColumns.some((column) => column.name === "attachments")) {
+      this.#db.exec(`ALTER TABLE inbox ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'`);
     }
     // A server restart ends every provider process, so nothing can still be running.
     this.#db
@@ -287,20 +293,30 @@ export class Database {
     for (const id of ids) update.run(archivedAt, id);
   }
 
-  enqueue(message: Omit<InboxMessage, "id" | "createdAt">): void {
+  enqueue(message: Omit<InboxMessage, "id" | "createdAt" | "attachments"> & { attachments?: Attachment[] }): void {
     this.#db
-      .prepare(`INSERT INTO inbox (id, thread_id, from_thread_id, kind, text, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
-      .run(randomUUID(), message.threadId, message.fromThreadId, message.kind, message.text, Date.now());
+      .prepare(
+        `INSERT INTO inbox (id, thread_id, from_thread_id, kind, text, attachments, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        randomUUID(),
+        message.threadId,
+        message.fromThreadId,
+        message.kind,
+        message.text,
+        JSON.stringify(message.attachments ?? []),
+        Date.now(),
+      );
   }
 
   listInbox(threadId: string): InboxMessage[] {
     const rows = this.#db
       .prepare(
-        `SELECT id, thread_id AS threadId, from_thread_id AS fromThreadId, kind, text, created_at AS createdAt
+        `SELECT id, thread_id AS threadId, from_thread_id AS fromThreadId, kind, text, attachments, created_at AS createdAt
          FROM inbox WHERE thread_id = ? ORDER BY created_at, rowid`,
       )
-      .all(threadId);
-    return rows.map((row) => ({ ...(row as unknown as InboxMessage) }));
+      .all(threadId) as unknown as (Omit<InboxMessage, "attachments"> & { attachments: string })[];
+    return rows.map((row) => ({ ...row, attachments: JSON.parse(row.attachments) as Attachment[] }));
   }
 
   removeFromInbox(ids: string[]): void {
