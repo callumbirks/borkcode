@@ -27,9 +27,9 @@ function latestPullRequest(linked: LinkedPullRequest[], repo: string): LinkedPul
   return linked.filter((pr) => pr.repo === repo).at(-1);
 }
 
-async function containsCommit(repoDir: string, oid: string): Promise<boolean> {
+async function containsCommit(repoDir: string, oid: string, ref = "HEAD"): Promise<boolean> {
   if (!oid) return false;
-  return git(repoDir, "merge-base", "--is-ancestor", oid, "HEAD").then(
+  return git(repoDir, "merge-base", "--is-ancestor", oid, ref).then(
     () => true,
     () => false,
   );
@@ -38,6 +38,9 @@ async function containsCommit(repoDir: string, oid: string): Promise<boolean> {
 /**
  * Repos whose latest pull request was merged while the branch still carries the merged commits.
  * Those need syncing before more work is published, or the merged work would be repeated.
+ * A merge commit puts the merged head into the base itself, so a branch built on the base
+ * carries it without repeating anything. A stale `origin/<base>` can only report a false
+ * positive here, which syncing clears because it fetches first.
  */
 export async function mergedNotSynced(
   statuses: RepoStatus[],
@@ -46,7 +49,12 @@ export async function mergedNotSynced(
   const result = new Map<string, LinkedPullRequest>();
   for (const status of statuses) {
     const latest = latestPullRequest(linked, status.name);
-    if (status.exists && latest?.state === "MERGED" && (await containsCommit(status.path, latest.headOid))) {
+    if (
+      status.exists &&
+      latest?.state === "MERGED" &&
+      (await containsCommit(status.path, latest.headOid)) &&
+      !(await containsCommit(status.path, latest.headOid, `origin/${status.baseBranch}`))
+    ) {
       result.set(status.name, latest);
     }
   }

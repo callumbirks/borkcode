@@ -166,6 +166,29 @@ test("after a squash merge, syncing keeps only later commits and the next push r
   assert.equal(await git(origin, "rev-parse", BRANCH), await git(clone, "rev-parse", "HEAD"));
 });
 
+test("after a merge-commit merge, new work on the base publishes without syncing", async () => {
+  const { origin, clone } = await makeRepo("mergecommit");
+  const mergedHead = await commit(clone, "app.txt", "one\ntwo\n", "feature");
+  await pushBranch(clone, BRANCH, null);
+  await git(clone, "switch", "-q", "--detach", "origin/main");
+  await git(clone, "merge", "-q", "--no-ff", "-m", "Merge PR", mergedHead);
+  await git(clone, "push", "-q", "origin", "HEAD:main");
+  await git(clone, "switch", "-q", BRANCH);
+  await git(clone, "fetch", "-q", "origin");
+  await git(clone, "reset", "-q", "--hard", "origin/main");
+  await commit(clone, "follow.txt", "follow-up\n", "follow-up");
+
+  const linked = [pr("mergecommit", 1, "MERGED", mergedHead)];
+  const unsynced = await mergedNotSynced([status("mergecommit", 1, [], clone)], linked);
+  assert.equal(unsynced.size, 0);
+  assert.deepEqual(
+    planSync([status("mergecommit", 1, [], clone)], unsynced).map((step) => step.action),
+    ["keep"],
+  );
+  await pushBranch(clone, BRANCH, mergedHead);
+  assert.equal(await git(origin, "rev-parse", BRANCH), await git(clone, "rev-parse", "HEAD"));
+});
+
 test("a leased push still refuses to overwrite commits someone else pushed", async () => {
   const { clone } = await makeRepo("lease");
   const mergedHead = await commit(clone, "a.txt", "a\n", "a");
