@@ -14,10 +14,7 @@ add machinery because it looks architecturally impressive.
 - **Providers:** Claude and Codex only.
 - **Local only for now.** Remote access may come later, so the server owns all state and the
   client only renders it. Keep that split; it is what makes remote cheap later.
-- **Not planned yet:** checkpoints/restore, mobile, other providers.
-- **Done:** multi-repo projects and workspaces (milestone 1); shared project files with agent
-  tools (milestone 2); captain threads that delegate to child threads and see their PRs, with
-  handoffs, watched delegation and delegation limits (milestone 3).
+- **Roadmap:** what's done, next and not planned is in `ROADMAP.md`.
 
 This started as a fork of t3code, which is kept at `~/projects/apps/borkcode` as a read-only
 reference. We chose not to build on it because its orchestration model differs from the one we
