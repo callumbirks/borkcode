@@ -34,6 +34,16 @@ export function buildInstructions(project: Project, thread: Thread, cwd: string,
     lines.push("Only commit when the user asks.");
   }
   lines.push("When a change spans repositories, commit it in each affected repository.");
+  lines.push(
+    "",
+    "## Handing off to other threads",
+    "When the user asks you to hand work off to a new thread, use the borkcode start_thread tool. Only start threads when asked.",
+    "The new thread sees only your message, so make it self-contained. For a long brief, write it to a project file first and tell the new thread to read it.",
+    thread.branch
+      ? "Use start_from this_branch to continue your own work with fresh context, and base for separate work."
+      : "You work in the main checkouts, so new threads start from each repository's base branch.",
+    "list_child_threads shows the threads you started, their pull requests and their latest replies.",
+  );
   if (thread.branch) {
     lines.push(
       "",

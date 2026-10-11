@@ -77,6 +77,32 @@ test("a workspace holds sibling worktrees of every repo on one branch", async ()
   assert.deepEqual(await ensureWorkspace(project, "fix-a1", "borkcode/fix-a1"), []);
 });
 
+test("a handoff workspace starts from another thread's branch where a repo has it", async () => {
+  const project = await store.get("doofcraft");
+  await ensureWorkspace(project, "parent-p1", "borkcode/parent-p1");
+  const parentRepo = join(workspacePath(project, "parent-p1"), "doofcraft");
+  await git(parentRepo, "config", "user.email", "test@example.com");
+  await git(parentRepo, "config", "user.name", "test");
+  await writeFile(join(parentRepo, "work.txt"), "parent work\n");
+  await git(parentRepo, "add", ".");
+  await git(parentRepo, "commit", "-q", "-m", "parent work");
+  // A branch only doofcraft has, as when a repo joined the project after the parent's workspace.
+  await git(parentRepo, "branch", "borkcode/only-doofcraft");
+
+  await ensureWorkspace(project, "child-c1", "borkcode/child-c1", "borkcode/parent-p1");
+  const child = workspacePath(project, "child-c1");
+  assert.equal(await git(join(child, "doofcraft"), "rev-parse", "HEAD"), await git(parentRepo, "rev-parse", "HEAD"));
+  assert.equal(await readFile(join(child, "doofcraft", "work.txt"), "utf8"), "parent work\n");
+  assert.equal(await git(join(child, "doofcraft"), "rev-parse", "--abbrev-ref", "HEAD"), "borkcode/child-c1");
+
+  await ensureWorkspace(project, "child-c2", "borkcode/child-c2", "borkcode/only-doofcraft");
+  const vessel = join(workspacePath(project, "child-c2"), "vessel");
+  assert.equal(
+    await git(vessel, "rev-parse", "HEAD"),
+    await git(join(project.path, "repos", "vessel"), "rev-parse", "origin/trunk"),
+  );
+});
+
 test("repos added later are filled into existing workspaces", async () => {
   await store.create("late");
   await store.addRepo("late", await makeOrigin("first"));

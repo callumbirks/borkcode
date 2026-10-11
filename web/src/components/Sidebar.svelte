@@ -7,12 +7,22 @@
   import { providerLabel, relativeTime } from "../lib/display.svelte";
   import { app, go, nav } from "../lib/state.svelte";
 
+  // Threads nest under the thread that started them; top-level threads sort by recent activity.
   const threadsByProject = $derived.by(() => {
-    const groups = new Map<string, Thread[]>();
-    for (const thread of [...app.threads].sort((a, b) => b.updatedAt - a.updatedAt)) {
+    const children = new Map<string, Thread[]>();
+    for (const thread of [...app.threads].sort((a, b) => a.createdAt - b.createdAt)) {
+      if (thread.parentId) children.set(thread.parentId, [...(children.get(thread.parentId) ?? []), thread]);
+    }
+    const ids = new Set(app.threads.map((thread) => thread.id));
+    const groups = new Map<string, { thread: Thread; depth: number }[]>();
+    const add = (thread: Thread, depth: number) => {
       const list = groups.get(thread.project) ?? [];
-      list.push(thread);
+      list.push({ thread, depth });
       groups.set(thread.project, list);
+      for (const child of children.get(thread.id) ?? []) add(child, depth + 1);
+    };
+    for (const thread of [...app.threads].sort((a, b) => b.updatedAt - a.updatedAt)) {
+      if (!thread.parentId || !ids.has(thread.parentId)) add(thread, 0);
     }
     return groups;
   });
@@ -53,9 +63,10 @@
             <Plus size={14} />
           </button>
         </div>
-        {#each threads as thread (thread.id)}
+        {#each threads as { thread, depth } (thread.id)}
           <button
             class="thread ghost"
+            style:padding-left="calc(var(--space-2) + {depth} * var(--space-4))"
             class:active={nav.route.view === "thread" && nav.route.id === thread.id}
             onclick={() => go({ view: "thread", id: thread.id })}
           >

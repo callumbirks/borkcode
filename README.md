@@ -41,6 +41,12 @@ name, opens one pull request per repo with changes (ready for review), and links
 requests to each other. In "ask" mode you approve the push first. Pull requests found on a thread's
 branch are linked to the thread and shown beside each repo.
 
+A thread can hand work off to a new thread when you ask it to, optionally with a different agent
+or model. It writes a self-contained brief (or a project file for a long one) and the new thread
+starts in its own worktree, either fresh from the base branches or from the first thread's
+commits. Handed-off threads nest under the thread that started them, and that thread can check on
+them, their pull requests and their latest replies.
+
 After a thread's pull request is merged, you can keep going in the same thread. The agent syncs
 the branch onto the latest base branch, dropping the merged work but keeping anything newer, and
 the next Push & PR opens a fresh pull request from the same branch.

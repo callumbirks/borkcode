@@ -6,6 +6,8 @@ import type { Item, LinkedPullRequest, Thread } from "shared/protocol";
 export interface StoredThread extends Thread {
   /** Provider-native session or thread id, used to resume after a restart. */
   providerSessionId: string | null;
+  /** Branch the workspace starts from instead of each repo's base, for handoffs that continue work. */
+  startBranch: string | null;
 }
 
 interface ThreadRow {
@@ -20,6 +22,8 @@ interface ThreadRow {
   branch: string | null;
   status: Thread["status"];
   provider_session_id: string | null;
+  parent_id: string | null;
+  start_branch: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -37,12 +41,14 @@ function fromRow(row: ThreadRow): StoredThread {
     branch: row.branch,
     status: row.status,
     providerSessionId: row.provider_session_id,
+    parentId: row.parent_id,
+    startBranch: row.start_branch,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-export function toThread({ providerSessionId: _, ...thread }: StoredThread): Thread {
+export function toThread({ providerSessionId: _, startBranch: __, ...thread }: StoredThread): Thread {
   return thread;
 }
 
@@ -66,6 +72,8 @@ export class Database {
         branch TEXT,
         status TEXT NOT NULL,
         provider_session_id TEXT,
+        parent_id TEXT,
+        start_branch TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
@@ -91,8 +99,10 @@ export class Database {
       PRAGMA foreign_keys = ON;
     `);
     const columns = this.#db.prepare(`PRAGMA table_info(threads)`).all() as unknown as { name: string }[];
-    if (!columns.some((column) => column.name === "effort")) {
-      this.#db.exec(`ALTER TABLE threads ADD COLUMN effort TEXT`);
+    for (const column of ["effort", "parent_id", "start_branch"]) {
+      if (!columns.some((existing) => existing.name === column)) {
+        this.#db.exec(`ALTER TABLE threads ADD COLUMN ${column} TEXT`);
+      }
     }
     const prColumns = this.#db.prepare(`PRAGMA table_info(pull_requests)`).all() as unknown as { name: string }[];
     if (!prColumns.some((column) => column.name === "head_oid")) {
@@ -118,8 +128,8 @@ export class Database {
     this.#db
       .prepare(
         `INSERT INTO threads (id, project, title, provider, model, effort, access_mode, workspace,
-          branch, status, provider_session_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          branch, status, provider_session_id, parent_id, start_branch, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         thread.id,
@@ -133,6 +143,8 @@ export class Database {
         thread.branch,
         thread.status,
         thread.providerSessionId,
+        thread.parentId,
+        thread.startBranch,
         thread.createdAt,
         thread.updatedAt,
       );
@@ -166,8 +178,17 @@ export class Database {
     return next;
   }
 
-  deleteThread(id: string): void {
+  listChildren(parentId: string): StoredThread[] {
+    const rows = this.#db.prepare(`SELECT * FROM threads WHERE parent_id = ? ORDER BY created_at`).all(parentId);
+    return (rows as unknown as ThreadRow[]).map(fromRow);
+  }
+
+  /** Children outlive their parent; they just lose the link. Returns the ids of those children. */
+  deleteThread(id: string): string[] {
+    const children = this.listChildren(id).map((child) => child.id);
+    this.#db.prepare(`UPDATE threads SET parent_id = NULL WHERE parent_id = ?`).run(id);
     this.#db.prepare(`DELETE FROM threads WHERE id = ?`).run(id);
+    return children;
   }
 
   listPullRequests(threadId: string): LinkedPullRequest[] {

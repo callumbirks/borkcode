@@ -74,6 +74,44 @@ function buildServer({ threads, files }: Services, threadId: string): McpServer 
   );
 
   server.registerTool(
+    "start_thread",
+    {
+      description: [
+        "Hand work off to a new thread in this project, running in its own new worktree. Only do this when the user asks.",
+        "The new thread sees only your message, not this conversation, so make it self-contained: the goal, what has been decided or tried, the relevant files, branches and pull requests, and what done looks like.",
+        "For a long brief, first write it to a project file (for example handoffs/<topic>.md) with write_project_file, and tell the new thread to read it.",
+        "The new thread uses this thread's access mode, and this thread's provider and model unless you choose others; give them only if the user asked for them.",
+        "The user may be asked to approve.",
+      ].join(" "),
+      inputSchema: {
+        message: z.string().describe("The new thread's first message: its complete brief"),
+        start_from: z
+          .enum(["base", "this_branch"])
+          .describe(
+            "base: a fresh branch from each repository's base branch, for separate work. " +
+              "this_branch: a branch from this thread's current commits, to continue this work with fresh context; " +
+              "its pull requests will include this thread's commits. Commit first, since uncommitted changes do not carry over.",
+          ),
+        provider: z.enum(["claude", "codex"]).optional().describe("Agent for the new thread; defaults to this thread's"),
+        model: z.string().optional().describe("Model id, as the provider lists it; defaults to this thread's model when the provider is the same"),
+        effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional().describe("Reasoning effort; defaults to this thread's"),
+      },
+    },
+    ({ message, start_from, provider, model, effort }) =>
+      toolResult(() => threads.startThread(threadId, { message, startFrom: start_from, provider, model, effort })),
+  );
+
+  server.registerTool(
+    "list_child_threads",
+    {
+      description:
+        "List the threads this thread started, with each one's status, model, branch, pull requests and latest reply. " +
+        "Refreshes pull requests from GitHub first.",
+    },
+    () => toolResult(() => threads.listChildThreads(threadId)),
+  );
+
+  server.registerTool(
     "list_pull_requests",
     {
       description:

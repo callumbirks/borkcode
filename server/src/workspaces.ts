@@ -48,11 +48,14 @@ async function branchExists(repoDir: string, branch: string): Promise<boolean> {
 /**
  * Adds a worktree for every project repo missing from the workspace. Idempotent, so it also
  * picks up repos added to the project after the workspace was created. Returns the new repos.
+ * New branches start from `startBranch` where a repo has it (worktrees share their main clone's
+ * branches), and otherwise from the repo's base branch.
  */
 export async function ensureWorkspace(
   project: Project,
   workspace: string,
   branch: string,
+  startBranch: string | null = null,
 ): Promise<RepoConfig[]> {
   const root = workspacePath(project, workspace);
   await mkdir(root, { recursive: true });
@@ -63,6 +66,8 @@ export async function ensureWorkspace(
     const mainDir = mainRepoPath(project, repo);
     if (await branchExists(mainDir, branch)) {
       await git(mainDir, "worktree", "add", target, branch);
+    } else if (startBranch && (await branchExists(mainDir, startBranch))) {
+      await git(mainDir, "worktree", "add", "--no-track", "-b", branch, target, startBranch);
     } else {
       await git(mainDir, "fetch", "origin", repo.baseBranch).catch(() => undefined);
       const baseRef = await resolveBaseRef(mainDir, repo.baseBranch);

@@ -74,6 +74,8 @@ export interface Thread {
   /** Branch shared by every worktree in the workspace. Null for main checkouts. */
   branch: string | null;
   status: ThreadStatus;
+  /** The thread whose agent started this one, if any. */
+  parentId: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -81,7 +83,13 @@ export interface Thread {
 export type ToolStatus = "running" | "done" | "failed";
 
 export type Item =
-  | { id: string; kind: "user"; text: string }
+  | {
+      id: string;
+      kind: "user";
+      text: string;
+      /** Set when another thread's agent wrote this message, as a handoff. */
+      fromThreadId?: string;
+    }
   | { id: string; kind: "assistant"; text: string }
   | { id: string; kind: "reasoning"; text: string }
   | {
@@ -92,7 +100,9 @@ export type Item =
       output: string | null;
       status: ToolStatus;
     }
-  | { id: string; kind: "notice"; level: "info" | "error"; text: string };
+  | { id: string; kind: "notice"; level: "info" | "error"; text: string }
+  /** This thread's agent started another thread. */
+  | { id: string; kind: "thread"; threadId: string };
 
 export interface Approval {
   id: string;

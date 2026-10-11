@@ -1,13 +1,22 @@
 <script lang="ts">
   import Brain from "@lucide/svelte/icons/brain";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
+  import CornerDownRight from "@lucide/svelte/icons/corner-down-right";
+  import GitFork from "@lucide/svelte/icons/git-fork";
   import Info from "@lucide/svelte/icons/info";
   import DOMPurify from "dompurify";
   import { marked } from "marked";
   import type { Item } from "shared/protocol";
-  import { toolIcon, toolLabel } from "../lib/display.svelte";
+  import { providerLabel, toolIcon, toolLabel } from "../lib/display.svelte";
+  import { app, go } from "../lib/state.svelte";
 
   let { item }: { item: Item } = $props();
+
+  /** The other thread a handoff item points at; titles and status stay live as it works. */
+  const linked = $derived.by(() => {
+    const id = item.kind === "thread" ? item.threadId : item.kind === "user" ? item.fromThreadId : undefined;
+    return id ? app.threads.find((thread) => thread.id === id) : undefined;
+  });
 
   function markdown(text: string): string {
     return DOMPurify.sanitize(marked.parse(text, { async: false }));
@@ -15,7 +24,31 @@
 </script>
 
 {#if item.kind === "user"}
-  <div class="user">{item.text}</div>
+  <div class="user">
+    {#if item.fromThreadId}
+      <div class="from">
+        <CornerDownRight size={12} />
+        {#if linked}
+          Handed off from <a href="#/thread/{linked.id}">{linked.title}</a>
+        {:else}
+          Handed off from a thread that was since deleted
+        {/if}
+      </div>
+    {/if}
+    {item.text}
+  </div>
+{:else if item.kind === "thread"}
+  {#if linked}
+    <button class="handoff" onclick={() => go({ view: "thread", id: linked.id })}>
+      <GitFork size={14} />
+      <span class="handoff-label">Started thread</span>
+      <span class="truncate">{linked.title}</span>
+      <span class="handoff-meta">{providerLabel[linked.provider]}</span>
+      <span class="dot {linked.status}" title={linked.status}></span>
+    </button>
+  {:else}
+    <div class="notice"><GitFork size={14} /><span>Started a thread that was since deleted</span></div>
+  {/if}
 {:else if item.kind === "assistant"}
   {#if item.text}
     <div class="assistant">{@html markdown(item.text)}</div>
@@ -152,6 +185,28 @@
   }
   .reasoning :global(p) {
     margin: 0 0 var(--space-2);
+  }
+  .from {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin-bottom: var(--space-1-5);
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+  }
+  .handoff {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    align-self: flex-start;
+    max-width: 100%;
+    font-size: var(--text-sm);
+    color: var(--text-primary);
+  }
+  .handoff-label,
+  .handoff-meta {
+    flex-shrink: 0;
+    color: var(--text-muted);
   }
   .notice {
     display: flex;

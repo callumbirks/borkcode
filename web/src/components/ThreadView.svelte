@@ -1,5 +1,6 @@
 <script lang="ts">
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
+  import CornerDownRight from "@lucide/svelte/icons/corner-down-right";
   import Folder from "@lucide/svelte/icons/folder";
   import GitBranch from "@lucide/svelte/icons/git-branch";
   import GitPullRequestArrow from "@lucide/svelte/icons/git-pull-request-arrow";
@@ -21,6 +22,7 @@
   const detail = $derived(app.detail?.thread.id === id ? app.detail : null);
   const thread = $derived(detail?.thread);
   const busy = $derived(thread?.status === "running" || thread?.status === "preparing");
+  const parent = $derived(thread?.parentId ? app.threads.find((other) => other.id === thread.parentId) : undefined);
 
   // Consecutive tool calls and reasoning fold into one group; messages and notices stand alone.
   type Segment = { kind: "item"; item: Item } | { kind: "work"; id: string; items: Item[] };
@@ -163,6 +165,11 @@
           <a class="chip" href="#/project/{encodeURIComponent(thread.project)}" title="Project">
             <Folder size={12} />{thread.project}
           </a>
+          {#if parent}
+            <a class="chip" href="#/thread/{parent.id}" title="Handed off from {parent.title}">
+              <CornerDownRight size={12} /><span class="truncate">{parent.title}</span>
+            </a>
+          {/if}
           <span class="chip provider-{thread.provider}">{providerLabel[thread.provider]}</span>
           <span class="chip" title={thread.branch ?? "Runs in the main checkouts"}>
             <GitBranch size={12} />{thread.branch ?? "main checkout"}

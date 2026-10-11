@@ -22,6 +22,7 @@ function thread(branch: string | null): Thread {
     workspace: branch ? "fix-login-t1" : null,
     branch,
     status: "idle",
+    parentId: null,
     createdAt: 0,
     updatedAt: 0,
   };

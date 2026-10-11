@@ -17,7 +17,9 @@ add machinery because it looks architecturally impressive.
 - **Not planned yet:** checkpoints/restore, mobile, other providers.
 - **Done:** multi-repo projects and workspaces (milestone 1); shared project files with agent
   tools (milestone 2).
-- **Next:** captain threads that delegate to child threads and see their PRs.
+- **Next:** captain threads that delegate to child threads and see their PRs. Handoffs (a thread
+  starting another and not waiting on it) are done; watched delegation, where parent and child
+  message each other and the parent is woken by its children, comes next.
 
 This started as a fork of t3code, which is kept at `~/projects/apps/borkcode` as a read-only
 reference. We chose not to build on it because its orchestration model differs from the one we
@@ -75,6 +77,12 @@ inventing a fix.
   or their own; the server watches the folder, so every change reaches the UI however it was
   made. Saves from the UI carry the mtime they loaded and are refused if the file changed since,
   so an agent's edit is never silently overwritten.
+- **Threads can start threads** through the `start_thread` tool, which goes through the same path
+  as the new-thread form. Children always get a new worktree and inherit the parent's access mode
+  (so ask-mode parents approve each handoff), and its provider and model unless told otherwise.
+  `start_from: this_branch` branches the child from the parent's commits (refused while the parent
+  has uncommitted changes); the starting branch is stored so a restart before the workspace exists
+  cannot lose it. Deleting a parent keeps its children and drops their link.
 - **PRs are linked to threads in SQLite.** The tool links what it opens, and repo status links any
   PR found on the thread's branch, so PRs opened by other means show up too.
 - **Clients get everything by broadcast.** It's fine for one local user. Revisit if remote access

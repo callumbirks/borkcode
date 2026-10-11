@@ -36,7 +36,8 @@ test("linking a pull request reports changes only when something changed", () =>
   const db = new Database(":memory:");
   db.insertThread({
     id: "t2", project: "p", title: "T", provider: "claude", model: null, effort: null, accessMode: "ask",
-    workspace: "t-t2", branch: "borkcode/t-t2", status: "idle", providerSessionId: null, createdAt: 1, updatedAt: 1,
+    workspace: "t-t2", branch: "borkcode/t-t2", status: "idle", providerSessionId: null, parentId: null, startBranch: null,
+    createdAt: 1, updatedAt: 1,
   });
   const pr = { repo: "alpha", number: 4, url: "https://github.com/me/alpha/pull/4", state: "OPEN", title: "Fix", headOid: "abc" };
   assert.equal(db.linkPullRequest("t2", pr), true);
@@ -71,4 +72,18 @@ test("pull request links from before head commits were stored gain the column", 
   // Discovery fills it in later.
   assert.equal(db.linkPullRequest("t3", { ...pr!, headOid: "def" }), true);
   assert.equal(db.listPullRequests("t3")[0]?.headOid, "def");
+});
+
+test("deleting a parent keeps its children and drops their link", () => {
+  const db = new Database(":memory:");
+  const base = {
+    project: "p", title: "T", provider: "claude" as const, model: null, effort: null, accessMode: "ask" as const,
+    workspace: null, branch: null, status: "idle" as const, providerSessionId: null, startBranch: null, createdAt: 1, updatedAt: 1,
+  };
+  db.insertThread({ ...base, id: "parent", parentId: null });
+  db.insertThread({ ...base, id: "child", parentId: "parent", startBranch: "borkcode/parent" });
+  assert.deepEqual(db.listChildren("parent").map((thread) => thread.id), ["child"]);
+  assert.equal(db.getThread("child")?.startBranch, "borkcode/parent");
+  assert.deepEqual(db.deleteThread("parent"), ["child"]);
+  assert.equal(db.getThread("child")?.parentId, null);
 });

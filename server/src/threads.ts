@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type {
   Approval,
+  Effort,
   Item,
   LinkedPullRequest,
   Project,
@@ -16,6 +17,7 @@ import type {
 } from "shared/protocol";
 import { toThread, type Database, type StoredThread } from "./db.ts";
 import { buildInstructions } from "./instructions.ts";
+import { checkModelChoice } from "./models.ts";
 import type { ProjectStore } from "./projects.ts";
 import { ToolError } from "./errors.ts";
 import { git } from "./exec.ts";
@@ -34,7 +36,7 @@ import {
 } from "./pullRequests.ts";
 import { startClaudeSession } from "./providers/claude.ts";
 import { startCodexSession } from "./providers/codex.ts";
-import type { ProviderSession, SessionOptions, TurnSettings } from "./providers/types.ts";
+import { truncate, type ProviderSession, type SessionOptions, type TurnSettings } from "./providers/types.ts";
 import { DEFAULT_SETTINGS, type SettingsStore } from "./settings.ts";
 import { fallbackTitle, generateTitle } from "./titles.ts";
 import {
@@ -109,7 +111,13 @@ export class ThreadService {
   }
 
   /** Starts the thread on its first message. The title is generated in the background. */
-  async create(params: Requests["threads.create"]["params"]): Promise<Thread> {
+  create(params: Requests["threads.create"]["params"]): Promise<Thread> {
+    return this.#start({ ...params, parentId: null, startBranch: null });
+  }
+
+  async #start(
+    params: Requests["threads.create"]["params"] & { parentId: string | null; startBranch: string | null },
+  ): Promise<Thread> {
     const project = await this.#projects.get(params.project);
     const text = params.text.trim();
     if (!text) throw new Error("Write the first message for the agent");
@@ -130,6 +138,8 @@ export class ThreadService {
       branch: workspace ? `borkcode/${workspace}` : null,
       status: workspace ? "preparing" : "idle",
       providerSessionId: null,
+      parentId: params.parentId,
+      startBranch: params.startBranch,
       createdAt: now,
       updatedAt: now,
     };
@@ -145,10 +155,95 @@ export class ThreadService {
           live.preparing = null;
         });
     }
-    void this.send(id, text, { model: thread.model, effort: thread.effort }).catch((error: Error) =>
-      console.error(error),
+    void this.send(id, text, { model: thread.model, effort: thread.effort }, params.parentId ?? undefined).catch(
+      (error: Error) => console.error(error),
     );
     return toThread(thread);
+  }
+
+  /**
+   * Starts a thread on another thread's behalf, as a handoff. The child runs in a new worktree with
+   * its parent's access mode, and its model defaults to the parent's. Returns a summary for the agent.
+   */
+  async startThread(
+    parentId: string,
+    request: { message: string; provider?: ProviderKind; model?: string; effort?: Effort; startFrom: "base" | "this_branch" },
+  ): Promise<string> {
+    const parent = this.#require(parentId);
+    const message = request.message.trim();
+    if (!message) throw new ToolError("The new thread needs a first message.");
+    const provider = request.provider ?? parent.provider;
+    const inherit = provider === parent.provider && request.model === undefined;
+    const choice = await checkModelChoice(
+      provider,
+      request.model ?? (inherit ? parent.model : null),
+      request.effort ?? (inherit ? parent.effort : null),
+      request.effort !== undefined,
+    );
+
+    let startBranch: string | null = null;
+    if (request.startFrom === "this_branch") {
+      if (!parent.workspace || !parent.branch) {
+        throw new ToolError("This thread runs in the main checkouts, so it has no branch of its own to continue from. Use start_from base.");
+      }
+      const dirty = await dirtyRepos(await this.#projects.get(parent.project), parent.workspace);
+      if (dirty.length > 0) {
+        throw new ToolError(`Commit first: uncommitted changes in ${dirty.join(", ")} would not carry over to the new thread.`);
+      }
+      startBranch = parent.branch;
+    }
+
+    if (parent.accessMode === "ask") {
+      const allowed = await this.#requestApproval(parentId, {
+        title: "Start a new thread?",
+        detail: [
+          `${provider} · ${choice.model ?? "default model"} · ${choice.effort ?? "default"} effort`,
+          `Starts from ${startBranch ?? "each repository's base branch"}`,
+          "",
+          truncate(message, 2000),
+        ].join("\n"),
+      });
+      if (!allowed) throw new ToolError("The user declined. No thread was started.");
+    }
+
+    const child = await this.#start({
+      project: parent.project,
+      text: message,
+      provider,
+      model: choice.model,
+      effort: choice.effort,
+      accessMode: parent.accessMode,
+      isolated: true,
+      parentId,
+      startBranch,
+    });
+    this.#upsertItem(parentId, { id: randomUUID(), kind: "thread", threadId: child.id });
+    return [
+      `Started thread "${child.title}" (id ${child.id}) with ${provider} ${choice.model ?? "default model"},`,
+      `starting from ${startBranch ?? "each repository's base branch"}. Its title is being generated from your message.`,
+      "It works on its own; list_child_threads shows its progress and pull requests.",
+    ].join(" ");
+  }
+
+  /** The threads this thread started, with what each is doing and the pull requests it opened. */
+  async listChildThreads(parentId: string): Promise<string> {
+    const children = this.#db.listChildren(parentId);
+    if (children.length === 0) return "This thread has not started any threads.";
+    const sections = await Promise.all(
+      children.map(async (child) => {
+        if (child.branch) await this.repoStatus(child.id).catch(() => undefined);
+        const pullRequests = this.#db.listPullRequests(child.id);
+        const lastReply = this.#db
+          .listItems(child.id)
+          .findLast((item) => item.kind === "assistant" && item.text.trim());
+        return [
+          `- "${child.title}" (id ${child.id}): ${child.status}, ${child.provider} ${child.model ?? "default model"}, branch ${child.branch}`,
+          ...pullRequests.map((pr) => `  ${pr.repo} #${pr.number} ${pr.state}: ${pr.url}`),
+          lastReply && "text" in lastReply ? `  Latest reply: ${truncate(lastReply.text, 600)}` : "  No reply yet.",
+        ].join("\n");
+      }),
+    );
+    return sections.join("\n\n");
   }
 
   rename(threadId: string, title: string): Thread {
@@ -185,13 +280,14 @@ export class ThreadService {
     return this.send(threadId, PUBLISH_MESSAGE, settings);
   }
 
-  async send(threadId: string, text: string, settings: TurnSettings): Promise<void> {
+  /** `fromThreadId` marks a message written by another thread's agent rather than the user. */
+  async send(threadId: string, text: string, settings: TurnSettings, fromThreadId?: string): Promise<void> {
     const trimmed = text.trim();
     if (!trimmed) return;
     let thread = this.#require(threadId);
     if (thread.status === "running") throw new Error("The agent is still working on the last message");
     const live = this.#liveThread(threadId);
-    this.#upsertItem(threadId, { id: randomUUID(), kind: "user", text: trimmed });
+    this.#upsertItem(threadId, { id: randomUUID(), kind: "user", text: trimmed, ...(fromThreadId ? { fromThreadId } : {}) });
     await live.preparing;
     thread = this.#update(threadId, { status: "running", model: settings.model, effort: settings.effort });
 
@@ -237,8 +333,12 @@ export class ThreadService {
     if (live?.session) (await live.session.catch(() => null))?.close();
     this.#live.delete(threadId);
     if (thread.workspace) await removeWorkspace(project, thread.workspace, true);
-    this.#db.deleteThread(threadId);
+    const orphans = this.#db.deleteThread(threadId);
     this.#emit({ type: "thread.deleted", threadId });
+    for (const orphan of orphans) {
+      const child = this.#db.getThread(orphan);
+      if (child) this.#emit({ type: "thread.updated", thread: toThread(child) });
+    }
   }
 
   /** Also links any pull request found on the thread's branch, so PRs opened by hand show up. */
@@ -350,7 +450,7 @@ export class ThreadService {
   async #addMissingRepos(thread: StoredThread): Promise<void> {
     if (!thread.workspace || !thread.branch) return;
     const project = await this.#projects.get(thread.project);
-    const created = await ensureWorkspace(project, thread.workspace, thread.branch);
+    const created = await ensureWorkspace(project, thread.workspace, thread.branch, thread.startBranch);
     for (const repo of created) {
       if (repo.setup) await this.#runSetup(thread, project, repo);
     }
