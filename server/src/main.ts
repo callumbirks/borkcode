@@ -225,9 +225,8 @@ const server = createServer(async (request, response) => {
     });
     return;
   }
-  const attachmentRoute = /^\/api\/threads\/([\w-]+)\/attachments(?:\/([\w-]+))?$/.exec(
-    new URL(request.url ?? "/", "http://x").pathname,
-  );
+  const pathname = new URL(request.url ?? "/", "http://x").pathname;
+  const attachmentRoute = /^\/api\/threads\/([\w-]+)\/attachments(?:\/([\w-]+))?$/.exec(pathname);
   if (attachmentRoute) {
     await handleAttachments(request, response, attachmentRoute[1]!, attachmentRoute[2]).catch((error: Error) => {
       if (response.headersSent) return response.destroy();
@@ -239,6 +238,7 @@ const server = createServer(async (request, response) => {
     });
     return;
   }
+  if (pathname.startsWith("/api/")) return replyError(response, 404, "Not found");
   if (!existsSync(config.webDist)) {
     response.writeHead(404).end("Web client not built. Run `pnpm build`, or use `pnpm dev`.");
     return;
