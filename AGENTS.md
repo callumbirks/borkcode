@@ -15,9 +15,9 @@ add machinery because it looks architecturally impressive.
 - **Local only for now.** Remote access may come later, so the server owns all state and the
   client only renders it. Keep that split; it is what makes remote cheap later.
 - **Not planned yet:** checkpoints/restore, mobile, other providers.
-- **Done:** multi-repo projects and workspaces (milestone 1).
-- **Next, roughly in order:** shared project files with agent tools (on the injected MCP server),
-  then captain threads that delegate to child threads and see their PRs.
+- **Done:** multi-repo projects and workspaces (milestone 1); shared project files with agent
+  tools (milestone 2).
+- **Next:** captain threads that delegate to child threads and see their PRs.
 
 This started as a fork of t3code, which is kept at `~/projects/apps/borkcode` as a read-only
 reference. We chose not to build on it because its orchestration model differs from the one we
@@ -71,6 +71,10 @@ inventing a fix.
   PR's head, because a plain rebase re-applies squash-merged commits and conflicts. Publishing
   refuses until a merged repo is synced. The next push may overwrite the remote branch only via
   `--force-with-lease` pinned to that merged head.
+- **Shared project files are plain files in `<project>/files/`.** Agents use borkcode's file tools
+  or their own; the server watches the folder, so every change reaches the UI however it was
+  made. Saves from the UI carry the mtime they loaded and are refused if the file changed since,
+  so an agent's edit is never silently overwritten.
 - **PRs are linked to threads in SQLite.** The tool links what it opens, and repo status links any
   PR found on the thread's branch, so PRs opened by other means show up too.
 - **Clients get everything by broadcast.** It's fine for one local user. Revisit if remote access
@@ -81,7 +85,8 @@ inventing a fix.
 - `shared/protocol.ts`: every type that crosses the WebSocket. Change it first; server and web follow.
 - `server/src/workspaces.ts`, `projects.ts`: git worktrees and project folders.
 - `server/src/threads.ts`: thread lifecycle, live session state, approvals.
-- `server/src/mcp.ts`, `pullRequests.ts`: the agent-facing MCP tools, and pushing and opening PRs.
+- `server/src/mcp.ts`: the agent-facing MCP tools. `pullRequests.ts` pushes and opens PRs;
+  `files.ts` serves and watches shared project files.
 - `server/src/providers/`: one adapter per provider, normalizing to `Item`s via `SessionEvents`.
   Provider quirks stay inside the adapter; `threads.ts` and the UI stay provider-agnostic.
 - `server/src/main.ts`: the HTTP/WebSocket transport. Keep handlers thin: decode, call one

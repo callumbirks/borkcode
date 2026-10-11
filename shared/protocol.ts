@@ -50,6 +50,14 @@ export interface Project {
   repos: RepoConfig[];
 }
 
+/** A file in a project's shared `files/` folder, which every thread and the user can read and write. */
+export interface ProjectFile {
+  /** Relative to the files folder, with forward slashes. */
+  path: string;
+  size: number;
+  modifiedAt: number;
+}
+
 export type ThreadStatus = "preparing" | "idle" | "running" | "error";
 
 export interface Thread {
@@ -131,6 +139,17 @@ export interface Requests {
     params: { project: string; name: string; baseBranch?: string; setup?: string };
     result: Project;
   };
+  "files.list": { params: { project: string }; result: ProjectFile[] };
+  "files.read": { params: { project: string; path: string }; result: { content: string; modifiedAt: number } };
+  /**
+   * Fails if the file changed since `expectedModifiedAt`, so an agent's edit is never silently
+   * overwritten. Null expects the file not to exist yet.
+   */
+  "files.write": {
+    params: { project: string; path: string; content: string; expectedModifiedAt: number | null };
+    result: ProjectFile;
+  };
+  "files.delete": { params: { project: string; path: string }; result: null };
   "threads.list": { params: Record<string, never>; result: Thread[] };
   "threads.create": {
     params: {
@@ -176,6 +195,8 @@ export type RequestMethod = keyof Requests;
 export type ServerEvent =
   | { type: "projects.changed"; projects: Project[] }
   | { type: "settings.changed"; settings: Settings }
+  /** Sent whenever anything in the folder changes, whether through borkcode or not. */
+  | { type: "files.changed"; project: string; files: ProjectFile[] }
   | { type: "thread.updated"; thread: Thread }
   | { type: "thread.deleted"; threadId: string }
   | { type: "item.upserted"; threadId: string; item: Item }

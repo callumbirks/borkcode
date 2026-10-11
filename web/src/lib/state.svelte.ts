@@ -1,6 +1,7 @@
 import type {
   ModelOption,
   Project,
+  ProjectFile,
   ProviderKind,
   ServerEvent,
   Settings,
@@ -17,7 +18,13 @@ export const app = $state({
   detail: null as ThreadDetail | null,
   settings: null as Settings | null,
   settingsError: null as string | null,
+  /** Shared files per project, loaded when a project's page opens and kept current by events. */
+  files: {} as Record<string, ProjectFile[]>,
 });
+
+export async function loadFiles(project: string): Promise<void> {
+  app.files[project] = await rpc.request("files.list", { project });
+}
 
 /** Each provider's model list, loaded on first use. */
 export const models = $state<Partial<Record<ProviderKind, { list: ModelOption[]; error: string | null }>>>({});
@@ -45,10 +52,14 @@ export type Route =
   | { view: "home" }
   | { view: "settings" }
   | { view: "project"; name: string }
+  | { view: "file"; project: string; path: string }
   | { view: "thread"; id: string };
 
 function parseRoute(): Route {
-  const [, view, id] = location.hash.split("/");
+  const [, view, id, sub, path] = location.hash.split("/");
+  if (view === "project" && id && sub === "file" && path) {
+    return { view: "file", project: decodeURIComponent(id), path: decodeURIComponent(path) };
+  }
   if (view === "project" && id) return { view: "project", name: decodeURIComponent(id) };
   if (view === "thread" && id) return { view: "thread", id };
   if (view === "settings") return { view: "settings" };
@@ -68,7 +79,9 @@ export function go(route: Route): void {
         ? "#/settings"
         : route.view === "project"
           ? `#/project/${encodeURIComponent(route.name)}`
-          : `#/thread/${route.id}`;
+          : route.view === "file"
+            ? `#/project/${encodeURIComponent(route.project)}/file/${encodeURIComponent(route.path)}`
+            : `#/thread/${route.id}`;
 }
 
 function upsertById<T extends { id: string }>(list: T[], value: T): void {
@@ -82,6 +95,9 @@ function handleEvent(event: ServerEvent): void {
   switch (event.type) {
     case "projects.changed":
       app.projects = event.projects;
+      return;
+    case "files.changed":
+      app.files[event.project] = event.files;
       return;
     case "settings.changed":
       app.settings = event.settings;

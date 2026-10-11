@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { AccessMode, Effort, ProviderKind } from "shared/protocol";
-  import { app, go, rpc } from "../lib/state.svelte";
+  import { app, go, loadFiles, rpc } from "../lib/state.svelte";
   import ModelPicker from "./ModelPicker.svelte";
   import RepoEditor from "./RepoEditor.svelte";
 
@@ -10,6 +10,30 @@
   const threads = $derived(
     app.threads.filter((thread) => thread.project === name).sort((a, b) => b.createdAt - a.createdAt),
   );
+
+  const files = $derived(app.files[name] ?? []);
+  let newPath = $state("");
+  let fileError = $state("");
+
+  $effect(() => {
+    if (app.connected) loadFiles(name).catch((cause: Error) => (fileError = cause.message));
+  });
+
+  async function createFile(event: SubmitEvent) {
+    event.preventDefault();
+    fileError = "";
+    try {
+      const file = await rpc.request("files.write", { project: name, path: newPath, content: "", expectedModifiedAt: null });
+      newPath = "";
+      go({ view: "file", project: name, path: file.path });
+    } catch (cause) {
+      fileError = (cause as Error).message;
+    }
+  }
+
+  function formatSize(bytes: number): string {
+    return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
+  }
 
   let repoUrl = $state("");
   let repoName = $state("");
@@ -129,6 +153,29 @@
     </section>
 
     <section class="card">
+      <h2>Shared files</h2>
+      <p class="muted">Notes, specs and plans that you and every thread of this project can read and write.</p>
+      {#each files as file (file.path)}
+        <button class="file" onclick={() => go({ view: "file", project: name, path: file.path })}>
+          <code>{file.path}</code>
+          <span class="muted">
+            {formatSize(file.size)} · {new Date(file.modifiedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+          </span>
+        </button>
+      {:else}
+        <p class="muted">No files yet.</p>
+      {/each}
+      <form class="row add" onsubmit={createFile}>
+        <label class="grow">
+          New file
+          <input bind:value={newPath} placeholder="specs/login.md" required />
+        </label>
+        <button type="submit">Create</button>
+      </form>
+      {#if fileError}<p class="error">{fileError}</p>{/if}
+    </section>
+
+    <section class="card">
       <h2>Repositories</h2>
       {#each project.repos as repo (repo.name)}
         <RepoEditor project={project.name} {repo} />
@@ -173,6 +220,16 @@
   }
   .add {
     margin-top: 12px;
+  }
+  .file {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    background: none;
+    border: none;
+    padding: 6px 0;
+    text-align: left;
   }
   .thread {
     display: flex;

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import FileView from "./components/FileView.svelte";
   import Home from "./components/Home.svelte";
   import ProjectView from "./components/ProjectView.svelte";
   import SettingsView from "./components/SettingsView.svelte";
@@ -16,6 +17,10 @@
     {#if nav.route.view === "project"}
       {#key nav.route.name}
         <ProjectView name={nav.route.name} />
+      {/key}
+    {:else if nav.route.view === "file"}
+      {#key `${nav.route.project}/${nav.route.path}`}
+        <FileView project={nav.route.project} path={nav.route.path} />
       {/key}
     {:else if nav.route.view === "settings"}
       <SettingsView />

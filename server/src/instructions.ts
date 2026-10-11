@@ -18,7 +18,7 @@ export function buildInstructions(project: Project, thread: Thread, cwd: string,
     thread.branch
       ? `Each repository is a git worktree already checked out on ${thread.branch}, which belongs to this thread alone. Do not create other branches unless asked.`
       : "These are the project's main clones, shared with the user. Do not switch branches unless asked.",
-    `Project files shared across threads live in ${project.path}/files. You may read and write there.`,
+    `The project has shared files, such as notes, specs and plans, that every thread of this project and the user can read and write. They live in ${project.path}/files. Use the borkcode list_project_files, read_project_file and write_project_file tools, or your own file tools at that path. Check them when the user refers to a spec, plan or note, and write there when asked to leave something for other threads.`,
     "",
     "## Committing",
   ];

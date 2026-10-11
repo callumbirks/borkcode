@@ -1,4 +1,5 @@
 import type { LinkedPullRequest, RepoStatus } from "shared/protocol";
+import { ToolError } from "./errors.ts";
 import { git, run } from "./exec.ts";
 
 export interface PullRequestDraft {
@@ -21,8 +22,6 @@ export type PublishStep =
   | (StepBase & { action: "open"; title: string; body: string })
   | (StepBase & { action: "push"; pullRequest: LinkedPullRequest });
 
-/** An expected failure, explained to the agent so it can fix things and retry. */
-export class ToolError extends Error {}
 
 function latestPullRequest(linked: LinkedPullRequest[], repo: string): LinkedPullRequest | undefined {
   return linked.filter((pr) => pr.repo === repo).at(-1);

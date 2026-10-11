@@ -12,9 +12,9 @@ import {
   planSync,
   pushBranch,
   rebasePastMerged,
-  ToolError,
   withRelatedBlock,
 } from "./pullRequests.ts";
+import { ToolError } from "./errors.ts";
 
 const scratch = await mkdtemp(join(tmpdir(), "borkcode-prs-"));
 after(() => rm(scratch, { recursive: true, force: true }));

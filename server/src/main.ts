@@ -12,6 +12,7 @@ import type {
 } from "shared/protocol";
 import { loadConfig } from "./config.ts";
 import { Database } from "./db.ts";
+import { FileStore } from "./files.ts";
 import { handleMcpRequest } from "./mcp.ts";
 import { listModels } from "./models.ts";
 import { ProjectStore } from "./projects.ts";
@@ -29,6 +30,11 @@ function broadcast(event: ServerEvent): void {
   for (const client of clients) client.send(payload);
 }
 
+const files = new FileStore(projects, (project, list) =>
+  broadcast({ type: "files.changed", project, files: list }),
+);
+void files.watchAll().catch((error: Error) => console.error(`Could not watch project files: ${error.message}`));
+
 // Agents connect from this machine, so a wildcard bind is reached through loopback.
 const mcpHost = config.host === "0.0.0.0" || config.host === "::" ? "127.0.0.1" : config.host;
 const threads = new ThreadService(db, projects, settings, broadcast, `http://${mcpHost}:${config.port}/mcp/`);
@@ -44,11 +50,26 @@ type Handlers = {
 
 const handlers: Handlers = {
   "projects.list": () => projects.list(),
-  "projects.create": async ({ name }) => projectsChanged(await projects.create(name.trim())),
+  "projects.create": async ({ name }) => {
+    const project = await projects.create(name.trim());
+    files.watch(project.name);
+    return projectsChanged(project);
+  },
   "repos.add": async ({ project, url, name }) =>
     projectsChanged(await projects.addRepo(project, url, name)),
   "repos.update": async ({ project, name, ...patch }) =>
     projectsChanged(await projects.updateRepo(project, name, patch)),
+  "files.list": ({ project }) => {
+    files.watch(project);
+    return files.list(project);
+  },
+  "files.read": ({ project, path }) => files.read(project, path),
+  "files.write": ({ project, path, content, expectedModifiedAt }) =>
+    files.write(project, path, content, expectedModifiedAt),
+  "files.delete": async ({ project, path }) => {
+    await files.delete(project, path);
+    return null;
+  },
   "threads.list": async () => threads.list(),
   "threads.create": (params) => threads.create(params),
   "threads.get": ({ threadId }) => threads.get(threadId),
@@ -118,7 +139,7 @@ const server = createServer(async (request, response) => {
       response.writeHead(403).end();
       return;
     }
-    await handleMcpRequest(threads, mcpToken, request, response).catch((error: Error) => {
+    await handleMcpRequest({ threads, files }, mcpToken, request, response).catch((error: Error) => {
       console.error(error);
       if (!response.headersSent) response.writeHead(500).end();
     });

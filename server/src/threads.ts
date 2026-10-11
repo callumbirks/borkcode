@@ -17,6 +17,7 @@ import type {
 import { toThread, type Database, type StoredThread } from "./db.ts";
 import { buildInstructions } from "./instructions.ts";
 import type { ProjectStore } from "./projects.ts";
+import { ToolError } from "./errors.ts";
 import { git } from "./exec.ts";
 import {
   createPullRequest,
@@ -29,7 +30,6 @@ import {
   planSync,
   pushBranch,
   rebasePastMerged,
-  ToolError,
   type PullRequestDraft,
 } from "./pullRequests.ts";
 import { startClaudeSession } from "./providers/claude.ts";
@@ -257,6 +257,10 @@ export class ThreadService {
 
   threadForMcpToken(token: string): string | undefined {
     return this.#mcpTokens.get(token);
+  }
+
+  projectOf(threadId: string): string {
+    return this.#require(threadId).project;
   }
 
   async listPullRequests(threadId: string): Promise<LinkedPullRequest[]> {

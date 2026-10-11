@@ -2,8 +2,14 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
-import { ToolError } from "./pullRequests.ts";
+import { ToolError } from "./errors.ts";
+import type { FileStore } from "./files.ts";
 import type { ThreadService } from "./threads.ts";
+
+interface Services {
+  threads: ThreadService;
+  files: FileStore;
+}
 
 /** Agents reach these tools as the "borkcode" MCP server. Each session's token picks its thread. */
 export const MCP_SERVER_NAME = "borkcode";
@@ -23,8 +29,49 @@ async function toolResult(work: () => Promise<string>) {
   }
 }
 
-function buildServer(threads: ThreadService, threadId: string): McpServer {
+function buildServer({ threads, files }: Services, threadId: string): McpServer {
   const server = new McpServer({ name: MCP_SERVER_NAME, version: "0.1.0" });
+  const project = threads.projectOf(threadId);
+  const path = z.string().describe("Path relative to the project files folder, such as specs/login.md");
+
+  server.registerTool(
+    "list_project_files",
+    {
+      description:
+        "List the project's shared files: notes, specs and plans that every thread of this project and the user can read and write. " +
+        "Paths are relative to the project files folder.",
+    },
+    () =>
+      toolResult(async () => {
+        const list = await files.list(project);
+        if (list.length === 0) return "The project has no shared files yet.";
+        return list
+          .map((file) => `${file.path}  (${file.size} bytes, modified ${new Date(file.modifiedAt).toISOString()})`)
+          .join("\n");
+      }),
+  );
+
+  server.registerTool(
+    "read_project_file",
+    { description: "Read one of the project's shared files.", inputSchema: { path } },
+    ({ path }) => toolResult(async () => (await files.read(project, path)).content),
+  );
+
+  server.registerTool(
+    "write_project_file",
+    {
+      description:
+        "Create or replace one of the project's shared files, creating folders as needed. " +
+        "Other threads and the user see the change right away, so keep files tidy and say in your reply what you wrote. " +
+        "Replaces the whole file: read it first when changing part of it.",
+      inputSchema: { path, content: z.string().describe("The complete new contents") },
+    },
+    ({ path, content }) =>
+      toolResult(async () => {
+        const file = await files.write(project, path, content);
+        return `Wrote ${file.path} (${file.size} bytes).`;
+      }),
+  );
 
   server.registerTool(
     "list_pull_requests",
@@ -81,12 +128,12 @@ function buildServer(threads: ThreadService, threadId: string): McpServer {
 
 /** Serves `POST /mcp/<token>` statelessly: each request gets a fresh server bound to the token's thread. */
 export async function handleMcpRequest(
-  threads: ThreadService,
+  services: Services,
   token: string,
   request: IncomingMessage,
   response: ServerResponse,
 ): Promise<void> {
-  const threadId = threads.threadForMcpToken(token);
+  const threadId = services.threads.threadForMcpToken(token);
   if (!threadId) {
     response.writeHead(401).end();
     return;
@@ -95,7 +142,7 @@ export async function handleMcpRequest(
     response.writeHead(405, { allow: "POST" }).end();
     return;
   }
-  const server = buildServer(threads, threadId);
+  const server = buildServer(services, threadId);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   response.on("close", () => {
     void transport.close();
