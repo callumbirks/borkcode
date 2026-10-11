@@ -96,6 +96,11 @@ inventing a fix.
   messaged it (slow loops). Paused threads keep their queue until the user resumes or messages.
 - **PRs are linked to threads in SQLite.** The tool links what it opens, and repo status links any
   PR found on the thread's branch, so PRs opened by other means show up too.
+- **Open PRs are polled, not hooked.** Webhooks need a public endpoint, so the server asks `gh`
+  (one GraphQL query per repo) every minute while any linked PR is open, and also before a turn
+  starts and when a thread is opened. State changes don't wake agents: the next turn opens with a
+  "Since your last turn" line, tracked per PR as what the thread's agent and its parent's agent
+  were last told.
 - **Clients get everything by broadcast.** It's fine for one local user. Revisit if remote access
   or many clients arrive. Keep payloads small: stream deltas, not whole items.
 

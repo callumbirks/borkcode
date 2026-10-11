@@ -6,7 +6,13 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Settings from "@lucide/svelte/icons/settings";
   import type { Thread } from "shared/protocol";
-  import { providerLabel, relativeTime } from "../lib/display.svelte";
+  import {
+    providerLabel,
+    pullRequestIcon,
+    pullRequestState,
+    relativeTime,
+    type PullRequestState,
+  } from "../lib/display.svelte";
   import { app, go, nav } from "../lib/state.svelte";
 
   // Threads nest under the thread that started them; top-level threads sort by recent activity.
@@ -28,6 +34,15 @@
     }
     return groups;
   });
+
+  /** A thread's pull requests counted per state, in a fixed order, leaving out empty states. */
+  function prCounts(threadId: string): { state: PullRequestState; count: number }[] {
+    const counts = { open: 0, merged: 0, closed: 0 };
+    for (const pr of app.pullRequests[threadId] ?? []) counts[pullRequestState(pr)]++;
+    return (["open", "merged", "closed"] as const)
+      .filter((state) => counts[state] > 0)
+      .map((state) => ({ state, count: counts[state] }));
+  }
 </script>
 
 <nav>
@@ -66,6 +81,7 @@
           </button>
         </div>
         {#each threads as { thread, depth } (thread.id)}
+          {@const prs = prCounts(thread.id)}
           <button
             class="thread ghost"
             style:padding-left="calc(var(--space-2) + {depth} * var(--space-4))"
@@ -91,6 +107,13 @@
               <span class="meta truncate">
                 <span class="provider-{thread.provider}">{providerLabel[thread.provider]}</span>
                 {#if !thread.workspace}· main checkout{/if}
+                {#if prs.length > 0}·{/if}
+                {#each prs as { state, count } (state)}
+                  {@const Icon = pullRequestIcon[state]}
+                  <span class="prs pr-{state}" title="{count} {state} pull request{count === 1 ? '' : 's'}">
+                    <Icon size={11} />{count}
+                  </span>
+                {/each}
               </span>
             </span>
           </button>
@@ -228,5 +251,11 @@
   .meta {
     font-size: var(--text-2xs);
     color: var(--text-faint);
+  }
+  .prs {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    vertical-align: -1px;
   }
 </style>

@@ -17,7 +17,7 @@ import type {
   ThreadDetail,
 } from "shared/protocol";
 import { toThread, type Database, type InboxMessage, type StoredThread } from "./db.ts";
-import { combine, limitReached, parentMessage, report, userMessage } from "./delegation.ts";
+import { combine, limitReached, parentMessage, pullRequestNotice, report, userMessage } from "./delegation.ts";
 import { buildInstructions } from "./instructions.ts";
 import { checkModelChoice } from "./models.ts";
 import type { ProjectStore } from "./projects.ts";
@@ -27,6 +27,7 @@ import {
   createPullRequest,
   describeStep,
   fastForward,
+  fetchPullRequestStates,
   findPullRequest,
   linkRelated,
   mergedNotSynced,
@@ -35,6 +36,7 @@ import {
   pushBranch,
   rebasePastMerged,
   type PullRequestDraft,
+  type PullRequestState,
 } from "./pullRequests.ts";
 import { startClaudeSession } from "./providers/claude.ts";
 import { startCodexSession } from "./providers/codex.ts";
@@ -68,12 +70,17 @@ const providerSessions: Record<ProviderKind, (options: SessionOptions) => Promis
 export interface ThreadDeps {
   startSession: (provider: ProviderKind, options: SessionOptions) => Promise<ProviderSession>;
   generateTitle: typeof generateTitle;
+  pullRequestStates: typeof fetchPullRequestStates;
 }
 
 const realDeps: ThreadDeps = {
   startSession: (provider, options) => providerSessions[provider](options),
   generateTitle,
+  pullRequestStates: fetchPullRequestStates,
 };
+
+/** How often open pull requests are checked for merges and closes. */
+const PULL_REQUEST_POLL_MS = 60_000;
 
 /** In-memory state for a thread whose agent may be active. */
 interface LiveThread {
@@ -122,6 +129,7 @@ export class ThreadService {
   readonly #mcpTokens = new Map<string, string>();
   /** Automatic wake-ups per thread tree (keyed by its root) since the user last messaged it. */
   readonly #familyWakes = new Map<string, number>();
+  #pullRequestPoll: NodeJS.Timeout | null = null;
 
   constructor(
     db: Database,
@@ -137,6 +145,7 @@ export class ThreadService {
     this.#emit = emit;
     this.#mcpBaseUrl = mcpBaseUrl;
     this.#deps = deps;
+    this.#pollPullRequests();
   }
 
   list(): Thread[] {
@@ -332,6 +341,8 @@ export class ThreadService {
   async get(threadId: string): Promise<ThreadDetail> {
     const thread = this.#require(threadId);
     const project = await this.#projects.get(thread.project);
+    // Someone is looking, so make sure what they see is current; changes arrive as events.
+    void this.#refreshPullRequests([thread]);
     const live = this.#live.get(threadId);
     const items = this.#db
       .listItems(threadId)
@@ -341,7 +352,6 @@ export class ThreadService {
       workspacePath: workspacePath(project, thread.workspace),
       items,
       approvals: [...(live?.approvals.values() ?? [])].map((entry) => entry.approval),
-      pullRequests: this.#db.listPullRequests(threadId),
     };
   }
 
@@ -490,9 +500,17 @@ export class ThreadService {
     try {
       // Fills in repos added to the project since the workspace was created.
       if (thread.workspace) await this.#addMissingRepos(thread);
+      // The agent should start from current pull request states.
+      const refreshing = this.#refreshPullRequests([thread, ...this.#db.listChildren(threadId)]);
       live.session ??= this.#openSession(thread);
       const session = await live.session;
-      await session.sendTurn(text, { model: thread.model, effort: thread.effort, accessMode: thread.accessMode });
+      await refreshing;
+      const news = this.#pullRequestNotice(thread);
+      await session.sendTurn(news ? `${news}\n\n${text}` : text, {
+        model: thread.model,
+        effort: thread.effort,
+        accessMode: thread.accessMode,
+      });
     } catch (error) {
       const session = live.session;
       live.session = null;
@@ -611,6 +629,13 @@ export class ThreadService {
 
   projectOf(threadId: string): string {
     return this.#require(threadId).project;
+  }
+
+  /** Every thread's pull requests, keyed by thread id, for clients. */
+  allPullRequests(): Record<string, LinkedPullRequest[]> {
+    const byThread: Record<string, LinkedPullRequest[]> = {};
+    for (const { threadId, pr } of this.#db.listPullRequestLinks()) (byThread[threadId] ??= []).push(pr);
+    return byThread;
   }
 
   async listPullRequests(threadId: string): Promise<LinkedPullRequest[]> {
@@ -886,6 +911,70 @@ export class ThreadService {
     if (changed) {
       this.#emit({ type: "pullRequests.changed", threadId, pullRequests: this.#db.listPullRequests(threadId) });
     }
+    if (pullRequests.some((pr) => pr.state === "OPEN")) this.#pollPullRequests();
+  }
+
+  /**
+   * Checks open pull requests for merges and closes every minute, while any are open. GitHub
+   * webhooks would need a public endpoint, which a local server does not have.
+   */
+  #pollPullRequests(): void {
+    if (this.#pullRequestPoll || this.#db.listPullRequestLinks("OPEN").length === 0) return;
+    this.#pullRequestPoll = setTimeout(async () => {
+      try {
+        await this.refreshOpenPullRequests();
+      } catch (error) {
+        console.error(error);
+      } finally {
+        // One failed poll must not stop polling until the next restart.
+        this.#pullRequestPoll = null;
+        this.#pollPullRequests();
+      }
+    }, PULL_REQUEST_POLL_MS);
+    this.#pullRequestPoll.unref();
+  }
+
+  /** One poll: every open pull request of every thread. */
+  async refreshOpenPullRequests(): Promise<void> {
+    await this.#refreshLinks(this.#db.listPullRequestLinks("OPEN"));
+  }
+
+  /** Re-checks the threads' open pull requests. Merged and closed ones stay as they are. */
+  #refreshPullRequests(threads: StoredThread[]): Promise<void> {
+    return this.#refreshLinks(
+      threads.flatMap((thread) =>
+        this.#db
+          .listPullRequests(thread.id)
+          .filter((pr) => pr.state === "OPEN")
+          .map((pr) => ({ threadId: thread.id, pr })),
+      ),
+    );
+  }
+
+  async #refreshLinks(links: { threadId: string; pr: LinkedPullRequest }[]): Promise<void> {
+    if (links.length === 0) return;
+    const states = await this.#deps.pullRequestStates([...new Set(links.map((link) => link.pr.url))]).catch(
+      () => new Map<string, PullRequestState>(),
+    );
+    const updated = new Map<string, LinkedPullRequest[]>();
+    for (const { threadId, pr } of links) {
+      const state = states.get(pr.url);
+      if (state) updated.set(threadId, [...(updated.get(threadId) ?? []), { ...pr, ...state }]);
+    }
+    for (const [threadId, pullRequests] of updated) this.#linkPullRequests(threadId, pullRequests);
+  }
+
+  /**
+   * What the agent should know at the start of its turn about pull requests that changed state
+   * since its last one: its own, and for a parent its children's. Not worth waking it for.
+   */
+  #pullRequestNotice(thread: StoredThread): string | null {
+    return pullRequestNotice([
+      ...this.#db.takeStateChanges(thread.id, "thread").map((pr) => ({ pr, thread: null })),
+      ...this.#db.listChildren(thread.id).flatMap((child) =>
+        this.#db.takeStateChanges(child.id, "parent").map((pr) => ({ pr, thread: child.title })),
+      ),
+    ]);
   }
 
   #declineApprovals(threadId: string): void {

@@ -1,4 +1,5 @@
 import type {
+  LinkedPullRequest,
   ModelOption,
   Project,
   ProjectFile,
@@ -14,6 +15,8 @@ export const app = $state({
   connected: false,
   projects: [] as Project[],
   threads: [] as Thread[],
+  /** Every thread's linked pull requests, keyed by thread id, oldest first. */
+  pullRequests: {} as Record<string, LinkedPullRequest[]>,
   /** The open thread's transcript and pending approvals. */
   detail: null as ThreadDetail | null,
   settings: null as Settings | null,
@@ -135,6 +138,7 @@ function handleEvent(event: ServerEvent): void {
     case "thread.deleted":
       app.threads = app.threads.filter((thread) => thread.id !== event.threadId);
       setDraft(event.threadId, "");
+      delete app.pullRequests[event.threadId];
       if (detail?.thread.id === event.threadId) app.detail = null;
       return;
     case "item.upserted":
@@ -150,7 +154,7 @@ function handleEvent(event: ServerEvent): void {
       if (detail?.thread.id === event.threadId) upsertById(detail.approvals, event.approval);
       return;
     case "pullRequests.changed":
-      if (detail?.thread.id === event.threadId) detail.pullRequests = event.pullRequests;
+      app.pullRequests[event.threadId] = event.pullRequests;
       return;
     case "approval.resolved":
       if (detail?.thread.id === event.threadId) {
@@ -171,12 +175,14 @@ async function refresh(): Promise<void> {
       app.settingsError = cause.message;
     },
   );
-  const [projects, threads] = await Promise.all([
+  const [projects, threads, pullRequests] = await Promise.all([
     rpc.request("projects.list", {}),
     rpc.request("threads.list", {}),
+    rpc.request("pullRequests.list", {}),
   ]);
   app.projects = projects;
   app.threads = threads;
+  app.pullRequests = pullRequests;
   if (nav.route.view === "thread") await openThread(nav.route.id);
 }
 

@@ -5,9 +5,10 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import type { Item, ServerEvent } from "shared/protocol";
+import type { Item, LinkedPullRequest, ServerEvent } from "shared/protocol";
 import { Database } from "./db.ts";
 import { ProjectStore } from "./projects.ts";
+import type { PullRequestState } from "./pullRequests.ts";
 import type { ProviderSession, SessionEvents, TurnSettings } from "./providers/types.ts";
 import { SettingsStore } from "./settings.ts";
 import { ThreadService } from "./threads.ts";
@@ -78,7 +79,12 @@ function emit(event: ServerEvent) {
   }
 }
 
-const threads = new ThreadService(new Database(":memory:"), projects, settings, emit, "http://test/mcp/", {
+/** Pull request states as GitHub would report them, and every batch of URLs asked about. */
+const github = new Map<string, PullRequestState>();
+const lookups: string[][] = [];
+
+const db = new Database(":memory:");
+const threads = new ThreadService(db, projects, settings, emit, "http://test/mcp/", {
   startSession: async (_provider, options) => {
     const agent = new FakeAgent(options.events);
     agents.push({ cwd: options.cwd, agent });
@@ -86,6 +92,10 @@ const threads = new ThreadService(new Database(":memory:"), projects, settings, 
     return agent;
   },
   generateTitle: async (text) => `Title ${text.slice(0, 12)}`,
+  pullRequestStates: async (urls) => {
+    lookups.push(urls);
+    return new Map(urls.flatMap((url) => (github.has(url) ? [[url, github.get(url)!] as const] : [])));
+  },
 });
 
 /** The agent session of a thread, once its first turn has opened one. */
@@ -259,4 +269,56 @@ test("a main-checkout thread's scratch folder is deleted with the thread", async
   agent.finish("done");
   await threads.delete(thread.id, false);
   assert.ok(!existsSync(scratch));
+});
+
+test("pull requests merged between turns are news at the start of the next turn, for the thread and its parent", async () => {
+  const { thread: parent, agent: parentAgent } = await startThread("lead the work");
+  await parentAgent.turn(1);
+  parentAgent.finish("ok");
+  await threads.startThread(parent.id, { message: "do a part", watch: false, startFrom: "base" });
+  const [child] = threads.list().filter((thread) => thread.parentId === parent.id);
+  const childAgent = await agentOf(child!.id);
+  await childAgent.turn(1);
+  childAgent.finish("opened a PR");
+
+  const pr = (number: number): LinkedPullRequest => ({
+    repo: "demo",
+    number,
+    url: `https://github.com/me/demo/pull/${number}`,
+    state: "OPEN",
+    title: `PR ${number}`,
+    headOid: "abc",
+  });
+  db.linkPullRequest(parent.id, pr(3));
+  db.linkPullRequest(child!.id, pr(7));
+
+  // The poll sees the child's PR merged on GitHub and tells clients right away.
+  github.set(pr(7).url, { state: "MERGED", title: "PR 7", headOid: "abc" });
+  const childChanged = broadcastOf(
+    (event) => event.type === "pullRequests.changed" && event.threadId === child!.id && event.pullRequests[0]?.state === "MERGED",
+  );
+  await threads.refreshOpenPullRequests();
+  await childChanged;
+
+  await threads.send(child!.id, "carry on", { model: null, effort: null, accessMode: "full" });
+  assert.equal(await childAgent.turn(2), "Since your last turn: demo#7 was merged.\n\ncarry on");
+  childAgent.finish("synced");
+
+  // The parent's own PR is closed after the last poll; its turn checks before starting.
+  github.set(pr(3).url, { state: "CLOSED", title: "PR 3", headOid: "abc" });
+  await threads.send(parent.id, "status?", { model: null, effort: null, accessMode: "full" });
+  assert.match(
+    await parentAgent.turn(2),
+    /^Since your last turn: demo#3 was closed; demo#7 \(thread "[^"]+"\) was merged\.\n\nstatus\?$/,
+  );
+  parentAgent.finish("noted");
+
+  await threads.send(parent.id, "and now?", { model: null, effort: null, accessMode: "full" });
+  assert.equal(await parentAgent.turn(3), "and now?");
+  parentAgent.finish("nothing new");
+
+  // Nothing is open any more, so there is nothing to poll.
+  const asked = lookups.length;
+  await threads.refreshOpenPullRequests();
+  assert.equal(lookups.length, asked);
 });

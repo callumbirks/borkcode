@@ -2,11 +2,9 @@
   import ArrowUpRight from "@lucide/svelte/icons/arrow-up-right";
   import Copy from "@lucide/svelte/icons/copy";
   import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
-  import GitMerge from "@lucide/svelte/icons/git-merge";
-  import GitPullRequest from "@lucide/svelte/icons/git-pull-request";
-  import GitPullRequestClosed from "@lucide/svelte/icons/git-pull-request-closed";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import type { LinkedPullRequest, RepoStatus, ThreadStatus } from "shared/protocol";
+  import { pullRequestIcon, pullRequestState } from "../lib/display.svelte";
   import { rpc } from "../lib/state.svelte";
 
   let {
@@ -30,7 +28,6 @@
     }
   }
 
-  const prIcons = { open: GitPullRequest, merged: GitMerge, closed: GitPullRequestClosed };
   const newestFirst = $derived([...pullRequests].reverse());
 
   // Refresh when the thread settles: after setup, and after each turn.
@@ -50,9 +47,9 @@
   <section>
     <div class="section-label">Pull requests <span class="count">{pullRequests.length}</span></div>
     {#each newestFirst as pr (pr.url)}
-      {@const state = pr.state.toLowerCase() as keyof typeof prIcons}
-      {@const Icon = prIcons[state] ?? GitPullRequest}
-      <a class="pr" href={pr.url} target="_blank" rel="noreferrer" title="{pr.state.toLowerCase()} · open on GitHub">
+      {@const state = pullRequestState(pr)}
+      {@const Icon = pullRequestIcon[state]}
+      <a class="pr" href={pr.url} target="_blank" rel="noreferrer" title="{state} · open on GitHub">
         <span class="pr-{state}"><Icon size={14} /></span>
         <span class="pr-lines">
           <span class="pr-title truncate">{pr.title}</span>

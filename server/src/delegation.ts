@@ -63,3 +63,21 @@ export function report(
 export function combine(texts: string[]): string {
   return texts.length === 1 ? texts[0]! : texts.join("\n\n---\n\n");
 }
+
+const STATE_CHANGES: Record<string, string> = { MERGED: "was merged", CLOSED: "was closed", OPEN: "was reopened" };
+
+/**
+ * Opens a turn when pull requests changed state since the agent's last turn, such as the user
+ * merging one on GitHub. `thread` names the child a pull request belongs to; null for the agent's own.
+ */
+export function pullRequestNotice(changes: { pr: LinkedPullRequest; thread: string | null }[]): string | null {
+  if (changes.length === 0) return null;
+  const lines = changes.map(({ pr, thread }) =>
+    [
+      `${pr.repo}#${pr.number}`,
+      ...(thread ? [`(thread "${thread}")`] : []),
+      STATE_CHANGES[pr.state] ?? `is now ${pr.state.toLowerCase()}`,
+    ].join(" "),
+  );
+  return `Since your last turn: ${lines.join("; ")}.`;
+}
