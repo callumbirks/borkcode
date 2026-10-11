@@ -15,10 +15,11 @@
   } from "../lib/display.svelte";
   import { app, go, nav } from "../lib/state.svelte";
 
-  // Threads nest under the thread that started them; top-level threads sort by recent activity.
+  // Threads nest under the thread that started them, newest child first; top-level threads sort by
+  // recent activity.
   const threadsByProject = $derived.by(() => {
     const children = new Map<string, Thread[]>();
-    for (const thread of [...app.threads].sort((a, b) => a.createdAt - b.createdAt)) {
+    for (const thread of [...app.threads].sort((a, b) => b.createdAt - a.createdAt)) {
       if (thread.parentId) children.set(thread.parentId, [...(children.get(thread.parentId) ?? []), thread]);
     }
     const ids = new Set(app.threads.map((thread) => thread.id));
