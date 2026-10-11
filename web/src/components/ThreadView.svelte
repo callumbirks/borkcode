@@ -15,8 +15,18 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import type { AccessMode, Effort, Item } from "shared/protocol";
   import { isUnread, providerLabel } from "../lib/display.svelte";
+  import { composerAttachments } from "../lib/attachments";
+  import {
+    attachFiles,
+    pendingAttachments,
+    releaseAttachments,
+    restoreAttachments,
+    takeAttachments,
+  } from "../lib/composerAttachments.svelte";
   import { answer, pick } from "../lib/questions";
   import { app, getDraft, go, openThread, rpc, setDraft } from "../lib/state.svelte";
+  import AttachButton from "./AttachButton.svelte";
+  import ComposerAttachments from "./ComposerAttachments.svelte";
   import ItemView from "./ItemView.svelte";
   import MentionPicker from "./MentionPicker.svelte";
   import ModelPicker from "./ModelPicker.svelte";
@@ -45,6 +55,8 @@
 
   // Each thread keeps its own unsent text, since this component stays mounted across threads.
   const draft = $derived(getDraft(id));
+  const attached = $derived(composerAttachments(pendingAttachments(id)));
+  const canSend = $derived((draft.trim() !== "" || attached.ids.length > 0) && attached.ready);
   let error = $state("");
   let transcript: HTMLDivElement | undefined = $state();
 
@@ -202,15 +214,41 @@
   async function send() {
     const threadId = id;
     const text = draft.trim();
-    if (!text) return;
+    if (!canSend) return;
+    const attachments = attached.ids;
     error = "";
     setDraft(threadId, "");
+    const pending = takeAttachments(threadId);
     try {
-      await rpc.request("threads.send", { threadId, text, model, effort, accessMode });
+      await rpc.request("threads.send", { threadId, text, attachments, model, effort, accessMode });
+      releaseAttachments(pending);
     } catch (cause) {
       setDraft(threadId, text);
+      restoreAttachments(threadId, pending);
       error = (cause as Error).message;
     }
+  }
+
+  // Pasted or dropped images join the message; text pasted alongside them still pastes.
+  function onPaste(event: ClipboardEvent) {
+    const files = [...(event.clipboardData?.files ?? [])];
+    if (files.length === 0) return;
+    if (!event.clipboardData?.types.includes("text/plain")) event.preventDefault();
+    attachFiles(id, files);
+  }
+
+  let dragging = $state(false);
+  function onDragOver(event: DragEvent) {
+    if (!event.dataTransfer?.types.includes("Files")) return;
+    event.preventDefault();
+    dragging = true;
+  }
+  function onDrop(event: DragEvent) {
+    dragging = false;
+    const files = [...(event.dataTransfer?.files ?? [])];
+    if (files.length === 0) return;
+    event.preventDefault();
+    attachFiles(id, files);
   }
 
   async function resume() {
@@ -397,12 +435,21 @@
             {/if}
           </div>
         {/if}
-        <div class="composer">
+        <div
+          class="composer"
+          class:dragging
+          role="group"
+          ondragover={onDragOver}
+          ondragleave={() => (dragging = false)}
+          ondrop={onDrop}
+        >
           <MentionPicker bind:this={mentions} threadId={id} textarea={composer} text={draft} onchange={(text) => setDraft(id, text)} />
+          <ComposerAttachments threadId={id} />
           <textarea
             bind:this={composer}
             bind:value={() => draft, (text) => setDraft(id, text)}
             onkeydown={onKeydown}
+            onpaste={onPaste}
             data-composer
             rows="2"
             placeholder={question
@@ -416,6 +463,7 @@
                 : "Message the agent"}
           ></textarea>
           <div class="actions">
+            <AttachButton threadId={id} />
             <ModelPicker provider={thread.provider} bind:model bind:effort compact />
             <select title="Access, applied from the next message" bind:value={accessMode}>
               <option value="ask">Ask first</option>
@@ -442,8 +490,8 @@
               <button class="primary answer" onclick={submitAnswer} disabled={currentAnswer.length === 0}>
                 {lastStep ? "Submit answer" : "Next"}
               </button>
-            {:else if thread.status !== "running" || draft.trim()}
-              <button class="primary icon" title="Send (Enter)" onclick={send} disabled={!draft.trim()}>
+            {:else if thread.status !== "running" || draft.trim() || attached.ids.length > 0}
+              <button class="primary icon" title="Send (Enter)" onclick={send} disabled={!canSend}>
                 <ArrowUp size={16} />
               </button>
             {/if}
@@ -660,7 +708,8 @@
     padding: var(--space-2-5) var(--space-3) var(--space-2);
     transition: border-color var(--transition-fast);
   }
-  .composer:focus-within {
+  .composer:focus-within,
+  .composer.dragging {
     border-color: var(--border-strong);
   }
   textarea {

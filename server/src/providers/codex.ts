@@ -2,18 +2,38 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { tmpdir } from "node:os";
 import { createInterface } from "node:readline";
 import type { AccessMode, Item, ModelOption, Question } from "shared/protocol";
+import { isNativeImage } from "../attachments.ts";
 import {
   isEffort,
   truncate,
+  withAttachmentPaths,
   type ProviderSession,
   type SessionOptions,
   type TextRequest,
+  type TurnAttachment,
 } from "./types.ts";
 
 // Minimal hand-written slice of the app-server protocol. Regenerate the full bindings with
 // `codex app-server generate-ts --out <dir>` when extending this.
 
 type ItemStatus = "inProgress" | "completed" | "failed" | "declined";
+
+type CodexUserInput =
+  | { type: "text"; text: string; text_elements: [] }
+  | { type: "localImage"; path: string };
+
+/**
+ * `turn/start` and `turn/steer` input: the text, naming every attachment's path, then images by
+ * path. Codex runs on this machine and reads them itself, so no bytes cross the pipe.
+ */
+export function codexInput(text: string, attachments: TurnAttachment[]): CodexUserInput[] {
+  return [
+    { type: "text", text: withAttachmentPaths(text, attachments), text_elements: [] },
+    ...attachments
+      .filter((attachment) => isNativeImage(attachment.mimeType))
+      .map((attachment) => ({ type: "localImage" as const, path: attachment.path })),
+  ];
+}
 
 type CodexItem =
   | { type: "agentMessage"; id: string; text: string }
@@ -446,14 +466,14 @@ export async function startCodexSession(options: SessionOptions): Promise<Provid
   events.sessionId(threadId);
 
   return {
-    async sendTurn(text, settings) {
+    async sendTurn(text, settings, attachments) {
       turnActive = true;
       try {
         // Overrides stick for later turns, and null means "no change" rather than "default".
         const switchAccess = settings.accessMode !== currentAccess;
         const response = await connection.request<{ turn: CodexTurn }>("turn/start", {
           threadId,
-          input: [{ type: "text", text, text_elements: [] }],
+          input: codexInput(text, attachments),
           model: settings.model,
           effort: settings.effort,
           approvalPolicy: switchAccess ? approvalPolicy(settings.accessMode) : null,
@@ -465,11 +485,11 @@ export async function startCodexSession(options: SessionOptions): Promise<Provid
         endTurn({ status: "failed", error: error instanceof Error ? error.message : String(error) });
       }
     },
-    async steer(text) {
+    async steer(text, attachments) {
       if (!turnActive || turnId === null) return false;
       // Pinned to the running turn, so a turn that just ended fails cleanly instead of starting one.
       return connection
-        .request("turn/steer", { threadId, expectedTurnId: turnId, input: [{ type: "text", text, text_elements: [] }] })
+        .request("turn/steer", { threadId, expectedTurnId: turnId, input: codexInput(text, attachments) })
         .then(
           () => true,
           () => false,

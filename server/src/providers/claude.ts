@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import {
@@ -9,11 +10,14 @@ import {
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { AccessMode, Item, ModelOption, Question } from "shared/protocol";
+import { isNativeImage } from "../attachments.ts";
 import {
   truncate,
+  withAttachmentPaths,
   type ProviderSession,
   type SessionOptions,
   type TextRequest,
+  type TurnAttachment,
 } from "./types.ts";
 
 /** Async iterable the SDK reads user turns from, keeping one Claude process alive per thread. */
@@ -179,6 +183,47 @@ export function claudeAnswers(questions: Question[], answers: string[][]): Recor
 }
 
 const QUESTION_TOOL = "AskUserQuestion";
+
+type ClaudeContent = SDKUserMessage["message"]["content"];
+type ClaudeImageType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+
+/** An attachment with its bytes in base64 when it goes to Claude as an image, else null. */
+export type LoadedAttachment = TurnAttachment & { base64: string | null };
+
+/**
+ * A user message: plain text, or with attachments, base64 image blocks followed by the text, which
+ * also names every attachment's path for Claude's tools.
+ */
+export function claudeContent(text: string, attachments: LoadedAttachment[]): ClaudeContent {
+  if (attachments.length === 0) return text;
+  return [
+    ...attachments.flatMap((attachment) =>
+      attachment.base64 === null
+        ? []
+        : [
+            {
+              type: "image" as const,
+              source: {
+                type: "base64" as const,
+                media_type: attachment.mimeType as ClaudeImageType,
+                data: attachment.base64,
+              },
+            },
+          ],
+    ),
+    { type: "text" as const, text: withAttachmentPaths(text, attachments) },
+  ];
+}
+
+async function userMessage(text: string, attachments: TurnAttachment[]): Promise<SDKUserMessage> {
+  const loaded = await Promise.all(
+    attachments.map(async (attachment) => ({
+      ...attachment,
+      base64: isNativeImage(attachment.mimeType) ? (await readFile(attachment.path)).toString("base64") : null,
+    })),
+  );
+  return { type: "user", message: { role: "user", content: claudeContent(text, loaded) }, parent_tool_use_id: null };
+}
 
 // Ask mode lets Claude approve workspace edits; unresolved actions still reach canUseTool.
 function permissionMode(accessMode: AccessMode): PermissionMode {
@@ -346,7 +391,8 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
   })();
 
   return {
-    async sendTurn(text, settings) {
+    async sendTurn(text, settings, attachments) {
+      const message = await userMessage(text, attachments);
       if (settings.model !== current.model) await conversation.setModel(modelOption(settings.model));
       // A null effort level resets to the model's default.
       if (settings.effort !== current.effort) {
@@ -357,23 +403,17 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
       }
       current = settings;
       turnActive = true;
-      turns.push({
-        type: "user",
-        message: { role: "user", content: text },
-        parent_tool_use_id: null,
-      });
+      turns.push(message);
     },
-    async steer(text) {
+    async steer(text, attachments) {
       // "next" lands at the next step boundary without aborting tools ("now" aborts them). It is
       // only certain to join this turn while a tool call is running: during the final response it
       // could start a turn of its own, which this adapter would not be tracking.
       if (!turnActive || tools.size === 0) return false;
-      turns.push({
-        type: "user",
-        message: { role: "user", content: text },
-        parent_tool_use_id: null,
-        priority: "next",
-      });
+      const message = await userMessage(text, attachments);
+      // Reading the images took a moment, in which the tool call may have finished.
+      if (!turnActive || tools.size === 0) return false;
+      turns.push({ ...message, priority: "next" });
       return true;
     },
     async interrupt() {

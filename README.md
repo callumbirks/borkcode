@@ -44,6 +44,11 @@ files are inserted as `@<repo>/<path>`, relative to the agent's working director
 files by their absolute path. Claude reads referenced files into the message itself; Codex sees
 the path and opens the file when it needs it.
 
+Paste, drag in or attach (the paperclip) PNG, JPEG, GIF or WebP images, up to 20 MB each, to send
+them with a message; a message can be just images. They upload as soon as you add them, and Send
+waits until they have. The agent sees each image and is also told where it is saved, so it can use
+the file itself. Click an image in the transcript to see it full size.
+
 In "ask" mode, Claude automatically approves ordinary edits and common filesystem commands
 inside the workspace and shared project files. Edits outside those directories, protected files,
 and other shell commands may still need approval. "Full" mode bypasses normal permission prompts.

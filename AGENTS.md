@@ -117,6 +117,14 @@ inventing a fix.
   `borkcode`, labelled as not from the user), which counts as an automatic wake for the
   delegation limits. Parents hear through a watched child's report, not
   directly. A change found just before a turn starts joins that turn.
+- **Attachments travel over HTTP, never as browser-side paths,** so a remote browser works too.
+  `POST /api/threads/<id>/attachments` stores the raw body under `<home>/attachments/<thread id>/`
+  (outside every repo, removed with the thread) and returns `{ id, name, mimeType, size }`;
+  messages carry ids, and the inbox and transcript carry the records. Uploads are refused unless
+  same-origin, like `/ws`, and only ids that are UUIDs reach the filesystem. Only images are
+  accepted for now (not SVG, which could run script from our origin). Adapters send images
+  natively (Claude base64 blocks, Codex `localImage` paths) and name every attachment's path in
+  the text, which is how other file types will reach agents; the folder is a writable root.
 - **Clients get everything by broadcast.** It's fine for one local user. Revisit if remote access
   or many clients arrive. Keep payloads small: stream deltas, not whole items.
 

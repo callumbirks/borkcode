@@ -140,6 +140,20 @@ export interface Thread {
   updatedAt: number;
 }
 
+/**
+ * A file the user uploaded to a thread to send with a message. The browser uploads the bytes with
+ * `POST /api/threads/<threadId>/attachments` (the raw file as the body, its type as `content-type`
+ * and its URI-encoded name as `x-filename`), which answers with this record, and shows them from
+ * `GET /api/threads/<threadId>/attachments/<id>`. Only images are accepted for now.
+ */
+export interface Attachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  /** In bytes. */
+  size: number;
+}
+
 export type ToolStatus = "running" | "done" | "failed";
 
 export type Item =
@@ -147,6 +161,8 @@ export type Item =
       id: string;
       kind: "user";
       text: string;
+      /** Files sent with the message. Absent when there are none. */
+      attachments?: Attachment[];
       /** Set when another thread's agent sent this message: a handoff, a request or a report. */
       fromThreadId?: string;
       /** Sent by borkcode itself, such as news that a pull request was merged. */
@@ -267,9 +283,19 @@ export interface Requests {
     result: Thread;
   };
   "threads.get": { params: { threadId: string }; result: ThreadDetail };
-  /** Model, effort and access mode apply to this turn and are remembered for the next. */
+  /**
+   * Model, effort and access mode apply to this turn and are remembered for the next. Attachments
+   * are ids of files uploaded to this thread; with any, the text may be empty.
+   */
   "threads.send": {
-    params: { threadId: string; text: string; model: string | null; effort: Effort | null; accessMode: AccessMode };
+    params: {
+      threadId: string;
+      text: string;
+      attachments?: string[];
+      model: string | null;
+      effort: Effort | null;
+      accessMode: AccessMode;
+    };
     result: null;
   };
   /** Asks the agent to commit, push and open pull requests through its borkcode tool. */
