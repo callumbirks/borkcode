@@ -49,6 +49,8 @@ Not prioritized yet. The order below is a suggestion.
    the server runs on the main machine. The tailnet is the access boundary, so the server only
    needs to listen beyond localhost (it already reads `HOST`). The web client needs a layout
    that works on a phone, and file previews must keep working.
+8. **Mark as read or unread.** Actions to mark a thread read or unread by hand, building on the
+   automatic unread indicator.
 
 ## Not planned yet
 
