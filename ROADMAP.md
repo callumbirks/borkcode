@@ -19,14 +19,19 @@ Not prioritized yet. The order below is a suggestion.
 
 1. **Per-thread drafts.** Keep each thread's unsent chatbox text so switching threads doesn't lose
    it.
-2. **Rich file paths.** File paths in the thread become links that open a preview in a sidebar. The
+2. **Child thread model rules.** Rules in Settings that pick a new child thread's model and effort
+   from its parent's, e.g. Opus 5.5 XHigh parents start Opus 5.5 Medium children, and GPT 6 Astra
+   parents at any effort start GPT 6.1 Sol High children. Today a child copies its parent's model
+   and effort unless the agent asks for others. A rule would replace that copying, and an
+   agent's explicit choice would still win.
+3. **Rich file paths.** File paths in the thread become links that open a preview in a sidebar. The
    server serves workspace files over HTTP for this, which the next three items reuse.
-3. **Images in tool calls.** When the agent views an image file, the expanded tool call shows the
+4. **Images in tool calls.** When the agent views an image file, the expanded tool call shows the
    image instead of a "not a text file" message. Open question: render it in the thread, in the
    sidebar, or as a thumbnail in the thread that opens in the sidebar.
-4. **HTML visualizations.** A tool that lets the agent show HTML it writes, rendered in the
+5. **HTML visualizations.** A tool that lets the agent show HTML it writes, rendered in the
    thread, instead of the user opening a separate file.
-5. **Remote and mobile over Tailscale.** Use borkcode from another device on the same tailnet while
+6. **Remote and mobile over Tailscale.** Use borkcode from another device on the same tailnet while
    the server runs on the main machine. The tailnet is the access boundary, so the server only
    needs to listen beyond localhost (it already reads `HOST`). The web client needs a layout
    that works on a phone, and file previews must keep working.
