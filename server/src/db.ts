@@ -131,6 +131,8 @@ export class Database {
         state TEXT NOT NULL,
         title TEXT NOT NULL,
         head_oid TEXT NOT NULL DEFAULT '',
+        seen_state TEXT,
+        parent_seen_state TEXT,
         linked_at INTEGER NOT NULL,
         PRIMARY KEY (thread_id, url)
       );
@@ -147,6 +149,14 @@ export class Database {
     const prColumns = this.#db.prepare(`PRAGMA table_info(pull_requests)`).all() as unknown as { name: string }[];
     if (!prColumns.some((column) => column.name === "head_oid")) {
       this.#db.exec(`ALTER TABLE pull_requests ADD COLUMN head_oid TEXT NOT NULL DEFAULT ''`);
+    }
+    // Links from before agents were told about state changes count as seen.
+    if (!prColumns.some((column) => column.name === "seen_state")) {
+      this.#db.exec(`
+        ALTER TABLE pull_requests ADD COLUMN seen_state TEXT;
+        ALTER TABLE pull_requests ADD COLUMN parent_seen_state TEXT;
+        UPDATE pull_requests SET seen_state = state, parent_seen_state = state;
+      `);
     }
     // An early development version created the inbox without kinds; its messages were all plain.
     const inboxColumns = this.#db.prepare(`PRAGMA table_info(inbox)`).all() as unknown as { name: string }[];
@@ -292,17 +302,49 @@ export class Database {
       .map((row) => ({ ...(row as unknown as LinkedPullRequest) }));
   }
 
+  /** Every thread's pull requests, optionally only those in one state, such as OPEN to poll. */
+  listPullRequestLinks(state?: string): { threadId: string; pr: LinkedPullRequest }[] {
+    return this.#db
+      .prepare(
+        `SELECT thread_id AS threadId, repo, number, url, state, title, head_oid AS headOid FROM pull_requests
+         WHERE ? IS NULL OR state = ? ORDER BY linked_at, rowid`,
+      )
+      .all(state ?? null, state ?? null)
+      .map((row) => {
+        const { threadId, ...pr } = row as unknown as LinkedPullRequest & { threadId: string };
+        return { threadId, pr };
+      });
+  }
+
+  /**
+   * Pull requests whose state changed since an agent was last told, then marks them told. "thread"
+   * is the thread's own agent; "parent" is the agent of the thread that started it.
+   */
+  takeStateChanges(threadId: string, viewer: "thread" | "parent"): LinkedPullRequest[] {
+    const column = viewer === "thread" ? "seen_state" : "parent_seen_state";
+    const changed = this.#db
+      .prepare(
+        `SELECT repo, number, url, state, title, head_oid AS headOid FROM pull_requests
+         WHERE thread_id = ? AND state IS NOT ${column} ORDER BY linked_at, rowid`,
+      )
+      .all(threadId)
+      .map((row) => ({ ...(row as unknown as LinkedPullRequest) }));
+    this.#db.prepare(`UPDATE pull_requests SET ${column} = state WHERE thread_id = ?`).run(threadId);
+    return changed;
+  }
+
   /** Links a pull request to a thread, or refreshes it. Returns whether anything changed. */
   linkPullRequest(threadId: string, pr: LinkedPullRequest): boolean {
+    // A newly linked pull request is no news: its agent opened it or will see it listed.
     const result = this.#db
       .prepare(
-        `INSERT INTO pull_requests (thread_id, url, repo, number, state, title, head_oid, linked_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO pull_requests (thread_id, url, repo, number, state, title, head_oid, seen_state, parent_seen_state, linked_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (thread_id, url) DO UPDATE
            SET state = excluded.state, title = excluded.title, head_oid = excluded.head_oid
          WHERE state != excluded.state OR title != excluded.title OR head_oid != excluded.head_oid`,
       )
-      .run(threadId, pr.url, pr.repo, pr.number, pr.state, pr.title, pr.headOid, Date.now());
+      .run(threadId, pr.url, pr.repo, pr.number, pr.state, pr.title, pr.headOid, pr.state, pr.state, Date.now());
     return Number(result.changes) > 0;
   }
 

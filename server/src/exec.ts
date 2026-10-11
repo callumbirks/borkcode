@@ -12,13 +12,13 @@ export class CommandError extends Error {
 export function run(
   command: string,
   args: string[],
-  options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {},
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       command,
       args,
-      { cwd: options.cwd, env: options.env, maxBuffer: 64 * 1024 * 1024 },
+      { cwd: options.cwd, env: options.env, timeout: options.timeoutMs, maxBuffer: 64 * 1024 * 1024 },
       (error, stdout, stderr) => {
         if (error) {
           const detail = stderr.trim() || error.message;

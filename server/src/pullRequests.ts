@@ -222,3 +222,43 @@ export async function findPullRequest(repo: string, repoDir: string, branch: str
     return null;
   }
 }
+
+/** What can change about a linked pull request after it is opened. */
+export type PullRequestState = Pick<LinkedPullRequest, "state" | "title" | "headOid">;
+
+/**
+ * The current state of each pull request, with one GitHub query per repository. Repositories that
+ * cannot be asked (offline, gh missing, not GitHub) are left out, to be tried again later.
+ */
+export async function fetchPullRequestStates(urls: string[]): Promise<Map<string, PullRequestState>> {
+  const repositories = new Map<string, { host: string; owner: string; name: string; prs: { url: string; number: number }[] }>();
+  for (const url of urls) {
+    const match = /^https:\/\/([^/]+)\/([^/]+)\/([^/]+)\/pull\/(\d+)/.exec(url);
+    if (!match) continue;
+    const [, host, owner, name, number] = match as unknown as [string, string, string, string, string];
+    const key = `${host}/${owner}/${name}`;
+    const repository = repositories.get(key) ?? { host, owner, name, prs: [] };
+    repository.prs.push({ url, number: Number(number) });
+    repositories.set(key, repository);
+  }
+  const states = new Map<string, PullRequestState>();
+  await Promise.all(
+    [...repositories.values()].map(async ({ host, owner, name, prs }) => {
+      const fields = prs.map(({ number }) => `pr${number}: pullRequest(number: ${number}) { state title headRefOid }`);
+      const query = `query { repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { ${fields.join(" ")} } }`;
+      try {
+        const output = await run("gh", ["api", "graphql", "--hostname", host, "-f", `query=${query}`], { timeoutMs: 15_000 });
+        const found = (JSON.parse(output) as {
+          data: { repository: Record<string, { state: string; title: string; headRefOid: string } | null> };
+        }).data.repository;
+        for (const { url, number } of prs) {
+          const pr = found[`pr${number}`];
+          if (pr) states.set(url, { state: pr.state, title: pr.title, headOid: pr.headRefOid });
+        }
+      } catch {
+        // Best-effort, like discovery; the next poll tries again.
+      }
+    }),
+  );
+  return states;
+}
