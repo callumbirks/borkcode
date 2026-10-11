@@ -62,6 +62,7 @@ test("captains may start threads unprompted; other threads only when asked", () 
   assert.match(captain, /do not need to be asked each time/);
   assert.match(captain, /delegate it to threads, even if it looks small/);
   assert.match(captain, /send them to that thread with send_to_thread instead of starting a new one/);
+  assert.match(captain, /read its pull request diff/);
   const regular = buildInstructions(project, thread("borkcode/fix-login-t1"), "/ws", DEFAULT_SETTINGS, context);
   assert.doesNotMatch(regular, /You are a captain/);
   assert.match(regular, /Only start threads when asked/);
@@ -86,6 +87,7 @@ test("children of a captain open pull requests when their work item is done", ()
       parent: { title: "Plan the login work", captain },
     });
   assert.match(instructions(true), /open pull requests with open_pull_requests before your final reply/);
+  assert.match(instructions(true), /run the verification your change needs/);
   assert.doesNotMatch(instructions(false), /Your parent is a captain/);
 });
 
