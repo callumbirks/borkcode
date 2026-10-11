@@ -20,6 +20,8 @@ What borkcode has shipped and what may come next. The constraints every change w
 6. **Archived threads.** Threads and their subtrees can be archived out of the sidebar onto an
    Archived page, and come back when unarchived or messaged. Threads sort by recent activity, and
    working threads show a spinner in the sidebar.
+7. **Unread threads.** A thread whose agent finished a turn since the user last had it open for 3
+   seconds shows as unread in the sidebar. A captain's child reporting to it doesn't count.
 
 ## Next
 
@@ -36,19 +38,26 @@ Not prioritized yet. The order below is a suggestion.
    AskUserQuestion), borkcode shows it in place of the chatbox. Each option has its description
    and a number key, and there's a free-text answer field. The answer goes back to the agent's
    tool call. t3code does this well; see its provider adapters in the reference checkout.
-3. **Images in the prompt.** Paste images and screenshots into the chatbox and send them with the
+3. **`@` file references.** Typing `@` in the chatbox suggests files across all the project's
+   repos, plus shared project files, narrowing as you type. Picking one puts a reference to it in
+   the message, as in other harnesses.
+4. **Images in the prompt.** Paste images and screenshots into the chatbox and send them with the
    message.
-4. **Rich file paths.** File paths in the thread become links that open a preview in a sidebar. The
+5. **Rich file paths.** File paths in the thread become links that open a preview in a sidebar. The
    server serves workspace files over HTTP for this, which the next three items reuse.
-5. **Images in tool calls.** When the agent views an image file, the expanded tool call shows the
+6. **Images in tool calls.** When the agent views an image file, the expanded tool call shows the
    image instead of a "not a text file" message. Open question: render it in the thread, in the
    sidebar, or as a thumbnail in the thread that opens in the sidebar.
-6. **HTML visualizations.** A tool that lets the agent show HTML it writes, rendered in the
+7. **HTML visualizations.** A tool that lets the agent show HTML it writes, rendered in the
    thread, instead of the user opening a separate file.
-7. **Remote and mobile over Tailscale.** Use borkcode from another device on the same tailnet while
+8. **Remote and mobile over Tailscale.** Use borkcode from another device on the same tailnet while
    the server runs on the main machine. The tailnet is the access boundary, so the server only
    needs to listen beyond localhost (it already reads `HOST`). The web client needs a layout
    that works on a phone, and file previews must keep working.
+9. **Mark as read or unread.** Actions to mark a thread read or unread by hand, building on the
+   automatic unread indicator.
+10. **`@` thread references.** `@` also suggests other threads in the project that aren't
+    archived, so one thread can read through another's transcript. Builds on `@` file references.
 
 ## Not planned yet
 
