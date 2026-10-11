@@ -921,9 +921,15 @@ export class ThreadService {
   #pollPullRequests(): void {
     if (this.#pullRequestPoll || this.#db.listPullRequestLinks("OPEN").length === 0) return;
     this.#pullRequestPoll = setTimeout(async () => {
-      await this.refreshOpenPullRequests();
-      this.#pullRequestPoll = null;
-      this.#pollPullRequests();
+      try {
+        await this.refreshOpenPullRequests();
+      } catch (error) {
+        console.error(error);
+      } finally {
+        // One failed poll must not stop polling until the next restart.
+        this.#pullRequestPoll = null;
+        this.#pollPullRequests();
+      }
     }, PULL_REQUEST_POLL_MS);
     this.#pullRequestPoll.unref();
   }
