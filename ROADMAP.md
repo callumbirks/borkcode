@@ -20,6 +20,8 @@ What borkcode has shipped and what may come next. The constraints every change w
 6. **Archived threads.** Threads and their subtrees can be archived out of the sidebar onto an
    Archived page, and come back when unarchived or messaged. Threads sort by recent activity, and
    working threads show a spinner in the sidebar.
+7. **Unread threads.** A thread whose agent finished a turn since the user last had it open for 3
+   seconds shows as unread in the sidebar. A captain's child reporting to it doesn't count.
 
 ## Next
 
