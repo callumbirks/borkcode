@@ -145,6 +145,14 @@ test("a message to a busy thread joins its turn at the next step, or waits for t
   agent.finish("done");
 });
 
+test("renaming a thread does not count as activity", async () => {
+  const { thread, agent } = await startThread("rename me");
+  await agent.turn(1);
+  agent.finish("ok");
+  const before = (await threads.get(thread.id)).thread.updatedAt;
+  assert.equal(threads.rename(thread.id, "A better name").updatedAt, before);
+});
+
 test("a changed access mode is saved and applies to the next turn", async () => {
   const { thread, agent } = await startThread("careful now");
   await agent.turn(1);

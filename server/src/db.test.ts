@@ -134,3 +134,19 @@ test("archiving is stored without counting as activity", () => {
   db.setArchived(["t5"], null);
   assert.equal(db.getThread("t5")?.archivedAt, null);
 });
+
+test("only status changes and delivered messages count as activity", () => {
+  const db = new Database(":memory:");
+  db.insertThread({
+    id: "t6", project: "p", title: "T", provider: "claude", model: null, effort: null, accessMode: "ask",
+    workspace: null, branch: null, status: "idle", providerSessionId: null, parentId: null, startBranch: null,
+    captain: false, watched: false, paused: false, queued: 0, archivedAt: null, createdAt: 1, updatedAt: 1,
+  });
+  db.updateThread("t6", { title: "Renamed", model: "opus", accessMode: "full", paused: true, watched: true });
+  db.updateThread("t6", { providerSessionId: "session", status: "idle" });
+  assert.equal(db.getThread("t6")?.updatedAt, 1);
+  assert.ok(db.updateThread("t6", { status: "running" }).updatedAt > 1);
+  db.insertThread({ ...db.getThread("t6")!, id: "t7", updatedAt: 1 });
+  db.touchThread("t7");
+  assert.ok(db.getThread("t7")!.updatedAt > 1);
+});

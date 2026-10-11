@@ -544,6 +544,7 @@ export class ThreadService {
       (message) => message.kind === "message" && message.fromThreadId !== null && message.fromThreadId === thread.parentId,
     );
     if (fromParent && !thread.watched) this.#db.updateThread(thread.id, { watched: true });
+    this.#db.touchThread(thread.id);
     if (automatic) {
       live.wakes.push(Date.now());
       const root = this.#rootOf(thread);
