@@ -1,5 +1,9 @@
 <script lang="ts">
+  import ArrowUp from "@lucide/svelte/icons/arrow-up";
+  import FileText from "@lucide/svelte/icons/file-text";
+  import Plus from "@lucide/svelte/icons/plus";
   import type { AccessMode, Effort, ProviderKind } from "shared/protocol";
+  import { providerLabel, relativeTime } from "../lib/display.svelte";
   import { app, go, loadFiles, rpc } from "../lib/state.svelte";
   import ModelPicker from "./ModelPicker.svelte";
   import RepoEditor from "./RepoEditor.svelte";
@@ -8,7 +12,7 @@
 
   const project = $derived(app.projects.find((candidate) => candidate.name === name));
   const threads = $derived(
-    app.threads.filter((thread) => thread.project === name).sort((a, b) => b.createdAt - a.createdAt),
+    app.threads.filter((thread) => thread.project === name).sort((a, b) => b.updatedAt - a.updatedAt),
   );
 
   const files = $derived(app.files[name] ?? []);
@@ -105,138 +109,162 @@
   {#if !project}
     <p class="muted">Loading project…</p>
   {:else}
-    <h1>{project.name}</h1>
-    <p class="muted"><code>{project.path}</code></p>
+    <div class="page-inner">
+      <div class="page-header">
+        <h1>{project.name}</h1>
+        <code class="muted">{project.path}</code>
+      </div>
 
-    <section class="card">
-      <h2>New thread</h2>
-      <form onsubmit={createThread}>
+      <form class="composer" onsubmit={createThread}>
         <textarea
           bind:value={message}
           onkeydown={onKeydown}
           rows="3"
-          placeholder="What should the agent do? The thread is named from this. (Enter to start, Shift+Enter for a new line)"
+          placeholder="What should the agent do? The thread is named from this."
           required
         ></textarea>
-        <div class="row">
-          <label>
-            Agent
-            <select value={provider} onchange={(event) => pickProvider(event.currentTarget.value as ProviderKind)}>
-              <option value="claude">Claude</option>
-              <option value="codex">Codex</option>
-            </select>
-          </label>
-          <ModelPicker {provider} bind:model bind:effort />
-          <label>
-            Access
-            <select bind:value={accessMode}>
-              <option value="ask">Ask before acting</option>
-              <option value="full">Full access</option>
-            </select>
-          </label>
-          <label>
-            Workspace
-            <select bind:value={isolated}>
-              <option value={true}>New worktrees</option>
-              <option value={false}>Main checkouts</option>
-            </select>
-          </label>
-          <button class="primary" type="submit" disabled={project.repos.length === 0 || starting || !message.trim()}>
-            Start
+        <div class="actions">
+          <select
+            title="Agent"
+            value={provider}
+            onchange={(event) => pickProvider(event.currentTarget.value as ProviderKind)}
+          >
+            <option value="claude">Claude</option>
+            <option value="codex">Codex</option>
+          </select>
+          <ModelPicker {provider} bind:model bind:effort compact />
+          <select title="Access" bind:value={accessMode}>
+            <option value="ask">Ask first</option>
+            <option value="full">Full access</option>
+          </select>
+          <select title="Workspace" bind:value={isolated}>
+            <option value={true}>New worktrees</option>
+            <option value={false}>Main checkouts</option>
+          </select>
+          <span class="grow"></span>
+          <button
+            class="primary icon"
+            type="submit"
+            title="Start thread (Enter)"
+            disabled={project.repos.length === 0 || starting || !message.trim()}
+          >
+            <ArrowUp size={16} />
           </button>
         </div>
       </form>
-      {#if project.repos.length === 0}
-        <p class="muted">Add a repository first.</p>
-      {/if}
+      {#if project.repos.length === 0}<p class="muted">Add a repository first.</p>{/if}
       {#if threadError}<p class="error">{threadError}</p>{/if}
-    </section>
 
-    <section class="card">
-      <h2>Shared files</h2>
-      <p class="muted">Notes, specs and plans that you and every thread of this project can read and write.</p>
-      {#each files as file (file.path)}
-        <button class="file" onclick={() => go({ view: "file", project: name, path: file.path })}>
-          <code>{file.path}</code>
-          <span class="muted">
-            {formatSize(file.size)} · {new Date(file.modifiedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
-          </span>
-        </button>
-      {:else}
-        <p class="muted">No files yet.</p>
-      {/each}
-      <form class="row add" onsubmit={createFile}>
-        <label class="grow">
-          New file
-          <input bind:value={newPath} placeholder="specs/login.md" required />
-        </label>
-        <button type="submit">Create</button>
-      </form>
-      {#if fileError}<p class="error">{fileError}</p>{/if}
-    </section>
+      {#if threads.length > 0}
+        <section class="card">
+          <div class="section-label">Threads <span class="count">{threads.length}</span></div>
+          <div class="list">
+            {#each threads as thread (thread.id)}
+              <button class="list-row" onclick={() => go({ view: "thread", id: thread.id })}>
+                <span class="dot {thread.status}" title={thread.status}></span>
+                <span class="truncate grow">{thread.title}</span>
+                <span class="chip provider-{thread.provider}">{providerLabel[thread.provider]}</span>
+                {#if !thread.workspace}<span class="chip">main checkout</span>{/if}
+                <span class="time">{relativeTime(thread.updatedAt)}</span>
+              </button>
+            {/each}
+          </div>
+        </section>
+      {/if}
 
-    <section class="card">
-      <h2>Repositories</h2>
-      {#each project.repos as repo (repo.name)}
-        <RepoEditor project={project.name} {repo} />
-      {/each}
-      <form class="row add" onsubmit={addRepo}>
-        <label class="grow">
-          Git URL or GitHub owner/repo
-          <input bind:value={repoUrl} placeholder="git@github.com:me/vessel.git" required />
-        </label>
-        <label>
-          Directory name
-          <input bind:value={repoName} placeholder="from URL" size="14" />
-        </label>
-        <button type="submit" disabled={cloning}>{cloning ? "Cloning…" : "Add repository"}</button>
-      </form>
-      {#if repoError}<p class="error">{repoError}</p>{/if}
-    </section>
-
-    {#if threads.length > 0}
       <section class="card">
-        <h2>Threads</h2>
-        {#each threads as thread (thread.id)}
-          <button class="thread" onclick={() => go({ view: "thread", id: thread.id })}>
-            <span>{thread.title}</span>
-            <span class="muted">{thread.provider} · {thread.branch ?? "main checkouts"} · {thread.status}</span>
-          </button>
-        {/each}
+        <div class="section-label">Shared files <span class="count">{files.length}</span></div>
+        <p class="muted hint">Notes, specs and plans that you and every thread of this project can read and write.</p>
+        <div class="list">
+          {#each files as file (file.path)}
+            <button class="list-row" onclick={() => go({ view: "file", project: name, path: file.path })}>
+              <FileText size={16} class="muted" />
+              <code class="truncate grow">{file.path}</code>
+              <span class="time">{formatSize(file.size)}</span>
+              <span class="time">{relativeTime(file.modifiedAt)}</span>
+            </button>
+          {/each}
+        </div>
+        <form class="inline" onsubmit={createFile}>
+          <input bind:value={newPath} placeholder="New file, e.g. specs/login.md" required />
+          <button type="submit"><Plus size={14} />Create</button>
+        </form>
+        {#if fileError}<p class="error">{fileError}</p>{/if}
       </section>
-    {/if}
+
+      <section class="card">
+        <div class="section-label">Repositories <span class="count">{project.repos.length}</span></div>
+        <div>
+          {#each project.repos as repo (repo.name)}
+            <RepoEditor project={project.name} {repo} />
+          {/each}
+        </div>
+        <form class="inline" onsubmit={addRepo}>
+          <input class="grow" bind:value={repoUrl} placeholder="Git URL or GitHub owner/repo" required />
+          <input bind:value={repoName} placeholder="Directory (from URL)" size="18" />
+          <button type="submit" disabled={cloning}><Plus size={14} />{cloning ? "Cloning…" : "Add"}</button>
+        </form>
+        {#if repoError}<p class="error">{repoError}</p>{/if}
+      </section>
+    </div>
   {/if}
 </div>
 
 <style>
-  .grow {
-    flex: 1;
-    min-width: 200px;
+  .composer {
+    background: var(--surface-raised);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-xl);
+    padding: var(--space-3) var(--space-3) var(--space-2);
+    transition: border-color var(--transition-fast);
+  }
+  .composer:focus-within {
+    border-color: var(--border-strong);
   }
   textarea {
+    display: block;
     width: 100%;
-    resize: vertical;
-    margin-bottom: 8px;
-  }
-  .add {
-    margin-top: 12px;
-  }
-  .file {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    width: 100%;
+    resize: none;
     background: none;
     border: none;
-    padding: 6px 0;
-    text-align: left;
+    padding: 0;
+    font-size: var(--text-md);
+    field-sizing: content;
+    min-height: 66px;
+    max-height: 240px;
   }
-  .thread {
+  .actions {
     display: flex;
-    justify-content: space-between;
-    width: 100%;
+    align-items: center;
+    gap: var(--space-1);
+    margin-top: var(--space-2);
+  }
+  .actions select {
     background: none;
-    border: none;
-    padding: 6px 0;
+    border-color: transparent;
+    color: var(--text-secondary);
+    padding: var(--space-1) var(--space-1-5);
+  }
+  .actions select:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+  .actions .icon {
+    border-radius: var(--radius-full);
+  }
+  .hint {
+    font-size: var(--text-xs);
+  }
+  .time {
+    flex-shrink: 0;
+    font-size: var(--text-xs);
+    color: var(--text-faint);
+  }
+  .inline {
+    display: flex;
+    gap: var(--space-2);
+  }
+  .inline input:first-child {
+    flex: 1;
   }
 </style>

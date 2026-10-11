@@ -1,4 +1,6 @@
 <script lang="ts">
+  import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
+  import Pencil from "@lucide/svelte/icons/pencil";
   import type { RepoConfig } from "shared/protocol";
   import { rpc } from "../lib/state.svelte";
 
@@ -29,11 +31,16 @@
 
 <div class="repo">
   <div class="summary">
-    <strong>{repo.name}/</strong>
-    <span class="muted">{repo.url}</span>
-    <span class="muted">base {repo.baseBranch}</span>
-    {#if repo.setup}<code class="muted">setup: {repo.setup}</code>{/if}
-    <button onclick={() => (editing ? (editing = false) : startEditing())}>{editing ? "Cancel" : "Edit"}</button>
+    <FolderGit2 size={16} class="muted" />
+    <div class="lines">
+      <span class="name">{repo.name}</span>
+      <span class="url truncate">{repo.url}</span>
+    </div>
+    <span class="chip">base {repo.baseBranch}</span>
+    {#if repo.setup}<span class="chip" title={repo.setup}>setup</span>{/if}
+    <button class="ghost icon" title={editing ? "Cancel" : "Edit"} onclick={() => (editing ? (editing = false) : startEditing())}>
+      <Pencil size={14} />
+    </button>
   </div>
   {#if editing}
     <form class="row" onsubmit={save}>
@@ -45,6 +52,7 @@
         Setup command (runs in each new worktree)
         <input bind:value={setup} placeholder={'cp "$BORKCODE_MAIN_REPO/.env" . && pnpm install'} />
       </label>
+      <button type="button" class="ghost" onclick={() => (editing = false)}>Cancel</button>
       <button class="primary" type="submit">Save</button>
     </form>
     {#if error}<p class="error">{error}</p>{/if}
@@ -53,23 +61,31 @@
 
 <style>
   .repo {
-    padding: 8px 0;
-    border-bottom: 1px solid var(--border);
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--border-subtle);
   }
   .summary {
     display: flex;
-    gap: 12px;
+    gap: var(--space-3);
     align-items: center;
-    flex-wrap: wrap;
   }
-  .summary button {
-    margin-left: auto;
+  .lines {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+  }
+  .name {
+    font-weight: var(--weight-medium);
+  }
+  .url {
+    font-size: var(--text-xs);
+    color: var(--text-faint);
   }
   form {
-    margin-top: 8px;
+    margin: var(--space-3) 0 var(--space-1) var(--space-8);
   }
   .grow {
-    flex: 1;
     min-width: 260px;
   }
 </style>

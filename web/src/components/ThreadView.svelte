@@ -1,16 +1,39 @@
 <script lang="ts">
+  import ArrowUp from "@lucide/svelte/icons/arrow-up";
+  import Folder from "@lucide/svelte/icons/folder";
+  import GitBranch from "@lucide/svelte/icons/git-branch";
+  import GitPullRequestArrow from "@lucide/svelte/icons/git-pull-request-arrow";
+  import ShieldAlert from "@lucide/svelte/icons/shield-alert";
+  import ShieldCheck from "@lucide/svelte/icons/shield-check";
+  import Square from "@lucide/svelte/icons/square";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
   import { tick } from "svelte";
-  import type { Effort } from "shared/protocol";
+  import type { Effort, Item } from "shared/protocol";
+  import { providerLabel } from "../lib/display.svelte";
   import { app, go, openThread, rpc } from "../lib/state.svelte";
   import ItemView from "./ItemView.svelte";
   import ModelPicker from "./ModelPicker.svelte";
   import RepoPanel from "./RepoPanel.svelte";
+  import WorkGroup from "./WorkGroup.svelte";
 
   let { id }: { id: string } = $props();
 
   const detail = $derived(app.detail?.thread.id === id ? app.detail : null);
   const thread = $derived(detail?.thread);
   const busy = $derived(thread?.status === "running" || thread?.status === "preparing");
+
+  // Consecutive tool calls and reasoning fold into one group; messages and notices stand alone.
+  type Segment = { kind: "item"; item: Item } | { kind: "work"; id: string; items: Item[] };
+  const segments = $derived.by(() => {
+    const result: Segment[] = [];
+    for (const item of detail?.items ?? []) {
+      const previous = result.at(-1);
+      if (item.kind !== "tool" && item.kind !== "reasoning") result.push({ kind: "item", item });
+      else if (previous?.kind === "work") previous.items.push(item);
+      else result.push({ kind: "work", id: item.id, items: [item] });
+    }
+    return result;
+  });
 
   let draft = $state("");
   let error = $state("");
@@ -129,61 +152,87 @@
   <div class="thread">
     <div class="chat">
       <header>
-        <div class="heading">
-          {#if editingTitle}
-            <!-- svelte-ignore a11y_autofocus -->
-            <input class="title" bind:value={titleDraft} onkeydown={onTitleKeydown} onblur={saveTitle} autofocus />
-          {:else}
-            <button class="title" title="Rename" onclick={editTitle}>{thread.title}</button>
-          {/if}
-          <span class="muted">
-            {thread.provider} ·
-            {thread.accessMode === "full" ? "full access" : "asks first"} ·
-            <a href="#/project/{encodeURIComponent(thread.project)}">{thread.project}</a>
+        <span class="dot {thread.status}" title={thread.status}></span>
+        {#if editingTitle}
+          <!-- svelte-ignore a11y_autofocus -->
+          <input class="title" bind:value={titleDraft} onkeydown={onTitleKeydown} onblur={saveTitle} autofocus />
+        {:else}
+          <button class="title ghost truncate" title="Rename" onclick={editTitle}>{thread.title}</button>
+        {/if}
+        <div class="chips">
+          <a class="chip" href="#/project/{encodeURIComponent(thread.project)}" title="Project">
+            <Folder size={12} />{thread.project}
+          </a>
+          <span class="chip provider-{thread.provider}">{providerLabel[thread.provider]}</span>
+          <span class="chip" title={thread.branch ?? "Runs in the main checkouts"}>
+            <GitBranch size={12} />{thread.branch ?? "main checkout"}
           </span>
+          {#if thread.accessMode === "full"}
+            <span class="chip" title="Acts without asking"><ShieldCheck size={12} />Full access</span>
+          {:else}
+            <span class="chip" title="Asks before risky actions"><ShieldAlert size={12} />Asks first</span>
+          {/if}
         </div>
-        <button class="danger" onclick={remove}>Delete</button>
+        <button class="ghost icon delete" title="Delete thread" onclick={remove}><Trash2 size={16} /></button>
       </header>
       <div class="transcript" bind:this={transcript}>
-        {#each detail.items as item (item.id)}
-          <ItemView {item} />
-        {/each}
-        {#each detail.approvals as approval (approval.id)}
-          <div class="approval">
-            <strong>{approval.title}</strong>
-            {#if approval.detail}<pre>{approval.detail}</pre>{/if}
-            <div class="row">
-              <button class="primary" onclick={() => respond(approval.id, true)}>Allow</button>
-              <button onclick={() => respond(approval.id, false)}>Deny</button>
+        <div class="column">
+          {#each segments as segment (segment.kind === "item" ? segment.item.id : segment.id)}
+            {#if segment.kind === "item"}
+              <ItemView item={segment.item} />
+            {:else}
+              <WorkGroup items={segment.items} />
+            {/if}
+          {/each}
+          {#each detail.approvals as approval (approval.id)}
+            <div class="approval">
+              <div class="approval-title"><ShieldAlert size={16} />{approval.title}</div>
+              {#if approval.detail}<pre>{approval.detail}</pre>{/if}
+              <div class="row">
+                <button class="primary" onclick={() => respond(approval.id, true)}>Allow</button>
+                <button onclick={() => respond(approval.id, false)}>Deny</button>
+              </div>
             </div>
-          </div>
-        {/each}
-        {#if thread.status === "preparing"}
-          <p class="muted">Preparing the workspace…</p>
-        {:else if thread.status === "running" && detail.approvals.length === 0}
-          <p class="muted">Working…</p>
-        {/if}
+          {/each}
+          {#if thread.status === "preparing"}
+            <p class="status"><span class="dot running"></span>Preparing the workspace…</p>
+          {:else if thread.status === "running" && detail.approvals.length === 0}
+            <p class="status"><span class="dot running"></span>Working…</p>
+          {/if}
+        </div>
       </div>
-      <div class="composer">
+      <div class="composer-wrap">
         {#if error}<p class="error">{error}</p>{/if}
-        <textarea
-          bind:value={draft}
-          onkeydown={onKeydown}
-          rows="3"
-          placeholder={busy ? "The agent is working…" : "Message the agent (Enter to send, Shift+Enter for a new line)"}
-        ></textarea>
-        <div class="actions">
-          <ModelPicker provider={thread.provider} bind:model bind:effort />
-          <span class="spacer"></span>
-          {#if thread.workspace}
-            <button onclick={publish} disabled={busy} title="Ask the agent to commit, push and open pull requests">
-              Push &amp; PR
-            </button>
-          {/if}
-          {#if thread.status === "running"}
-            <button onclick={() => rpc.request("threads.interrupt", { threadId: id })}>Stop</button>
-          {/if}
-          <button class="primary" onclick={send} disabled={busy || !draft.trim()}>Send</button>
+        <div class="composer">
+          <textarea
+            bind:value={draft}
+            onkeydown={onKeydown}
+            rows="2"
+            placeholder={busy ? "The agent is working…" : "Message the agent"}
+          ></textarea>
+          <div class="actions">
+            <ModelPicker provider={thread.provider} bind:model bind:effort compact />
+            <span class="spacer"></span>
+            {#if thread.workspace}
+              <button
+                class="ghost"
+                onclick={publish}
+                disabled={busy}
+                title="Ask the agent to commit, push and open pull requests"
+              >
+                <GitPullRequestArrow size={14} />Push &amp; PR
+              </button>
+            {/if}
+            {#if thread.status === "running"}
+              <button class="icon" title="Stop" onclick={() => rpc.request("threads.interrupt", { threadId: id })}>
+                <Square size={12} fill="currentColor" />
+              </button>
+            {:else}
+              <button class="primary icon" title="Send (Enter)" onclick={send} disabled={busy || !draft.trim()}>
+                <ArrowUp size={16} />
+              </button>
+            {/if}
+          </div>
         </div>
       </div>
     </div>
@@ -199,7 +248,7 @@
 <style>
   .thread {
     display: grid;
-    grid-template-columns: 1fr 320px;
+    grid-template-columns: 1fr var(--panel-width);
     height: 100%;
     min-height: 0;
   }
@@ -211,65 +260,128 @@
   }
   header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    padding: 10px 20px;
-    border-bottom: 1px solid var(--border);
-  }
-  .heading {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    min-width: 0;
-  }
-  .heading .muted {
-    font-size: 13px;
-    white-space: nowrap;
+    gap: var(--space-2);
+    height: var(--header-height);
+    padding: 0 var(--space-3) 0 var(--space-4);
+    border-bottom: 1px solid var(--border-subtle);
   }
   .title {
-    font-weight: 600;
-    padding: 2px 6px;
-    margin-left: -6px;
+    min-width: 0;
+    font-weight: var(--weight-semibold);
+    font-size: var(--text-sm);
+    color: var(--text-primary);
+    padding: var(--space-0-5) var(--space-1-5);
   }
   button.title {
-    background: none;
-    border-color: transparent;
-    text-align: left;
+    display: block;
+    flex-shrink: 1;
   }
-  button.title:hover {
-    border-color: var(--border);
+  input.title {
+    flex: 1;
+  }
+  .chips {
+    display: flex;
+    gap: var(--space-1);
+    min-width: 0;
+    overflow: hidden;
+  }
+  a.chip:hover {
+    color: var(--text-primary);
+    text-decoration: none;
+  }
+  .delete {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .delete:hover:not(:disabled) {
+    color: var(--status-danger);
   }
   .transcript {
     flex: 1;
     overflow-y: auto;
-    padding: 16px 20px;
+    padding: var(--space-6) var(--space-6) var(--space-4);
+  }
+  .column {
+    max-width: var(--content-width);
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+  .status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--text-muted);
   }
   .approval {
-    border: 1px solid var(--warn);
-    background: var(--warn-bg);
-    border-radius: 8px;
-    padding: 12px;
-    margin: 8px 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    border: 1px solid var(--status-warning);
+    background: var(--status-warning-soft);
+    border-radius: var(--radius-lg);
+    padding: var(--space-3);
+  }
+  .approval-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-weight: var(--weight-semibold);
+    color: var(--status-warning);
   }
   .approval pre {
+    margin: 0;
     white-space: pre-wrap;
     word-break: break-word;
+    color: var(--text-secondary);
+  }
+  .composer-wrap {
+    padding: 0 var(--space-6) var(--space-4);
+  }
+  .composer-wrap > * {
+    max-width: var(--content-width);
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .composer-wrap .error {
+    margin-bottom: var(--space-2);
   }
   .composer {
-    border-top: 1px solid var(--border);
-    padding: 12px 20px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-md);
+    padding: var(--space-2-5) var(--space-3) var(--space-2);
+    transition: border-color var(--transition-fast);
+  }
+  .composer:focus-within {
+    border-color: var(--border-strong);
   }
   textarea {
+    display: block;
     width: 100%;
-    resize: vertical;
+    resize: none;
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: var(--text-md);
+    max-height: 240px;
+    field-sizing: content;
+    min-height: 44px;
   }
   .actions {
     display: flex;
-    align-items: flex-end;
-    gap: 8px;
-    margin-top: 8px;
+    align-items: center;
+    gap: var(--space-1);
+    margin-top: var(--space-2);
   }
   .spacer {
     flex: 1;
+  }
+  .actions .icon {
+    border-radius: var(--radius-full);
   }
 </style>

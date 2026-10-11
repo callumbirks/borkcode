@@ -1,4 +1,6 @@
 <script lang="ts">
+  import FileText from "@lucide/svelte/icons/file-text";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
   import { untrack } from "svelte";
   import { app, go, loadFiles, rpc } from "../lib/state.svelte";
 
@@ -82,15 +84,18 @@
 
 <div class="file">
   <header>
-    <div>
+    <div class="crumbs">
+      <FileText size={14} />
       <a href="#/project/{encodeURIComponent(project)}">{project}</a>
-      <span class="muted">/ files /</span>
+      <span class="faint">/ files /</span>
       <code>{path}</code>
     </div>
-    <div class="row">
-      {#if dirty}<span class="muted">Unsaved changes</span>{/if}
-      <button class="danger" onclick={remove} disabled={loading || !onDisk}>Delete</button>
-      <button class="primary" onclick={save} disabled={loading || saving || !dirty}>Save</button>
+    <div class="buttons">
+      {#if dirty}<span class="chip unsaved">Unsaved</span>{/if}
+      <button class="ghost icon" title="Delete file" onclick={remove} disabled={loading || !onDisk}>
+        <Trash2 size={16} />
+      </button>
+      <button class="primary" title="Save (Ctrl+S)" onclick={save} disabled={loading || saving || !dirty}>Save</button>
     </div>
   </header>
   {#if changedElsewhere && dirty}
@@ -101,7 +106,7 @@
   {/if}
   {#if error}<p class="error">{error}</p>{/if}
   {#if loading}
-    <p class="muted">Loading…</p>
+    <p class="muted loading">Loading…</p>
   {:else}
     <textarea bind:value={content} onkeydown={onKeydown} spellcheck="false"></textarea>
   {/if}
@@ -118,30 +123,45 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 10px 20px;
-    border-bottom: 1px solid var(--border);
+    gap: var(--space-3);
+    height: var(--header-height);
+    padding: 0 var(--space-3) 0 var(--space-4);
+    border-bottom: 1px solid var(--border-subtle);
   }
-  .row {
-    align-items: center;
-  }
-  .banner {
+  .crumbs {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 6px 20px;
-    background: var(--warn-bg);
-    color: var(--warn);
-    font-size: 13px;
+    gap: var(--space-1-5);
+    min-width: 0;
+    font-size: var(--text-sm);
+    color: var(--text-muted);
   }
-  .error {
-    padding: 0 20px;
+  .faint {
+    color: var(--text-faint);
+  }
+  .buttons {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+  .unsaved {
+    color: var(--status-warning);
+    background: var(--status-warning-soft);
+  }
+  .error,
+  .loading {
+    padding: var(--space-3) var(--space-4) 0;
   }
   textarea {
     flex: 1;
-    margin: 12px 20px 20px;
+    margin: 0;
+    padding: var(--space-4) var(--space-6);
     resize: none;
-    font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
-    font-size: 13px;
-    line-height: 1.5;
+    background: none;
+    border: none;
+    border-radius: 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
   }
 </style>

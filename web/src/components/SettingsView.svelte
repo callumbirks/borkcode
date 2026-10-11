@@ -51,50 +51,55 @@
 </script>
 
 <div class="page">
-  <h1>Settings</h1>
-  {#if app.settingsError}
-    <p class="error">{app.settingsError}</p>
-  {:else if !app.settings}
-    <p class="muted">Loading settings…</p>
-  {:else}
-    <section class="card">
-      <h2>Worktree threads</h2>
-      <label class="switch">
-        <input
-          type="checkbox"
-          role="switch"
-          checked={app.settings.autoCommit}
-          onchange={(event) => setAutoCommit(event.currentTarget.checked)}
-        />
-        <span class="track"></span>
-        <span class="text">
-          Auto-commit changes in worktree threads
-          <span class="muted">
-            Agents commit each finished step on the thread's branch without being asked. Threads in
-            the main checkouts only commit when asked. Applies to agent sessions started after the change.
+  <div class="page-inner">
+    <div class="page-header">
+      <h1>Settings</h1>
+      <p class="muted">Stored in settings.json in the borkcode home, which is safe to hand-edit.</p>
+    </div>
+    {#if app.settingsError}
+      <p class="error">{app.settingsError}</p>
+    {:else if !app.settings}
+      <p class="muted">Loading settings…</p>
+    {:else}
+      <section class="card">
+        <div class="section-label">Worktree threads</div>
+        <label class="switch">
+          <input
+            type="checkbox"
+            role="switch"
+            checked={app.settings.autoCommit}
+            onchange={(event) => setAutoCommit(event.currentTarget.checked)}
+          />
+          <span class="track"></span>
+          <span class="text">
+            Auto-commit changes in worktree threads
+            <span class="muted">
+              Agents commit each finished step on the thread's branch without being asked. Threads in
+              the main checkouts only commit when asked. Applies to agent sessions started after the change.
+            </span>
           </span>
-        </span>
-      </label>
-      {#if toggleError}<p class="error">{toggleError}</p>{/if}
-    </section>
-    <form class="card" onsubmit={save}>
-      <h2>Thread titles</h2>
-      <p class="muted">New threads are named from their first message by this model.</p>
-      <div class="row">
-        <label>
-          Agent
-          <select value={provider} onchange={(event) => pickProvider(event.currentTarget.value as ProviderKind)}>
-            <option value="claude">Claude</option>
-            <option value="codex">Codex</option>
-          </select>
         </label>
-        <ModelPicker {provider} bind:model bind:effort />
-        <button class="primary" type="submit">Save</button>
-        {#if saved}<span class="muted">Saved</span>{/if}
-      </div>
-      {#if error}<p class="error">{error}</p>{/if}
-    </form>
-  {/if}
+        {#if toggleError}<p class="error">{toggleError}</p>{/if}
+      </section>
+      <form class="card" onsubmit={save}>
+        <div class="section-label">Thread titles</div>
+        <p class="muted hint">New threads are named from their first message by this model.</p>
+        <div class="row">
+          <label>
+            Agent
+            <select value={provider} onchange={(event) => pickProvider(event.currentTarget.value as ProviderKind)}>
+              <option value="claude">Claude</option>
+              <option value="codex">Codex</option>
+            </select>
+          </label>
+          <ModelPicker {provider} bind:model bind:effort />
+          <button class="primary" type="submit">Save</button>
+          {#if saved}<span class="muted">Saved</span>{/if}
+        </div>
+        {#if error}<p class="error">{error}</p>{/if}
+      </form>
+    {/if}
+  </div>
 </div>
 
 <style>
@@ -103,8 +108,8 @@
     align-items: flex-start;
     gap: 12px;
     cursor: pointer;
-    font-size: 14px;
-    color: var(--text);
+    font-size: var(--text-sm);
+    color: var(--text-primary);
   }
   .switch input {
     position: absolute;
@@ -117,8 +122,9 @@
     width: 34px;
     height: 20px;
     margin-top: 1px;
-    border-radius: 10px;
-    background: var(--border);
+    border-radius: var(--radius-full);
+    background: var(--border-strong);
+    transition: background var(--transition-fast);
   }
   .track::after {
     content: "";
@@ -127,18 +133,19 @@
     left: 3px;
     width: 14px;
     height: 14px;
-    border-radius: 50%;
-    background: var(--text);
+    border-radius: var(--radius-full);
+    background: var(--text-primary);
+    transition: left var(--transition-fast);
   }
   .switch input:checked + .track {
     background: var(--accent);
   }
   .switch input:checked + .track::after {
     left: 17px;
-    background: var(--accent-text);
+    background: var(--text-on-accent);
   }
   .switch input:focus-visible + .track {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
   }
   .text {
@@ -146,7 +153,8 @@
     flex-direction: column;
     gap: 2px;
   }
-  .text .muted {
-    font-size: 12px;
+  .text .muted,
+  .hint {
+    font-size: var(--text-xs);
   }
 </style>

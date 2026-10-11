@@ -1,10 +1,15 @@
 <script lang="ts">
+  import Folder from "@lucide/svelte/icons/folder";
+  import LayoutGrid from "@lucide/svelte/icons/layout-grid";
+  import Plus from "@lucide/svelte/icons/plus";
+  import Settings from "@lucide/svelte/icons/settings";
   import type { Thread } from "shared/protocol";
+  import { providerLabel, relativeTime } from "../lib/display.svelte";
   import { app, go, nav } from "../lib/state.svelte";
 
   const threadsByProject = $derived.by(() => {
     const groups = new Map<string, Thread[]>();
-    for (const thread of [...app.threads].sort((a, b) => b.createdAt - a.createdAt)) {
+    for (const thread of [...app.threads].sort((a, b) => b.updatedAt - a.updatedAt)) {
       const list = groups.get(thread.project) ?? [];
       list.push(thread);
       groups.set(thread.project, list);
@@ -14,109 +19,175 @@
 </script>
 
 <nav>
-  <button class="brand" onclick={() => go({ view: "home" })}>borkcode</button>
-  {#each app.projects as project (project.name)}
-    <div class="project">
-      <button
-        class="project-name"
-        class:active={nav.route.view === "project" && nav.route.name === project.name}
-        onclick={() => go({ view: "project", name: project.name })}
-      >
-        {project.name}
-        <span class="muted">{project.repos.length} repos</span>
-      </button>
-      {#each threadsByProject.get(project.name) ?? [] as thread (thread.id)}
-        <button
-          class="thread"
-          class:active={nav.route.view === "thread" && nav.route.id === thread.id}
-          onclick={() => go({ view: "thread", id: thread.id })}
-        >
-          <span class="status {thread.status}"></span>
-          <span class="title">{thread.title}</span>
-          <span class="provider">{thread.provider}</span>
-        </button>
-      {/each}
-    </div>
-  {/each}
-  <button
-    class="settings"
-    class:active={nav.route.view === "settings"}
-    onclick={() => go({ view: "settings" })}
-  >
-    Settings
+  <button class="brand ghost" onclick={() => go({ view: "home" })}>
+    <span class="logo">b</span>
+    borkcode
   </button>
+
+  <div class="links">
+    <button class="link ghost" class:active={nav.route.view === "home"} onclick={() => go({ view: "home" })}>
+      <LayoutGrid size={16} />
+      Projects
+    </button>
+    <button class="link ghost" class:active={nav.route.view === "settings"} onclick={() => go({ view: "settings" })}>
+      <Settings size={16} />
+      Settings
+    </button>
+  </div>
+
+  <div class="threads">
+    {#each app.projects as project (project.name)}
+      {@const threads = threadsByProject.get(project.name) ?? []}
+      <div class="group">
+        <div class="group-header" class:active={nav.route.view === "project" && nav.route.name === project.name}>
+          <button class="project ghost" onclick={() => go({ view: "project", name: project.name })}>
+            <Folder size={14} />
+            <span class="truncate">{project.name}</span>
+            <span class="count">{threads.length}</span>
+          </button>
+          <button
+            class="add ghost icon"
+            title="New thread in {project.name}"
+            onclick={() => go({ view: "project", name: project.name })}
+          >
+            <Plus size={14} />
+          </button>
+        </div>
+        {#each threads as thread (thread.id)}
+          <button
+            class="thread ghost"
+            class:active={nav.route.view === "thread" && nav.route.id === thread.id}
+            onclick={() => go({ view: "thread", id: thread.id })}
+          >
+            <span class="dot {thread.status}" title={thread.status}></span>
+            <span class="lines">
+              <span class="title-row">
+                <span class="title truncate">{thread.title}</span>
+                <span class="time">{relativeTime(thread.updatedAt)}</span>
+              </span>
+              <span class="meta truncate">
+                <span class="provider-{thread.provider}">{providerLabel[thread.provider]}</span>
+                {#if !thread.workspace}· main checkout{/if}
+              </span>
+            </span>
+          </button>
+        {/each}
+      </div>
+    {/each}
+  </div>
 </nav>
 
 <style>
   nav {
     display: flex;
     flex-direction: column;
-    background: var(--panel);
-    border-right: 1px solid var(--border);
-    padding: 12px 8px;
-    overflow-y: auto;
+    gap: var(--space-3);
+    background: var(--surface-sidebar);
+    padding: var(--space-3) var(--space-2);
+    min-height: 0;
   }
-  .settings {
-    margin-top: auto;
-    color: var(--muted);
-  }
-  button {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  nav button {
     width: 100%;
+    justify-content: flex-start;
+    font-weight: var(--weight-regular);
     text-align: left;
-    background: none;
-    border: none;
-    border-radius: 6px;
-    padding: 5px 8px;
-  }
-  button:hover,
-  button.active {
-    background: var(--panel-2);
   }
   .brand {
-    font-weight: 700;
-    font-size: 15px;
-    margin-bottom: 12px;
+    font-weight: var(--weight-semibold);
+    color: var(--text-primary);
+    gap: var(--space-2);
+  }
+  .logo {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border-radius: var(--radius-md);
+    background: var(--accent);
+    color: var(--text-on-accent);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+  }
+  .links {
+    display: flex;
+    flex-direction: column;
+  }
+  .link {
+    gap: var(--space-2-5);
+    min-height: 30px;
+  }
+  .active,
+  .active:hover:not(:disabled) {
+    background: var(--surface-active);
+    color: var(--text-primary);
+  }
+  .threads {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .group-header {
+    display: flex;
+    align-items: center;
+    border-radius: var(--radius-md);
+  }
+  .group-header.active {
+    background: var(--surface-active);
   }
   .project {
-    margin-bottom: 12px;
+    flex: 1;
+    min-width: 0;
+    color: var(--text-muted);
+    font-size: var(--text-sm);
   }
-  .project-name {
-    font-weight: 600;
-    justify-content: space-between;
+  .count {
+    color: var(--text-faint);
   }
-  .project-name .muted {
-    font-weight: 400;
-    font-size: 12px;
+  .add {
+    flex-shrink: 0;
+    width: 24px !important;
+    min-height: 24px;
+    color: var(--text-faint);
+    opacity: 0;
+  }
+  .group-header:hover .add,
+  .add:focus-visible {
+    opacity: 1;
   }
   .thread {
-    padding-left: 16px;
-    font-size: 13px;
+    align-items: flex-start;
+    gap: var(--space-2-5);
+    padding: var(--space-1-5) var(--space-2);
+    color: var(--text-primary);
+  }
+  .thread .dot {
+    margin-top: 6px;
+  }
+  .lines {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+  }
+  .title-row {
+    display: flex;
+    gap: var(--space-2);
+    align-items: baseline;
   }
   .title {
     flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-size: var(--text-sm);
   }
-  .provider {
-    font-size: 11px;
-    color: var(--muted);
-  }
-  .status {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
+  .time {
     flex-shrink: 0;
-    background: var(--border);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
   }
-  .status.running,
-  .status.preparing {
-    background: var(--accent);
-  }
-  .status.error {
-    background: var(--danger);
+  .meta {
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
   }
 </style>

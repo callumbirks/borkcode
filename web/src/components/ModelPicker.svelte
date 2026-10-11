@@ -6,7 +6,14 @@
     provider,
     model = $bindable(),
     effort = $bindable(),
-  }: { provider: ProviderKind; model: string | null; effort: Effort | null } = $props();
+    compact = false,
+  }: {
+    provider: ProviderKind;
+    model: string | null;
+    effort: Effort | null;
+    /** Borderless selects without labels, for toolbars such as the composer's. */
+    compact?: boolean;
+  } = $props();
 
   $effect(() => {
     void loadModels(provider);
@@ -25,8 +32,8 @@
   }
 </script>
 
-<label title={catalog?.error ?? undefined}>
-  Model
+<label class:compact title={catalog?.error ?? (compact ? "Model" : undefined)}>
+  {#if !compact}Model{/if}
   <select {value} onchange={(event) => pickModel(event.currentTarget.value)} disabled={!catalog}>
     {#if !catalog}
       <option value="">Loading…</option>
@@ -40,9 +47,10 @@
   </select>
 </label>
 {#if current && current.efforts.length > 0}
-  <label>
-    Effort
+  <label class:compact title={compact ? "Effort" : undefined}>
+    {#if !compact}Effort{/if}
     <select
+      class="effort"
       value={effort ?? current.defaultEffort ?? ""}
       onchange={(event) => (effort = (event.currentTarget.value || null) as Effort | null)}
     >
@@ -54,3 +62,22 @@
   </label>
 {/if}
 {#if catalog?.error}<span class="error" title={catalog.error}>Could not list models</span>{/if}
+
+<style>
+  .compact select {
+    background: none;
+    border-color: transparent;
+    color: var(--text-secondary);
+    padding: var(--space-1) var(--space-1-5);
+  }
+  .compact .effort {
+    text-transform: capitalize;
+  }
+  .compact select:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+  .compact select:focus {
+    border-color: transparent;
+  }
+</style>

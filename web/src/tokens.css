@@ -1,0 +1,124 @@
+/*
+ * Design tokens. Components use the semantic tokens (surface, text, border, accent, status);
+ * the palette below exists only to define them, so a theme swap touches this file alone.
+ */
+:root {
+  /* Palette */
+  --gray-950: #0c0c0e;
+  --gray-900: #121214;
+  --gray-850: #17171a;
+  --gray-800: #1c1c20;
+  --gray-750: #232327;
+  --gray-700: #2b2b30;
+  --gray-600: #3a3a40;
+  --gray-500: #5c5c64;
+  --gray-400: #8a8a93;
+  --gray-300: #b4b4bc;
+  --gray-100: #ececf1;
+  --blue-400: #6b9bff;
+  --blue-500: #4c84ff;
+  --green-400: #4cc38a;
+  --yellow-400: #e5b84a;
+  --orange-400: #f0954a;
+  --red-400: #f06a6a;
+  --purple-400: #a98bfa;
+  --pink-400: #e57ab8;
+
+  /* Surfaces, from the app background up to raised controls */
+  --surface-app: var(--gray-950);
+  --surface-sidebar: var(--gray-950);
+  --surface-base: var(--gray-900);
+  --surface-raised: var(--gray-850);
+  --surface-overlay: var(--gray-800);
+  --surface-hover: rgb(255 255 255 / 0.05);
+  --surface-active: rgb(255 255 255 / 0.08);
+  --surface-input: var(--gray-850);
+
+  /* Text */
+  --text-primary: var(--gray-100);
+  --text-secondary: var(--gray-300);
+  --text-muted: var(--gray-400);
+  --text-faint: var(--gray-500);
+  --text-on-accent: #fff;
+
+  /* Borders */
+  --border-subtle: var(--gray-800);
+  --border-default: var(--gray-700);
+  --border-strong: var(--gray-600);
+
+  /* Accent and status. Each status has a foreground and a tinted background. */
+  --accent: var(--blue-500);
+  --accent-hover: var(--blue-400);
+  --accent-soft: rgb(76 132 255 / 0.14);
+  --focus-ring: rgb(76 132 255 / 0.5);
+
+  --status-running: var(--blue-400);
+  --status-success: var(--green-400);
+  --status-success-soft: rgb(76 195 138 / 0.14);
+  --status-warning: var(--yellow-400);
+  --status-warning-soft: rgb(229 184 74 / 0.12);
+  --status-danger: var(--red-400);
+  --status-danger-soft: rgb(240 106 106 / 0.12);
+  --status-idle: var(--gray-500);
+
+  --pr-open: var(--green-400);
+  --pr-merged: var(--purple-400);
+  --pr-closed: var(--red-400);
+  --diff-added: var(--green-400);
+  --diff-removed: var(--red-400);
+
+  --provider-claude: var(--orange-400);
+  --provider-codex: var(--pink-400);
+
+  /* Spacing, on a 4px grid */
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-2-5: 10px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 999px;
+
+  /* Typography */
+  --font-sans: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --leading-tight: 1.3;
+  --leading-normal: 1.55;
+
+  /* Icons */
+  --icon-sm: 14px;
+  --icon-md: 16px;
+
+  /* Elevation */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-md: 0 4px 16px rgb(0 0 0 / 0.35);
+
+  /* Layout */
+  --sidebar-width: 260px;
+  --panel-width: 340px;
+  --content-width: 760px;
+  --header-height: 44px;
+
+  --transition-fast: 120ms ease;
+}

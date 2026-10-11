@@ -35,21 +35,22 @@
 </div>
 
 <style>
+  /* The main area floats as a rounded panel on the darker app background. */
   .layout {
     display: grid;
-    grid-template-columns: 260px 1fr;
+    grid-template-columns: var(--sidebar-width) 1fr;
     height: 100vh;
+    background: var(--surface-app);
   }
   main {
     min-width: 0;
     min-height: 0;
     display: flex;
     flex-direction: column;
-  }
-  .banner {
-    padding: 6px 16px;
-    background: var(--warn-bg);
-    color: var(--warn);
-    font-size: 13px;
+    margin: var(--space-2) var(--space-2) var(--space-2) 0;
+    background: var(--surface-base);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-xl);
+    overflow: hidden;
   }
 </style>

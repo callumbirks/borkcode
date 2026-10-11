@@ -1,7 +1,11 @@
 <script lang="ts">
+  import Brain from "@lucide/svelte/icons/brain";
+  import CircleAlert from "@lucide/svelte/icons/circle-alert";
+  import Info from "@lucide/svelte/icons/info";
   import DOMPurify from "dompurify";
   import { marked } from "marked";
   import type { Item } from "shared/protocol";
+  import { toolIcon, toolLabel } from "../lib/display.svelte";
 
   let { item }: { item: Item } = $props();
 
@@ -18,78 +22,153 @@
   {/if}
 {:else if item.kind === "reasoning"}
   {#if item.text}
-    <details class="reasoning">
-      <summary>Thinking</summary>
-      <div>{@html markdown(item.text)}</div>
+    <details class="step">
+      <summary>
+        <Brain size={14} />
+        <span class="name">Thinking</span>
+      </summary>
+      <div class="body reasoning">{@html markdown(item.text)}</div>
     </details>
   {/if}
 {:else if item.kind === "tool"}
-  <details class="tool {item.status}">
-    <summary>
-      <span class="name">{item.name}</span>
-      <code>{item.summary}</code>
+  {@const Icon = toolIcon(item.name)}
+  <details class="step {item.status}">
+    <summary class:static={!item.output}>
+      <Icon size={14} />
+      <span class="name">{toolLabel(item.name)}</span>
+      <code class="summary truncate">{item.summary}</code>
+      {#if item.status === "failed"}<span class="failed-label">failed</span>{/if}
     </summary>
-    {#if item.output}<pre>{item.output}</pre>{/if}
+    {#if item.output}<pre class="body">{item.output}</pre>{/if}
   </details>
 {:else if item.kind === "notice"}
-  <div class="notice {item.level}">{item.text}</div>
+  <div class="notice {item.level}">
+    {#if item.level === "error"}<CircleAlert size={14} />{:else}<Info size={14} />{/if}
+    <span>{item.text}</span>
+  </div>
 {/if}
 
 <style>
   .user {
-    background: var(--panel-2);
-    border-radius: 8px;
-    padding: 8px 12px;
-    margin: 16px 0 8px;
+    align-self: flex-end;
+    max-width: 80%;
+    background: var(--surface-overlay);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-xl);
+    padding: var(--space-2-5) var(--space-3);
     white-space: pre-wrap;
+    word-break: break-word;
   }
   .assistant {
-    margin: 8px 0;
+    color: var(--text-primary);
+    word-break: break-word;
+  }
+  .assistant :global(> :first-child) {
+    margin-top: 0;
+  }
+  .assistant :global(> :last-child) {
+    margin-bottom: 0;
+  }
+  .assistant :global(p),
+  .assistant :global(ul),
+  .assistant :global(ol) {
+    margin: 0 0 var(--space-3);
+  }
+  .assistant :global(code) {
+    background: var(--surface-overlay);
+    border-radius: var(--radius-sm);
+    padding: 1px var(--space-1);
   }
   .assistant :global(pre) {
-    background: var(--panel);
-    padding: 8px 12px;
-    border-radius: 6px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border-subtle);
+    padding: var(--space-2-5) var(--space-3);
+    border-radius: var(--radius-lg);
     overflow-x: auto;
   }
-  .reasoning,
-  .tool {
-    margin: 4px 0;
-    font-size: 13px;
-    color: var(--muted);
+  .assistant :global(pre code) {
+    background: none;
+    padding: 0;
+  }
+  .step {
+    font-size: var(--text-sm);
+    color: var(--text-muted);
   }
   summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-0-5) var(--space-1-5);
+    border-radius: var(--radius-sm);
     cursor: pointer;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    list-style: none;
+  }
+  summary::-webkit-details-marker {
+    display: none;
+  }
+  summary:hover {
+    background: var(--surface-hover);
+  }
+  summary.static {
+    cursor: default;
+  }
+  summary.static:hover {
+    background: none;
+  }
+  summary :global(svg) {
+    flex-shrink: 0;
   }
   .name {
-    color: var(--text);
-    margin-right: 6px;
+    flex-shrink: 0;
+    color: var(--text-secondary);
   }
-  .tool.running .name {
-    color: var(--accent);
+  .summary {
+    color: var(--text-faint);
   }
-  .tool.failed .name {
-    color: var(--danger);
+  .running .name {
+    color: var(--status-running);
   }
-  pre {
-    background: var(--panel);
-    padding: 8px 12px;
-    border-radius: 6px;
+  .failed .name,
+  .failed-label {
+    color: var(--status-danger);
+  }
+  .failed-label {
+    flex-shrink: 0;
+    font-size: var(--text-2xs);
+  }
+  .body {
+    margin: var(--space-1) 0 var(--space-2) var(--space-6);
+    padding: var(--space-2) var(--space-3);
+    background: var(--surface-raised);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+  }
+  pre.body {
     max-height: 320px;
     overflow: auto;
     white-space: pre-wrap;
     word-break: break-word;
+    color: var(--text-secondary);
+  }
+  .reasoning :global(p) {
+    margin: 0 0 var(--space-2);
   }
   .notice {
-    margin: 8px 0;
-    font-size: 13px;
-    color: var(--muted);
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--text-muted);
     white-space: pre-wrap;
   }
+  .notice :global(svg) {
+    flex-shrink: 0;
+    margin-top: 3px;
+  }
   .notice.error {
-    color: var(--danger);
+    color: var(--status-danger);
+    background: var(--status-danger-soft);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-3);
   }
 </style>
