@@ -27,6 +27,10 @@ at low effort by default), names it, and the workspace and branch are named afte
 Renaming a thread later changes only its displayed title. Model and effort can be switched
 between turns from the composer.
 
+In "ask" mode, Claude automatically approves ordinary edits and common filesystem commands
+inside the workspace and shared project files. Edits outside those directories, protected files,
+and other shell commands may still need approval. "Full" mode bypasses normal permission prompts.
+
 **Push & PR** in a worktree thread asks the agent to commit anything outstanding and publish
 through borkcode's `open_pull_requests` tool. borkcode pushes the thread's branch under the same
 name, opens one pull request per repo with changes (ready for review), and links sibling pull

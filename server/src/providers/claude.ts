@@ -161,7 +161,8 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
       cwd: options.cwd,
       additionalDirectories: options.writableRoots,
       ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
-      permissionMode: full ? "bypassPermissions" : "default",
+      // Let Claude approve workspace edits; unresolved actions still reach canUseTool.
+      permissionMode: full ? "bypassPermissions" : "acceptEdits",
       ...(full ? { allowDangerouslySkipPermissions: true } : {}),
       mcpServers: { borkcode: { type: "http", url: options.mcpUrl } },
       canUseTool: async (toolName, input) => {
