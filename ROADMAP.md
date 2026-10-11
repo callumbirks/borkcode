@@ -15,6 +15,15 @@ What borkcode has shipped and what may come next. The constraints every change w
 4. **Per-thread drafts.** Each thread keeps its unsent chatbox text, in the browser's
    localStorage, so switching threads or reloading doesn't lose it.
 
+## In progress
+
+- **PR status.** Pull request state stays current by polling GitHub, and each thread in the
+  sidebar shows icons for its open, merged and closed PRs (done). Still to come: a thread wakes
+  when one of its PRs is merged or closed, and PR links in agent messages render as rich links
+  with their state. Plan: `plans/pr-status.md` in the shared project files.
+- **Archived threads.** Archive a thread to tuck it away on an Archived page while keeping its
+  data. Child threads also sort newest first.
+
 ## Next
 
 Not prioritized yet. The order below is a suggestion.
@@ -26,14 +35,16 @@ Not prioritized yet. The order below is a suggestion.
    agent's explicit choice would still win. A rule matches on the parent's model alone or on
    model and effort, and the first matching rule applies. With no match, the child copies its
    parent as now.
-2. **Rich file paths.** File paths in the thread become links that open a preview in a sidebar. The
+2. **Images in the prompt.** Paste images and screenshots into the chatbox and send them with the
+   message.
+3. **Rich file paths.** File paths in the thread become links that open a preview in a sidebar. The
    server serves workspace files over HTTP for this, which the next three items reuse.
-3. **Images in tool calls.** When the agent views an image file, the expanded tool call shows the
+4. **Images in tool calls.** When the agent views an image file, the expanded tool call shows the
    image instead of a "not a text file" message. Open question: render it in the thread, in the
    sidebar, or as a thumbnail in the thread that opens in the sidebar.
-4. **HTML visualizations.** A tool that lets the agent show HTML it writes, rendered in the
+5. **HTML visualizations.** A tool that lets the agent show HTML it writes, rendered in the
    thread, instead of the user opening a separate file.
-5. **Remote and mobile over Tailscale.** Use borkcode from another device on the same tailnet while
+6. **Remote and mobile over Tailscale.** Use borkcode from another device on the same tailnet while
    the server runs on the main machine. The tailnet is the access boundary, so the server only
    needs to listen beyond localhost (it already reads `HOST`). The web client needs a layout
    that works on a phone, and file previews must keep working.
