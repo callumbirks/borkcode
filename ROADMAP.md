@@ -54,6 +54,9 @@ Not prioritized yet. The order below is a suggestion.
    automatic unread indicator.
 8. **`@` thread references.** `@` also suggests other threads in the project that aren't
     archived, so one thread can read through another's transcript. Builds on `@` file references.
+9. **File uploads.** Attach any file to a message, not just images, from any device viewing
+   borkcode, including remote ones. Builds on the attachments behind images in the prompt, and
+   comes after remote and mobile access.
 
 ## Not planned yet
 
