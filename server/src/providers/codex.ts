@@ -419,6 +419,16 @@ export async function startCodexSession(options: SessionOptions): Promise<Provid
         endTurn({ status: "failed", error: error instanceof Error ? error.message : String(error) });
       }
     },
+    async steer(text) {
+      if (!turnActive || turnId === null) return false;
+      // Pinned to the running turn, so a turn that just ended fails cleanly instead of starting one.
+      return connection
+        .request("turn/steer", { threadId, expectedTurnId: turnId, input: [{ type: "text", text, text_elements: [] }] })
+        .then(
+          () => true,
+          () => false,
+        );
+    },
     async interrupt() {
       if (!turnActive || turnId === null) return;
       await connection.request("turn/interrupt", { threadId, turnId });

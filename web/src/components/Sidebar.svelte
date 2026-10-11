@@ -1,5 +1,7 @@
 <script lang="ts">
+  import Crown from "@lucide/svelte/icons/crown";
   import Folder from "@lucide/svelte/icons/folder";
+  import Inbox from "@lucide/svelte/icons/inbox";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
   import Plus from "@lucide/svelte/icons/plus";
   import Settings from "@lucide/svelte/icons/settings";
@@ -73,7 +75,17 @@
             <span class="dot {thread.status}" title={thread.status}></span>
             <span class="lines">
               <span class="title-row">
+                {#if thread.captain}<span class="marker" title="Captain"><Crown size={12} /></span>{/if}
                 <span class="title truncate">{thread.title}</span>
+                {#if thread.paused || thread.queued > 0}
+                  <span
+                    class="badge"
+                    class:paused={thread.paused}
+                    title={thread.paused ? "Deliveries paused; messages waiting" : "Messages waiting"}
+                  >
+                    <Inbox size={10} />{thread.queued}
+                  </span>
+                {/if}
                 <span class="time">{relativeTime(thread.updatedAt)}</span>
               </span>
               <span class="meta truncate">
@@ -191,6 +203,22 @@
   .title {
     flex: 1;
     font-size: var(--text-sm);
+  }
+  .marker {
+    flex-shrink: 0;
+    align-self: center;
+    color: var(--text-muted);
+  }
+  .badge {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    font-size: var(--text-2xs);
+    color: var(--text-muted);
+  }
+  .badge.paused {
+    color: var(--status-warning);
   }
   .time {
     flex-shrink: 0;

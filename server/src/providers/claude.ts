@@ -310,6 +310,19 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
         parent_tool_use_id: null,
       });
     },
+    async steer(text) {
+      // "next" lands at the next step boundary without aborting tools ("now" aborts them). It is
+      // only certain to join this turn while a tool call is running: during the final response it
+      // could start a turn of its own, which this adapter would not be tracking.
+      if (!turnActive || tools.size === 0) return false;
+      turns.push({
+        type: "user",
+        message: { role: "user", content: text },
+        parent_tool_use_id: null,
+        priority: "next",
+      });
+      return true;
+    },
     async interrupt() {
       if (!turnActive) return;
       interruptRequested = true;

@@ -17,9 +17,9 @@ add machinery because it looks architecturally impressive.
 - **Not planned yet:** checkpoints/restore, mobile, other providers.
 - **Done:** multi-repo projects and workspaces (milestone 1); shared project files with agent
   tools (milestone 2).
-- **Next:** captain threads that delegate to child threads and see their PRs. Handoffs (a thread
-  starting another and not waiting on it) are done; watched delegation, where parent and child
-  message each other and the parent is woken by its children, comes next.
+- **Done, milestone 3 in progress:** captain threads that delegate to child threads and see their
+  PRs. Handoffs and watched delegation (children report back, parents answer with
+  `send_to_thread`, the delegation limits) are in.
 
 This started as a fork of t3code, which is kept at `~/projects/apps/borkcode` as a read-only
 reference. We chose not to build on it because its orchestration model differs from the one we
@@ -83,6 +83,16 @@ inventing a fix.
   `start_from: this_branch` branches the child from the parent's commits (refused while the parent
   has uncommitted changes); the starting branch is stored so a restart before the workspace exists
   cannot lose it. Deleting a parent keeps its children and drops their link.
+- **Messages for a busy agent queue in a per-thread inbox** (SQLite, so they survive restarts):
+  the user's, a parent's, and children's reports. Delivery steers them into the running turn at
+  its next step when the provider allows, otherwise they start the next turn together. After the
+  user stops a turn, nothing is delivered until they send or resume: stop means stop.
+- **A watched child reports every turn that isn't stopped,** including turns the user started, to
+  its parent. `watch: true` on `start_thread`, or any message from the parent, makes it watched.
+  Captains are a role chosen at creation, with their own instructions and their own worktree.
+- **Delegation limits pause deliveries between threads,** not user messages: too many wake-ups of
+  one thread in a window (fast loops), or too many across a captain's tree since the user last
+  messaged it (slow loops). Paused threads keep their queue until the user resumes or messages.
 - **PRs are linked to threads in SQLite.** The tool links what it opens, and repo status links any
   PR found on the thread's branch, so PRs opened by other means show up too.
 - **Clients get everything by broadcast.** It's fine for one local user. Revisit if remote access
@@ -124,6 +134,11 @@ inventing a fix.
   `applyFlagSettings({ effortLevel })`, where null does reset.
 - **Codex MCP tool timeout.** Codex gives MCP tool calls 60 seconds by default, too short for a
   tool waiting on the user's approval. The adapter sets `mcp_servers.borkcode.tool_timeout_sec`.
+- **Steering differs per provider.** Codex `turn/steer` is pinned to the running turn id and fails
+  cleanly after it ends. Claude takes a user message with `priority: "next"` at the next step
+  without aborting tools (`"now"` aborts them), but borkcode only steers while a tool call is
+  running: a "next" message sent during the final response might start an untracked turn. Claude
+  does not echo steered messages, so the transcript item is recorded by `threads.ts`.
 - **Claude SDK types.** The source of truth is
   `server/node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`. With partial messages on,
   `assistant` messages arrive one content block at a time, after the matching `stream_event`

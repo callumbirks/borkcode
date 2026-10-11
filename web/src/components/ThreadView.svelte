@@ -1,6 +1,9 @@
 <script lang="ts">
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import CornerDownRight from "@lucide/svelte/icons/corner-down-right";
+  import Crown from "@lucide/svelte/icons/crown";
+  import Eye from "@lucide/svelte/icons/eye";
+  import Inbox from "@lucide/svelte/icons/inbox";
   import Folder from "@lucide/svelte/icons/folder";
   import GitBranch from "@lucide/svelte/icons/git-branch";
   import GitPullRequestArrow from "@lucide/svelte/icons/git-pull-request-arrow";
@@ -111,9 +114,10 @@
     lastScrollTop = scrollTop;
   }
 
+  // While the agent works, a message joins its turn at the next step or waits for the turn to end.
   async function send() {
     const text = draft.trim();
-    if (!text || busy) return;
+    if (!text) return;
     error = "";
     draft = "";
     try {
@@ -122,6 +126,11 @@
       draft = text;
       error = (cause as Error).message;
     }
+  }
+
+  async function resume() {
+    error = "";
+    await rpc.request("threads.resume", { threadId: id }).catch((cause: Error) => (error = cause.message));
   }
 
   async function publish() {
@@ -181,9 +190,17 @@
           <a class="chip" href="#/project/{encodeURIComponent(thread.project)}" title="Project">
             <Folder size={12} />{thread.project}
           </a>
+          {#if thread.captain}
+            <span class="chip" title="Coordinates the threads it starts"><Crown size={12} />Captain</span>
+          {/if}
           {#if parent}
-            <a class="chip" href="#/thread/{parent.id}" title="Handed off from {parent.title}">
-              <CornerDownRight size={12} /><span class="truncate">{parent.title}</span>
+            <a
+              class="chip"
+              href="#/thread/{parent.id}"
+              title={thread.watched ? `Reports each turn to ${parent.title}` : `Handed off from ${parent.title}`}
+            >
+              {#if thread.watched}<Eye size={12} />{:else}<CornerDownRight size={12} />{/if}
+              <span class="truncate">{parent.title}</span>
             </a>
           {/if}
           <span class="chip provider-{thread.provider}">{providerLabel[thread.provider]}</span>
@@ -226,12 +243,34 @@
       </div>
       <div class="composer-wrap">
         {#if error}<p class="error">{error}</p>{/if}
+        {#if thread.paused || (thread.queued > 0 && !busy)}
+          <div class="waiting">
+            <Inbox size={14} />
+            <span>
+              {#if thread.paused}
+                Deliveries between threads are paused after a burst of automatic turns.
+              {:else}
+                Waiting since the agent was stopped.
+              {/if}
+              {thread.queued} {thread.queued === 1 ? "message" : "messages"} queued.
+            </span>
+            <button class="ghost" onclick={resume}>Deliver</button>
+          </div>
+        {:else if thread.queued > 0}
+          <div class="waiting">
+            <Inbox size={14} />
+            <span>
+              {thread.queued} {thread.queued === 1 ? "message reaches" : "messages reach"} the agent at its next
+              step or when this turn ends.
+            </span>
+          </div>
+        {/if}
         <div class="composer">
           <textarea
             bind:value={draft}
             onkeydown={onKeydown}
             rows="2"
-            placeholder={busy ? "The agent is working…" : "Message the agent"}
+            placeholder={busy ? "Message the agent; it reads this at its next step" : "Message the agent"}
           ></textarea>
           <div class="actions">
             <ModelPicker provider={thread.provider} bind:model bind:effort compact />
@@ -250,8 +289,9 @@
               <button class="icon" title="Stop" onclick={() => rpc.request("threads.interrupt", { threadId: id })}>
                 <Square size={12} fill="currentColor" />
               </button>
-            {:else}
-              <button class="primary icon" title="Send (Enter)" onclick={send} disabled={busy || !draft.trim()}>
+            {/if}
+            {#if thread.status !== "running" || draft.trim()}
+              <button class="primary icon" title="Send (Enter)" onclick={send} disabled={!draft.trim()}>
                 <ArrowUp size={16} />
               </button>
             {/if}
@@ -371,6 +411,20 @@
   }
   .composer-wrap .error {
     margin-bottom: var(--space-2);
+  }
+  .waiting {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+    padding: var(--space-1-5) var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--surface-overlay);
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+  }
+  .waiting span {
+    flex: 1;
   }
   .composer {
     background: var(--surface-raised);

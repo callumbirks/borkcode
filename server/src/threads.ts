@@ -15,7 +15,8 @@ import type {
   Thread,
   ThreadDetail,
 } from "shared/protocol";
-import { toThread, type Database, type StoredThread } from "./db.ts";
+import { toThread, type Database, type InboxMessage, type StoredThread } from "./db.ts";
+import { combine, limitReached, parentMessage, report, userMessage } from "./delegation.ts";
 import { buildInstructions } from "./instructions.ts";
 import { checkModelChoice } from "./models.ts";
 import type { ProjectStore } from "./projects.ts";
@@ -36,7 +37,13 @@ import {
 } from "./pullRequests.ts";
 import { startClaudeSession } from "./providers/claude.ts";
 import { startCodexSession } from "./providers/codex.ts";
-import { truncate, type ProviderSession, type SessionOptions, type TurnSettings } from "./providers/types.ts";
+import {
+  truncate,
+  type ProviderSession,
+  type SessionOptions,
+  type TurnOutcome,
+  type TurnSettings,
+} from "./providers/types.ts";
 import { DEFAULT_SETTINGS, type SettingsStore } from "./settings.ts";
 import { fallbackTitle, generateTitle } from "./titles.ts";
 import {
@@ -50,9 +57,20 @@ import {
   workspacePath,
 } from "./workspaces.ts";
 
-const startSession: Record<ProviderKind, (options: SessionOptions) => Promise<ProviderSession>> = {
+const providerSessions: Record<ProviderKind, (options: SessionOptions) => Promise<ProviderSession>> = {
   claude: startClaudeSession,
   codex: startCodexSession,
+};
+
+/** What ThreadService reaches outside the process for. Tests replace these with scripted fakes. */
+export interface ThreadDeps {
+  startSession: (provider: ProviderKind, options: SessionOptions) => Promise<ProviderSession>;
+  generateTitle: typeof generateTitle;
+}
+
+const realDeps: ThreadDeps = {
+  startSession: (provider, options) => providerSessions[provider](options),
+  generateTitle,
 };
 
 /** In-memory state for a thread whose agent may be active. */
@@ -64,6 +82,14 @@ interface LiveThread {
   approvals: Map<string, { approval: Approval; resolve: (allowed: boolean) => void }>;
   /** Identifies this thread's agent session to the borkcode MCP endpoint. */
   mcpToken: string | null;
+  /** A turn is being started or is running. Set synchronously, so two deliveries cannot both start one. */
+  active: boolean;
+  /** A steer is in flight, so its messages are not delivered twice. */
+  steering: boolean;
+  /** Recent automatic wake-ups, for the delegation limits. */
+  wakes: number[];
+  /** The user messaged the thread during the current turn; its report says so. */
+  userJoined: boolean;
 }
 
 const PUBLISH_MESSAGE = [
@@ -89,8 +115,11 @@ export class ThreadService {
   readonly #emit: (event: ServerEvent) => void;
   /** Agent sessions reach the MCP endpoint at this URL followed by their token. */
   readonly #mcpBaseUrl: string;
+  readonly #deps: ThreadDeps;
   readonly #live = new Map<string, LiveThread>();
   readonly #mcpTokens = new Map<string, string>();
+  /** Automatic wake-ups per thread tree (keyed by its root) since the user last messaged it. */
+  readonly #familyWakes = new Map<string, number>();
 
   constructor(
     db: Database,
@@ -98,12 +127,14 @@ export class ThreadService {
     settings: SettingsStore,
     emit: (event: ServerEvent) => void,
     mcpBaseUrl: string,
+    deps: ThreadDeps = realDeps,
   ) {
     this.#db = db;
     this.#projects = projects;
     this.#settings = settings;
     this.#emit = emit;
     this.#mcpBaseUrl = mcpBaseUrl;
+    this.#deps = deps;
   }
 
   list(): Thread[] {
@@ -112,11 +143,15 @@ export class ThreadService {
 
   /** Starts the thread on its first message. The title is generated in the background. */
   create(params: Requests["threads.create"]["params"]): Promise<Thread> {
-    return this.#start({ ...params, parentId: null, startBranch: null });
+    return this.#start({ ...params, parentId: null, startBranch: null, watched: false });
   }
 
   async #start(
-    params: Requests["threads.create"]["params"] & { parentId: string | null; startBranch: string | null },
+    params: Requests["threads.create"]["params"] & {
+      parentId: string | null;
+      startBranch: string | null;
+      watched: boolean;
+    },
   ): Promise<Thread> {
     const project = await this.#projects.get(params.project);
     const text = params.text.trim();
@@ -140,6 +175,10 @@ export class ThreadService {
       providerSessionId: null,
       parentId: params.parentId,
       startBranch: params.startBranch,
+      captain: params.captain,
+      watched: params.watched,
+      paused: false,
+      queued: 0,
       createdAt: now,
       updatedAt: now,
     };
@@ -155,9 +194,13 @@ export class ThreadService {
           live.preparing = null;
         });
     }
-    void this.send(id, text, { model: thread.model, effort: thread.effort }, params.parentId ?? undefined).catch(
-      (error: Error) => console.error(error),
-    );
+    this.#db.enqueue({
+      threadId: id,
+      fromThreadId: params.parentId,
+      kind: params.parentId && !params.watched ? "handoff" : "message",
+      text,
+    });
+    void this.#deliver(id);
     return toThread(thread);
   }
 
@@ -167,7 +210,14 @@ export class ThreadService {
    */
   async startThread(
     parentId: string,
-    request: { message: string; provider?: ProviderKind; model?: string; effort?: Effort; startFrom: "base" | "this_branch" },
+    request: {
+      message: string;
+      watch: boolean;
+      provider?: ProviderKind;
+      model?: string;
+      effort?: Effort;
+      startFrom: "base" | "this_branch";
+    },
   ): Promise<string> {
     const parent = this.#require(parentId);
     const message = request.message.trim();
@@ -214,14 +264,38 @@ export class ThreadService {
       effort: choice.effort,
       accessMode: parent.accessMode,
       isolated: true,
+      captain: false,
       parentId,
       startBranch,
+      watched: request.watch,
     });
     this.#upsertItem(parentId, { id: randomUUID(), kind: "thread", threadId: child.id });
     return [
       `Started thread "${child.title}" (id ${child.id}) with ${provider} ${choice.model ?? "default model"},`,
       `starting from ${startBranch ?? "each repository's base branch"}. Its title is being generated from your message.`,
-      "It works on its own; list_child_threads shows its progress and pull requests.",
+      request.watch
+        ? "You are watching it: its final reply will come back to you as a message. Reply with send_to_thread only when it needs an answer or new instructions."
+        : "It works on its own; list_child_threads shows its progress and pull requests.",
+    ].join(" ");
+  }
+
+  /** A parent's request to one of its children. Delivered at the child's next step, or queued. */
+  sendToThread(parentId: string, childId: string, text: string): string {
+    const child = this.#db.getThread(childId);
+    if (!child || child.parentId !== parentId) {
+      throw new ToolError(`Thread ${childId} is not one you started. list_child_threads shows the threads you started.`);
+    }
+    const trimmed = text.trim();
+    if (!trimmed) throw new ToolError("The message is empty.");
+    this.#db.enqueue({ threadId: childId, fromThreadId: parentId, kind: "message", text: trimmed });
+    this.#emitThread(childId);
+    const busy = this.#liveThread(childId).active;
+    void this.#deliver(childId);
+    return [
+      busy
+        ? `"${child.title}" is busy, so your message reaches it at its next step or when its current turn ends.`
+        : `Sent to "${child.title}".`,
+      "Its final reply will come back to you as a message.",
     ].join(" ");
   }
 
@@ -280,30 +354,198 @@ export class ThreadService {
     return this.send(threadId, PUBLISH_MESSAGE, settings);
   }
 
-  /** `fromThreadId` marks a message written by another thread's agent rather than the user. */
-  async send(threadId: string, text: string, settings: TurnSettings, fromThreadId?: string): Promise<void> {
+  /**
+   * A message from the user. Starts a turn when the agent is free; otherwise it joins the running
+   * turn at its next step, or waits for the turn to end. Messaging a thread also resets its
+   * delegation limits, since the user is now in the loop.
+   */
+  async send(threadId: string, text: string, settings: TurnSettings): Promise<void> {
     const trimmed = text.trim();
     if (!trimmed) return;
-    let thread = this.#require(threadId);
-    if (thread.status === "running") throw new Error("The agent is still working on the last message");
-    const live = this.#liveThread(threadId);
-    this.#upsertItem(threadId, { id: randomUUID(), kind: "user", text: trimmed, ...(fromThreadId ? { fromThreadId } : {}) });
-    await live.preparing;
-    thread = this.#update(threadId, { status: "running", model: settings.model, effort: settings.effort });
+    const thread = this.#require(threadId);
+    this.#resetLimits(threadId);
+    // Saved now so they apply to the next turn, even when this message joins a running one.
+    if (settings.model !== thread.model || settings.effort !== thread.effort || thread.paused) {
+      this.#db.updateThread(threadId, { model: settings.model, effort: settings.effort, paused: false });
+    }
+    this.#db.enqueue({ threadId, fromThreadId: null, kind: "message", text: trimmed });
+    this.#emitThread(threadId);
+    await this.#deliver(threadId);
+  }
 
+  /** Lifts a delegation pause, or delivers what waited after a stop, as if the user had messaged it. */
+  async resume(threadId: string): Promise<void> {
+    this.#require(threadId);
+    this.#resetLimits(threadId);
+    this.#db.updateThread(threadId, { paused: false });
+    this.#emitThread(threadId);
+    await this.#deliver(threadId);
+  }
+
+  /** Delivers messages that were waiting when the server last stopped. */
+  resumeQueued(): void {
+    for (const threadId of this.#db.threadsWithInbox()) void this.#deliver(threadId);
+  }
+
+  /**
+   * Hands a thread's waiting messages to its agent: as a new turn when it is free, or into the
+   * running turn at its next step. Messages that cannot go yet stay queued; turn ends, new
+   * messages and tool calls starting all try again.
+   */
+  async #deliver(threadId: string): Promise<void> {
+    // Called on every tool call, so skip reading settings when nothing is waiting.
+    if (this.#db.listInbox(threadId).length === 0) return;
+    const limits = (await this.#settings.get().catch(() => DEFAULT_SETTINGS)).delegation;
+    // Everything from here to the first await runs at once, so two deliveries cannot claim the
+    // same messages or start two turns.
+    const thread = this.#db.getThread(threadId);
+    const live = this.#liveThread(threadId);
+    const messages = this.#db.listInbox(threadId);
+    if (!thread || messages.length === 0 || live.steering) return;
+    if (live.active && !live.session) return;
+    const automatic = messages.some((message) => message.fromThreadId !== null);
+    if (automatic) {
+      if (thread.paused) return;
+      const reason = limitReached(live.wakes, this.#familyWakes.get(this.#rootOf(thread)) ?? 0, Date.now(), limits);
+      if (reason) {
+        this.#db.updateThread(threadId, { paused: true });
+        this.#emitThread(threadId);
+        this.#notice(threadId, "info", `Paused deliveries between threads: ${reason}. Resume to deliver what is waiting.`);
+        return;
+      }
+    }
+
+    if (live.active) {
+      live.steering = true;
+      try {
+        const session = await live.session!.catch(() => null);
+        const steered = session ? await session.steer(this.#compose(thread, messages)) : false;
+        if (!steered) return;
+        this.#db.removeFromInbox(messages.map((message) => message.id));
+        this.#accepted(thread, messages, true, automatic);
+      } finally {
+        live.steering = false;
+      }
+      return;
+    }
+
+    live.active = true;
+    live.userJoined = false;
+    this.#db.removeFromInbox(messages.map((message) => message.id));
+    this.#accepted(thread, messages, false, automatic);
+    await this.#runTurn(threadId, this.#compose(thread, messages));
+  }
+
+  /** Records delivered messages in the transcript. A parent's message makes it watch the thread. */
+  #accepted(thread: StoredThread, messages: InboxMessage[], steered: boolean, automatic: boolean): void {
+    for (const message of messages) {
+      this.#upsertItem(thread.id, {
+        id: randomUUID(),
+        kind: "user",
+        text: message.text,
+        ...(message.fromThreadId ? { fromThreadId: message.fromThreadId } : {}),
+        ...(steered ? { steered: true } : {}),
+      });
+    }
+    const live = this.#liveThread(thread.id);
+    if (messages.some((message) => message.fromThreadId === null)) live.userJoined = true;
+    const fromParent = messages.some(
+      (message) => message.kind === "message" && message.fromThreadId !== null && message.fromThreadId === thread.parentId,
+    );
+    if (fromParent && !thread.watched) this.#db.updateThread(thread.id, { watched: true });
+    if (automatic) {
+      live.wakes.push(Date.now());
+      const root = this.#rootOf(thread);
+      this.#familyWakes.set(root, (this.#familyWakes.get(root) ?? 0) + 1);
+    }
+    this.#emitThread(thread.id);
+  }
+
+  /** What the agent reads: the user's lone message as typed, anything else labelled by sender. */
+  #compose(thread: StoredThread, messages: InboxMessage[]): string {
+    if (messages.length === 1 && messages[0]!.fromThreadId === null) return messages[0]!.text;
+    return combine(
+      messages.map((message) => {
+        if (message.fromThreadId === null) return userMessage(message.text);
+        if (message.kind === "message" && message.fromThreadId === thread.parentId) {
+          return parentMessage(this.#db.getThread(message.fromThreadId)?.title ?? "your parent", message.text);
+        }
+        return message.text;
+      }),
+    );
+  }
+
+  async #runTurn(threadId: string, text: string): Promise<void> {
+    const live = this.#liveThread(threadId);
+    await live.preparing;
+    if (!this.#db.getThread(threadId)) return;
+    const thread = this.#update(threadId, { status: "running" });
     try {
       // Fills in repos added to the project since the workspace was created.
       if (thread.workspace) await this.#addMissingRepos(thread);
       live.session ??= this.#openSession(thread);
       const session = await live.session;
-      await session.sendTurn(trimmed, { model: thread.model, effort: thread.effort });
+      await session.sendTurn(text, { model: thread.model, effort: thread.effort });
     } catch (error) {
       const session = live.session;
       live.session = null;
       void session?.then((open) => open.close(), () => undefined);
-      this.#notice(threadId, "error", error instanceof Error ? error.message : String(error));
-      this.#setStatus(threadId, "idle");
+      this.#turnEnded(threadId, { status: "failed", error: error instanceof Error ? error.message : String(error) });
     }
+  }
+
+  /**
+   * Settles a finished turn: a watched thread reports to its parent, then anything waiting is delivered.
+   * After a stop, waiting messages hold until the user sends or resumes, so stop means stop.
+   */
+  #turnEnded(threadId: string, outcome: TurnOutcome): void {
+    const live = this.#liveThread(threadId);
+    if (!live.active) return;
+    live.active = false;
+    const reply = [...live.streaming.values()].findLast((item) => item.kind === "assistant" && item.text.trim());
+    for (const item of live.streaming.values()) this.#db.upsertItem(threadId, item);
+    live.streaming.clear();
+    this.#declineApprovals(threadId);
+    if (!this.#db.getThread(threadId)) return;
+    if (outcome.status === "failed") this.#notice(threadId, "error", outcome.error);
+    if (outcome.status === "interrupted") this.#notice(threadId, "info", "Interrupted");
+    const thread = this.#update(threadId, { status: "idle" });
+    if (thread.watched && outcome.status !== "interrupted") {
+      void this.#reportToParent(thread, outcome, reply && "text" in reply ? reply.text : null, live.userJoined);
+    }
+    if (outcome.status !== "interrupted") void this.#deliver(threadId);
+  }
+
+  async #reportToParent(child: StoredThread, outcome: TurnOutcome, reply: string | null, userJoined: boolean): Promise<void> {
+    const parent = child.parentId ? this.#db.getThread(child.parentId) : undefined;
+    if (!parent) return;
+    // Picks up pull requests opened during the turn.
+    if (child.branch) await this.repoStatus(child.id).catch(() => undefined);
+    this.#db.enqueue({
+      threadId: parent.id,
+      fromThreadId: child.id,
+      kind: "report",
+      text: report(child, outcome, reply, this.#db.listPullRequests(child.id), userJoined),
+    });
+    this.#emitThread(parent.id);
+    await this.#deliver(parent.id);
+  }
+
+  /** The top of a thread's tree, which the family-wide limit is counted against. */
+  #rootOf(thread: StoredThread): string {
+    let current = thread;
+    for (let depth = 0; current.parentId && depth < 100; depth++) {
+      const parent = this.#db.getThread(current.parentId);
+      if (!parent) break;
+      current = parent;
+    }
+    return current.id;
+  }
+
+  #resetLimits(threadId: string): void {
+    const thread = this.#require(threadId);
+    this.#liveThread(threadId).wakes = [];
+    this.#familyWakes.delete(this.#rootOf(thread));
   }
 
   async interrupt(threadId: string): Promise<void> {
@@ -423,7 +665,7 @@ export class ThreadService {
   async #nameThread(threadId: string, text: string, provisional: string, renameWorkspace: boolean): Promise<void> {
     let generated: string | null = null;
     try {
-      generated = await generateTitle(text, (await this.#settings.get()).titleModel);
+      generated = await this.#deps.generateTitle(text, (await this.#settings.get()).titleModel);
     } catch (error) {
       this.#notice(threadId, "info", `Could not generate a title: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -496,10 +738,16 @@ export class ThreadService {
       this.#notice(threadId, "error", `${error.message}. Using default settings.`);
       return DEFAULT_SETTINGS;
     });
-    return startSession[thread.provider]({
+    return this.#deps.startSession(thread.provider, {
       cwd,
       writableRoots,
-      instructions: buildInstructions(project, toThread(thread), cwd, settings),
+      instructions: buildInstructions(
+        project,
+        toThread(thread),
+        cwd,
+        settings,
+        thread.parentId ? (this.#db.getThread(thread.parentId) ?? null) : null,
+      ),
       accessMode: thread.accessMode,
       model: thread.model,
       effort: thread.effort,
@@ -512,6 +760,8 @@ export class ThreadService {
         item: (item) => {
           if (item.kind === "assistant" || item.kind === "reasoning") live.streaming.set(item.id, item);
           this.#upsertItem(threadId, item);
+          // A tool call starting is a moment a waiting message can join the turn.
+          if (item.kind === "tool" && item.status === "running") void this.#deliver(threadId);
         },
         delta: (itemId, text) => {
           const item = live.streaming.get(itemId);
@@ -519,14 +769,7 @@ export class ThreadService {
           live.streaming.set(itemId, { ...item, text: item.text + text });
           this.#emit({ type: "item.delta", threadId, itemId, text });
         },
-        turnEnded: (outcome) => {
-          for (const item of live.streaming.values()) this.#db.upsertItem(threadId, item);
-          live.streaming.clear();
-          this.#declineApprovals(threadId);
-          if (outcome.status === "failed") this.#notice(threadId, "error", outcome.error);
-          if (outcome.status === "interrupted") this.#notice(threadId, "info", "Interrupted");
-          if (this.#db.getThread(threadId)) this.#setStatus(threadId, "idle");
-        },
+        turnEnded: (outcome) => this.#turnEnded(threadId, outcome),
         approval: (request) => this.#requestApproval(threadId, request),
         closed: () => {
           live.session = null;
@@ -543,7 +786,17 @@ export class ThreadService {
   #liveThread(threadId: string): LiveThread {
     let live = this.#live.get(threadId);
     if (!live) {
-      live = { session: null, preparing: null, streaming: new Map(), approvals: new Map(), mcpToken: null };
+      live = {
+        session: null,
+        preparing: null,
+        streaming: new Map(),
+        approvals: new Map(),
+        mcpToken: null,
+        active: false,
+        steering: false,
+        wakes: [],
+        userJoined: false,
+      };
       this.#live.set(threadId, live);
     }
     return live;
@@ -634,6 +887,12 @@ export class ThreadService {
     const thread = this.#db.updateThread(threadId, patch);
     this.#emit({ type: "thread.updated", thread: toThread(thread) });
     return thread;
+  }
+
+  /** Broadcasts a thread after a change made directly in the database, such as its queue. */
+  #emitThread(threadId: string): void {
+    const thread = this.#db.getThread(threadId);
+    if (thread) this.#emit({ type: "thread.updated", thread: toThread(thread) });
   }
 
   #setStatus(threadId: string, status: Thread["status"]): void {

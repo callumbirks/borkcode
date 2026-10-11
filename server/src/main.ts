@@ -84,6 +84,11 @@ const handlers: Handlers = {
     void threads.publish(threadId, { model, effort }).catch((error: Error) => console.error(error));
     return null;
   },
+  "threads.resume": async ({ threadId }) => {
+    // Like threads.send, any turn it starts runs in the background.
+    void threads.resume(threadId).catch((error: Error) => console.error(error));
+    return null;
+  },
   "threads.interrupt": async ({ threadId }) => {
     await threads.interrupt(threadId);
     return null;
@@ -194,4 +199,6 @@ sockets.on("connection", (ws: WebSocket) => {
 
 server.listen(config.port, config.host, () => {
   console.log(`borkcode listening on http://${config.host}:${config.port} (home: ${config.home})`);
+  // After listening, since agents started by these deliveries connect back to the MCP endpoint.
+  threads.resumeQueued();
 });

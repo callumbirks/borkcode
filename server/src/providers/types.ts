@@ -44,6 +44,12 @@ export interface ProviderSession {
    * accepts it; the end arrives as `turnEnded`.
    */
   sendTurn(text: string, settings: TurnSettings): Promise<void>;
+  /**
+   * Adds a message to the running turn at its next step, without interrupting a tool call.
+   * Resolves false when that is not possible right now, and the caller should wait for the turn
+   * to end instead.
+   */
+  steer(text: string): Promise<boolean>;
   interrupt(): Promise<void>;
   close(): void;
 }

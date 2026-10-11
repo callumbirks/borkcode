@@ -37,6 +37,32 @@
     }
   }
 
+  let limits = $state({ wakesPerWindow: 8, windowMinutes: 10, maxAutomaticTurns: 50 });
+  let limitsLoaded = false;
+  let limitsSaved = $state(false);
+  let limitsError = $state("");
+
+  $effect(() => {
+    if (!app.settings || limitsLoaded) return;
+    limitsLoaded = true;
+    limits = { ...app.settings.delegation };
+  });
+
+  async function saveLimits(event: SubmitEvent) {
+    event.preventDefault();
+    if (!app.settings) return;
+    limitsError = "";
+    limitsSaved = false;
+    try {
+      const next = await rpc.request("settings.update", { settings: { ...app.settings, delegation: limits } });
+      // Out-of-range values fall back to defaults on the server; show what was kept.
+      limits = { ...next.delegation };
+      limitsSaved = true;
+    } catch (cause) {
+      limitsError = (cause as Error).message;
+    }
+  }
+
   let toggleError = $state("");
 
   async function setAutoCommit(autoCommit: boolean) {
@@ -81,6 +107,30 @@
         </label>
         {#if toggleError}<p class="error">{toggleError}</p>{/if}
       </section>
+      <form class="card" onsubmit={saveLimits}>
+        <div class="section-label">Delegation limits</div>
+        <p class="muted hint">
+          Threads that watch each other wake each other up. When they do so too often, deliveries
+          between them pause until you resume them or message one of them.
+        </p>
+        <div class="row">
+          <label>
+            Wake-ups per thread
+            <input type="number" min="1" step="1" bind:value={limits.wakesPerWindow} />
+          </label>
+          <label>
+            Within minutes
+            <input type="number" min="1" step="1" bind:value={limits.windowMinutes} />
+          </label>
+          <label>
+            Automatic turns per captain, since you last spoke
+            <input type="number" min="1" step="1" bind:value={limits.maxAutomaticTurns} />
+          </label>
+          <button class="primary" type="submit">Save</button>
+          {#if limitsSaved}<span class="muted">Saved</span>{/if}
+        </div>
+        {#if limitsError}<p class="error">{limitsError}</p>{/if}
+      </form>
       <form class="card" onsubmit={save}>
         <div class="section-label">Thread titles</div>
         <p class="muted hint">New threads are named from their first message by this model.</p>

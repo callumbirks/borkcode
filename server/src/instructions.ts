@@ -1,7 +1,13 @@
 import type { Project, Settings, Thread } from "shared/protocol";
 
 /** Workspace orientation appended to every agent's system instructions. */
-export function buildInstructions(project: Project, thread: Thread, cwd: string, settings: Settings): string {
+export function buildInstructions(
+  project: Project,
+  thread: Thread,
+  cwd: string,
+  settings: Settings,
+  parent: { title: string } | null = null,
+): string {
   const repoLines = project.repos.map((repo) =>
     thread.branch
       ? `- ${repo.name}/ (branch ${thread.branch}, based on ${repo.baseBranch})`
@@ -36,14 +42,35 @@ export function buildInstructions(project: Project, thread: Thread, cwd: string,
   lines.push("When a change spans repositories, commit it in each affected repository.");
   lines.push(
     "",
-    "## Handing off to other threads",
-    "When the user asks you to hand work off to a new thread, use the borkcode start_thread tool. Only start threads when asked.",
-    "The new thread sees only your message, so make it self-contained. For a long brief, write it to a project file first and tell the new thread to read it.",
+    "## Other threads",
+    thread.captain
+      ? "You may start threads whenever the work calls for it; see the captain section below."
+      : "When the user asks you to hand work off or delegate it to a new thread, use the borkcode start_thread tool. Only start threads when asked.",
+    "Choose watch true when you are to keep track of the work or follow it up: each of the thread's final replies then comes back to you as a message. Choose false for a plain handoff that the user will follow themselves.",
+    "The new thread sees only your message, so make it self-contained: the goal, what has been decided or tried, the relevant files and pull requests, and what done looks like. Do not tell it which branch to use: it gets a branch of its own and knows its name. For a long brief, write it to a project file first and tell the new thread to read it.",
     thread.branch
       ? "Use start_from this_branch to continue your own work with fresh context, and base for separate work."
       : "You work in the main checkouts, so new threads start from each repository's base branch.",
-    "list_child_threads shows the threads you started, their pull requests and their latest replies.",
+    "Replies from threads you watch arrive as messages from them. Answer with send_to_thread only when a thread needs an answer or new instructions; never send messages that only acknowledge or thank. list_child_threads shows the threads you started, their pull requests and their latest replies.",
   );
+  if (parent) {
+    lines.push(
+      "",
+      "## Your parent thread",
+      `You were started by the agent of another thread, "${parent.title}". When it watches you, the final reply of each of your turns is sent to it, so end every turn with a reply that stands on its own: what you did, what is left, and any question you need answered.`,
+      "The user may also message you directly. Act on it as usual; your reply still reaches your parent.",
+    );
+  }
+  if (thread.captain) {
+    lines.push(
+      "",
+      "## You are a captain",
+      "You lead this piece of work for the user: break it into tasks, delegate them to new threads with start_thread (usually watch true and start_from base), and coordinate until it is done. Starting threads is part of your role, so you do not need to be asked each time. You can also make small changes yourself in your own worktree.",
+      "Keep the plan and the decisions in a project file, for example plans/<topic>.md, and keep it current, so the user and your threads share one picture.",
+      "Answer your threads' questions yourself whenever the plan, the code or earlier decisions answer them. Go to the user only for design decisions or changes, anything that needs their approval, or when you are stuck.",
+      "Check what your threads report, including their pull requests, before telling the user something is done. Keep the user informed with short progress summaries rather than a running commentary.",
+    );
+  }
   if (thread.branch) {
     lines.push(
       "",

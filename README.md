@@ -47,6 +47,14 @@ starts in its own worktree, either fresh from the base branches or from the firs
 commits. Handed-off threads nest under the thread that started them, and that thread can check on
 them, their pull requests and their latest replies.
 
+A thread can also delegate and keep track: the threads it watches send each turn's final reply
+back to it, and it answers their questions with a message of its own. Start a thread as a
+**Captain** to have it lead a piece of work this way, asking you only for design decisions,
+approvals, or when it is stuck. You can message any thread at any time, even while its agent
+works: the message joins at the agent's next step, or waits for the turn to end. If threads wake
+each other too often, deliveries between them pause until you resume them (limits are in
+Settings).
+
 After a thread's pull request is merged, you can keep going in the same thread. The agent syncs
 the branch onto the latest base branch, dropping the merged work but keeping anything newer, and
 the next Push & PR opens a fresh pull request from the same branch.

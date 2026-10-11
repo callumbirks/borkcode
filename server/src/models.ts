@@ -38,6 +38,7 @@ export async function checkModelChoice(
   effort: Effort | null,
   effortExplicit: boolean,
 ): Promise<{ model: string | null; effort: Effort | null }> {
+  if (model === null && effort === null) return { model, effort };
   const list = await listModels(provider).catch(() => null);
   if (!list) return { model, effort };
   const chosen = model === null ? list.find((option) => option.isDefault) : list.find((option) => option.id === model);

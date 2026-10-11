@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -9,6 +10,24 @@ export interface StoredThread extends Thread {
   /** Branch the workspace starts from instead of each repo's base, for handoffs that continue work. */
   startBranch: string | null;
 }
+
+/** A message waiting for a thread's agent, delivered when it can take it. */
+export interface InboxMessage {
+  id: string;
+  threadId: string;
+  /** The thread whose agent sent it, or null for the user. */
+  fromThreadId: string | null;
+  /**
+   * message: from the user, or from the parent, which then watches the thread.
+   * handoff: a parent's brief for a thread it does not watch. report: a child's final reply.
+   */
+  kind: "message" | "handoff" | "report";
+  text: string;
+  createdAt: number;
+}
+
+/** Threads with the number of messages waiting for each. */
+const SELECT_THREADS = `SELECT threads.*, (SELECT COUNT(*) FROM inbox WHERE inbox.thread_id = threads.id) AS queued FROM threads`;
 
 interface ThreadRow {
   id: string;
@@ -24,6 +43,10 @@ interface ThreadRow {
   provider_session_id: string | null;
   parent_id: string | null;
   start_branch: string | null;
+  captain: number;
+  watched: number;
+  paused: number;
+  queued: number;
   created_at: number;
   updated_at: number;
 }
@@ -43,6 +66,10 @@ function fromRow(row: ThreadRow): StoredThread {
     providerSessionId: row.provider_session_id,
     parentId: row.parent_id,
     startBranch: row.start_branch,
+    captain: row.captain === 1,
+    watched: row.watched === 1,
+    paused: row.paused === 1,
+    queued: row.queued,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -74,8 +101,19 @@ export class Database {
         provider_session_id TEXT,
         parent_id TEXT,
         start_branch TEXT,
+        captain INTEGER NOT NULL DEFAULT 0,
+        watched INTEGER NOT NULL DEFAULT 0,
+        paused INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS inbox (
+        id TEXT PRIMARY KEY,
+        thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+        from_thread_id TEXT,
+        kind TEXT NOT NULL,
+        text TEXT NOT NULL,
+        created_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS items (
         thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
@@ -99,14 +137,21 @@ export class Database {
       PRAGMA foreign_keys = ON;
     `);
     const columns = this.#db.prepare(`PRAGMA table_info(threads)`).all() as unknown as { name: string }[];
+    const missing = (column: string) => !columns.some((existing) => existing.name === column);
     for (const column of ["effort", "parent_id", "start_branch"]) {
-      if (!columns.some((existing) => existing.name === column)) {
-        this.#db.exec(`ALTER TABLE threads ADD COLUMN ${column} TEXT`);
-      }
+      if (missing(column)) this.#db.exec(`ALTER TABLE threads ADD COLUMN ${column} TEXT`);
+    }
+    for (const column of ["captain", "watched", "paused"]) {
+      if (missing(column)) this.#db.exec(`ALTER TABLE threads ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
     }
     const prColumns = this.#db.prepare(`PRAGMA table_info(pull_requests)`).all() as unknown as { name: string }[];
     if (!prColumns.some((column) => column.name === "head_oid")) {
       this.#db.exec(`ALTER TABLE pull_requests ADD COLUMN head_oid TEXT NOT NULL DEFAULT ''`);
+    }
+    // An early development version created the inbox without kinds; its messages were all plain.
+    const inboxColumns = this.#db.prepare(`PRAGMA table_info(inbox)`).all() as unknown as { name: string }[];
+    if (!inboxColumns.some((column) => column.name === "kind")) {
+      this.#db.exec(`ALTER TABLE inbox ADD COLUMN kind TEXT NOT NULL DEFAULT 'message'`);
     }
     // A server restart ends every provider process, so nothing can still be running.
     this.#db
@@ -115,12 +160,12 @@ export class Database {
   }
 
   listThreads(): StoredThread[] {
-    const rows = this.#db.prepare(`SELECT * FROM threads ORDER BY updated_at DESC`).all();
+    const rows = this.#db.prepare(`${SELECT_THREADS} ORDER BY updated_at DESC`).all();
     return (rows as unknown as ThreadRow[]).map(fromRow);
   }
 
   getThread(id: string): StoredThread | undefined {
-    const row = this.#db.prepare(`SELECT * FROM threads WHERE id = ?`).get(id);
+    const row = this.#db.prepare(`${SELECT_THREADS} WHERE id = ?`).get(id);
     return row ? fromRow(row as unknown as ThreadRow) : undefined;
   }
 
@@ -128,8 +173,9 @@ export class Database {
     this.#db
       .prepare(
         `INSERT INTO threads (id, project, title, provider, model, effort, access_mode, workspace,
-          branch, status, provider_session_id, parent_id, start_branch, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          branch, status, provider_session_id, parent_id, start_branch, captain, watched, paused,
+          created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         thread.id,
@@ -145,6 +191,9 @@ export class Database {
         thread.providerSessionId,
         thread.parentId,
         thread.startBranch,
+        Number(thread.captain),
+        Number(thread.watched),
+        Number(thread.paused),
         thread.createdAt,
         thread.updatedAt,
       );
@@ -153,7 +202,18 @@ export class Database {
   updateThread(
     id: string,
     patch: Partial<
-      Pick<StoredThread, "status" | "providerSessionId" | "title" | "model" | "effort" | "workspace" | "branch">
+      Pick<
+        StoredThread,
+        | "status"
+        | "providerSessionId"
+        | "title"
+        | "model"
+        | "effort"
+        | "workspace"
+        | "branch"
+        | "watched"
+        | "paused"
+      >
     >,
   ): StoredThread {
     const current = this.getThread(id);
@@ -162,7 +222,7 @@ export class Database {
     this.#db
       .prepare(
         `UPDATE threads SET status = ?, provider_session_id = ?, title = ?, model = ?, effort = ?,
-          workspace = ?, branch = ?, updated_at = ? WHERE id = ?`,
+          workspace = ?, branch = ?, watched = ?, paused = ?, updated_at = ? WHERE id = ?`,
       )
       .run(
         next.status,
@@ -172,14 +232,43 @@ export class Database {
         next.effort,
         next.workspace,
         next.branch,
+        Number(next.watched),
+        Number(next.paused),
         next.updatedAt,
         id,
       );
     return next;
   }
 
+  enqueue(message: Omit<InboxMessage, "id" | "createdAt">): void {
+    this.#db
+      .prepare(`INSERT INTO inbox (id, thread_id, from_thread_id, kind, text, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(randomUUID(), message.threadId, message.fromThreadId, message.kind, message.text, Date.now());
+  }
+
+  listInbox(threadId: string): InboxMessage[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT id, thread_id AS threadId, from_thread_id AS fromThreadId, kind, text, created_at AS createdAt
+         FROM inbox WHERE thread_id = ? ORDER BY created_at, rowid`,
+      )
+      .all(threadId);
+    return rows.map((row) => ({ ...(row as unknown as InboxMessage) }));
+  }
+
+  removeFromInbox(ids: string[]): void {
+    const remove = this.#db.prepare(`DELETE FROM inbox WHERE id = ?`);
+    for (const id of ids) remove.run(id);
+  }
+
+  /** Threads with messages waiting, for delivery after a restart. */
+  threadsWithInbox(): string[] {
+    const rows = this.#db.prepare(`SELECT DISTINCT thread_id AS id FROM inbox`).all() as unknown as { id: string }[];
+    return rows.map((row) => row.id);
+  }
+
   listChildren(parentId: string): StoredThread[] {
-    const rows = this.#db.prepare(`SELECT * FROM threads WHERE parent_id = ? ORDER BY created_at`).all(parentId);
+    const rows = this.#db.prepare(`${SELECT_THREADS} WHERE parent_id = ? ORDER BY created_at`).all(parentId);
     return (rows as unknown as ThreadRow[]).map(fromRow);
   }
 

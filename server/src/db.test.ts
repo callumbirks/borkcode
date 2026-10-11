@@ -37,6 +37,7 @@ test("linking a pull request reports changes only when something changed", () =>
   db.insertThread({
     id: "t2", project: "p", title: "T", provider: "claude", model: null, effort: null, accessMode: "ask",
     workspace: "t-t2", branch: "borkcode/t-t2", status: "idle", providerSessionId: null, parentId: null, startBranch: null,
+    captain: false, watched: false, paused: false, queued: 0,
     createdAt: 1, updatedAt: 1,
   });
   const pr = { repo: "alpha", number: 4, url: "https://github.com/me/alpha/pull/4", state: "OPEN", title: "Fix", headOid: "abc" };
@@ -79,6 +80,7 @@ test("deleting a parent keeps its children and drops their link", () => {
   const base = {
     project: "p", title: "T", provider: "claude" as const, model: null, effort: null, accessMode: "ask" as const,
     workspace: null, branch: null, status: "idle" as const, providerSessionId: null, startBranch: null, createdAt: 1, updatedAt: 1,
+    captain: false, watched: false, paused: false, queued: 0,
   };
   db.insertThread({ ...base, id: "parent", parentId: null });
   db.insertThread({ ...base, id: "child", parentId: "parent", startBranch: "borkcode/parent" });
@@ -86,4 +88,32 @@ test("deleting a parent keeps its children and drops their link", () => {
   assert.equal(db.getThread("child")?.startBranch, "borkcode/parent");
   assert.deepEqual(db.deleteThread("parent"), ["child"]);
   assert.equal(db.getThread("child")?.parentId, null);
+});
+
+test("an inbox created before messages had kinds gains the column and keeps its messages", () => {
+  const path = join(scratch, "old-inbox.sqlite");
+  const old = new DatabaseSync(path);
+  old.exec(`
+    CREATE TABLE threads (
+      id TEXT PRIMARY KEY, project TEXT NOT NULL, title TEXT NOT NULL, provider TEXT NOT NULL,
+      model TEXT, effort TEXT, access_mode TEXT NOT NULL, workspace TEXT, branch TEXT, status TEXT NOT NULL,
+      provider_session_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    );
+    INSERT INTO threads VALUES ('t4', 'p', 'T', 'codex', NULL, NULL, 'ask', 'w', 'borkcode/w', 'idle', NULL, 1, 1);
+    CREATE TABLE inbox (
+      id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, from_thread_id TEXT, text TEXT NOT NULL, created_at INTEGER NOT NULL
+    );
+    INSERT INTO inbox VALUES ('m1', 't4', NULL, 'queued before', 1);
+  `);
+  old.close();
+
+  const db = new Database(path);
+  db.enqueue({ threadId: "t4", fromThreadId: null, kind: "message", text: "queued after" });
+  assert.deepEqual(
+    db.listInbox("t4").map((message) => [message.text, message.kind]),
+    [
+      ["queued before", "message"],
+      ["queued after", "message"],
+    ],
+  );
 });

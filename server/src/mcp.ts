@@ -77,14 +77,21 @@ function buildServer({ threads, files }: Services, threadId: string): McpServer 
     "start_thread",
     {
       description: [
-        "Hand work off to a new thread in this project, running in its own new worktree. Only do this when the user asks.",
-        "The new thread sees only your message, not this conversation, so make it self-contained: the goal, what has been decided or tried, the relevant files, branches and pull requests, and what done looks like.",
+        "Start a new thread in this project, running in its own new worktree, to hand work off or to delegate it.",
+        "The new thread sees only your message, not this conversation, so make it self-contained: the goal, what has been decided or tried, the relevant files and pull requests, and what done looks like.",
+        "Do not name a branch for it: it works on a new branch of its own, which it already knows.",
         "For a long brief, first write it to a project file (for example handoffs/<topic>.md) with write_project_file, and tell the new thread to read it.",
         "The new thread uses this thread's access mode, and this thread's provider and model unless you choose others; give them only if the user asked for them.",
         "The user may be asked to approve.",
       ].join(" "),
       inputSchema: {
         message: z.string().describe("The new thread's first message: its complete brief"),
+        watch: z
+          .boolean()
+          .describe(
+            "true: delegate and keep track. The thread's final reply comes back to you as a message, and you can answer it with send_to_thread. " +
+              "false: hand off and move on, as if the user had started the thread themselves.",
+          ),
         start_from: z
           .enum(["base", "this_branch"])
           .describe(
@@ -97,8 +104,25 @@ function buildServer({ threads, files }: Services, threadId: string): McpServer 
         effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional().describe("Reasoning effort; defaults to this thread's"),
       },
     },
-    ({ message, start_from, provider, model, effort }) =>
-      toolResult(() => threads.startThread(threadId, { message, startFrom: start_from, provider, model, effort })),
+    ({ message, watch, start_from, provider, model, effort }) =>
+      toolResult(() => threads.startThread(threadId, { message, watch, startFrom: start_from, provider, model, effort })),
+  );
+
+  server.registerTool(
+    "send_to_thread",
+    {
+      description: [
+        "Send a message to a thread you started: an answer to its question, a correction or new instructions.",
+        "If it is busy, the message joins its work at its next step, or waits for its current turn to end.",
+        "Its final reply comes back to you as a message, so there is no need to poll.",
+        "Do not send messages that only acknowledge or thank.",
+      ].join(" "),
+      inputSchema: {
+        thread_id: z.string().describe("The id of the thread, as start_thread or list_child_threads gave it"),
+        message: z.string().describe("The message, self-contained enough to act on"),
+      },
+    },
+    ({ thread_id, message }) => toolResult(async () => threads.sendToThread(threadId, thread_id, message)),
   );
 
   server.registerTool(

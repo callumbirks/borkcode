@@ -23,6 +23,10 @@ function thread(branch: string | null): Thread {
     branch,
     status: "idle",
     parentId: null,
+    captain: false,
+    watched: false,
+    queued: 0,
+    paused: false,
     createdAt: 0,
     updatedAt: 0,
   };
@@ -48,4 +52,20 @@ test("threads commit only on request when auto-commit is off or in the main chec
     assert.match(text, ON_REQUEST);
     assert.doesNotMatch(text, AUTO);
   }
+});
+
+test("captains may start threads unprompted; other threads only when asked", () => {
+  const captain = buildInstructions(project, { ...thread("borkcode/fix-login-t1"), captain: true }, "/ws", DEFAULT_SETTINGS);
+  assert.match(captain, /You are a captain/);
+  assert.match(captain, /do not need to be asked each time/);
+  const regular = buildInstructions(project, thread("borkcode/fix-login-t1"), "/ws", DEFAULT_SETTINGS);
+  assert.doesNotMatch(regular, /You are a captain/);
+  assert.match(regular, /Only start threads when asked/);
+});
+
+test("a child thread learns that its replies reach its parent", () => {
+  const child = buildInstructions(project, thread("borkcode/fix-login-t1"), "/ws", DEFAULT_SETTINGS, { title: "Plan the login work" });
+  assert.match(child, /started by the agent of another thread, "Plan the login work"/);
+  assert.match(child, /your reply still reaches your parent/);
+  assert.doesNotMatch(buildInstructions(project, thread(null), "/ws", DEFAULT_SETTINGS), /Your parent thread/);
 });

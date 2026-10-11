@@ -65,6 +65,7 @@
   let effort = $state<Effort | null>(null);
   let accessMode = $state<AccessMode>("ask");
   let isolated = $state(true);
+  let captain = $state(false);
   let starting = $state(false);
   let threadError = $state("");
 
@@ -87,7 +88,9 @@
         model,
         effort,
         accessMode,
-        isolated,
+        // Captains always get their own worktree.
+        isolated: isolated || captain,
+        captain,
       });
       go({ view: "thread", id: thread.id });
     } catch (cause) {
@@ -137,7 +140,11 @@
             <option value="ask">Ask first</option>
             <option value="full">Full access</option>
           </select>
-          <select title="Workspace" bind:value={isolated}>
+          <select title="Role" bind:value={captain}>
+            <option value={false}>Thread</option>
+            <option value={true}>Captain</option>
+          </select>
+          <select title="Workspace" bind:value={isolated} disabled={captain}>
             <option value={true}>New worktrees</option>
             <option value={false}>Main checkouts</option>
           </select>

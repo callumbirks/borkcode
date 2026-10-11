@@ -33,6 +33,19 @@ export interface Settings {
   titleModel: ModelChoice;
   /** Agents in worktree threads commit finished steps without being asked. */
   autoCommit: boolean;
+  delegation: DelegationLimits;
+}
+
+/**
+ * Stops threads from waking each other forever. Messages between threads that would exceed a
+ * limit stay queued, and the thread pauses until the user resumes it or messages it.
+ */
+export interface DelegationLimits {
+  /** Automatic wake-ups one thread may get within `windowMinutes`; catches fast loops. */
+  wakesPerWindow: number;
+  windowMinutes: number;
+  /** Automatic wake-ups across a captain and its children since the user last messaged any of them. */
+  maxAutomaticTurns: number;
 }
 
 export interface RepoConfig {
@@ -76,6 +89,14 @@ export interface Thread {
   status: ThreadStatus;
   /** The thread whose agent started this one, if any. */
   parentId: string | null;
+  /** Coordinates work across the threads it starts; gets captain instructions. */
+  captain: boolean;
+  /** Its parent keeps track of it: the final reply of each of its turns goes to the parent. */
+  watched: boolean;
+  /** Messages waiting for the agent: from the user, its parent or its children. */
+  queued: number;
+  /** Deliveries between threads hit a delegation limit; queued messages wait for the user. */
+  paused: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -87,8 +108,10 @@ export type Item =
       id: string;
       kind: "user";
       text: string;
-      /** Set when another thread's agent wrote this message, as a handoff. */
+      /** Set when another thread's agent sent this message: a handoff, a request or a report. */
       fromThreadId?: string;
+      /** Delivered into a turn that was already running, at its next step. */
+      steered?: boolean;
     }
   | { id: string; kind: "assistant"; text: string }
   | { id: string; kind: "reasoning"; text: string }
@@ -172,6 +195,7 @@ export interface Requests {
       accessMode: AccessMode;
       /** False runs the thread directly in the main checkouts. */
       isolated: boolean;
+      captain: boolean;
     };
     result: Thread;
   };
@@ -189,6 +213,8 @@ export interface Requests {
   /** Changes only the displayed title; the workspace and branch keep their names. */
   "threads.rename": { params: { threadId: string; title: string }; result: Thread };
   "threads.interrupt": { params: { threadId: string }; result: null };
+  /** Lifts a delegation pause and delivers what is queued. */
+  "threads.resume": { params: { threadId: string }; result: null };
   "threads.delete": { params: { threadId: string; force?: boolean }; result: null };
   "threads.repoStatus": { params: { threadId: string }; result: RepoStatus[] };
   "approvals.respond": {

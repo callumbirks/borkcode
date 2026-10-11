@@ -29,12 +29,13 @@
       <div class="from">
         <CornerDownRight size={12} />
         {#if linked}
-          Handed off from <a href="#/thread/{linked.id}">{linked.title}</a>
+          From <a href="#/thread/{linked.id}">{linked.title}</a>
         {:else}
-          Handed off from a thread that was since deleted
+          From a thread that was since deleted
         {/if}
       </div>
     {/if}
+    {#if item.steered}<div class="from">Read while working</div>{/if}
     {item.text}
   </div>
 {:else if item.kind === "thread"}

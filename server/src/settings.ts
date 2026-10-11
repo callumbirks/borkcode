@@ -1,13 +1,29 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { ModelChoice, Settings } from "shared/protocol";
+import type { DelegationLimits, ModelChoice, Settings } from "shared/protocol";
 import { isEffort } from "./providers/types.ts";
 
 export const DEFAULT_SETTINGS: Settings = {
   titleModel: { provider: "codex", model: "gpt-6-luna", effort: "low" },
   autoCommit: true,
+  delegation: { wakesPerWindow: 8, windowMinutes: 10, maxAutomaticTurns: 50 },
 };
+
+function readDelegation(value: unknown): DelegationLimits {
+  const raw = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const positive = (key: keyof DelegationLimits) => {
+    const number = raw[key];
+    return typeof number === "number" && Number.isInteger(number) && number > 0
+      ? number
+      : DEFAULT_SETTINGS.delegation[key];
+  };
+  return {
+    wakesPerWindow: positive("wakesPerWindow"),
+    windowMinutes: positive("windowMinutes"),
+    maxAutomaticTurns: positive("maxAutomaticTurns"),
+  };
+}
 
 function readModelChoice(value: unknown, fallback: ModelChoice): ModelChoice {
   if (!value || typeof value !== "object") return fallback;
@@ -25,6 +41,7 @@ function readSettings(raw: Record<string, unknown>): Settings {
   return {
     titleModel: readModelChoice(raw.titleModel, DEFAULT_SETTINGS.titleModel),
     autoCommit: typeof raw.autoCommit === "boolean" ? raw.autoCommit : DEFAULT_SETTINGS.autoCommit,
+    delegation: readDelegation(raw.delegation),
   };
 }
 
