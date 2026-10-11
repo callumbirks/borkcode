@@ -12,7 +12,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import type { AccessMode, Effort, Item } from "shared/protocol";
   import { providerLabel } from "../lib/display.svelte";
-  import { app, go, openThread, rpc } from "../lib/state.svelte";
+  import { app, getDraft, go, openThread, rpc, setDraft } from "../lib/state.svelte";
   import ItemView from "./ItemView.svelte";
   import ModelPicker from "./ModelPicker.svelte";
   import RepoPanel from "./RepoPanel.svelte";
@@ -38,7 +38,8 @@
     return result;
   });
 
-  let draft = $state("");
+  // Each thread keeps its own unsent text, since this component stays mounted across threads.
+  const draft = $derived(getDraft(id));
   let error = $state("");
   let transcript: HTMLDivElement | undefined = $state();
 
@@ -117,14 +118,15 @@
 
   // While the agent works, a message joins its turn at the next step or waits for the turn to end.
   async function send() {
+    const threadId = id;
     const text = draft.trim();
     if (!text) return;
     error = "";
-    draft = "";
+    setDraft(threadId, "");
     try {
-      await rpc.request("threads.send", { threadId: id, text, model, effort, accessMode });
+      await rpc.request("threads.send", { threadId, text, model, effort, accessMode });
     } catch (cause) {
-      draft = text;
+      setDraft(threadId, text);
       error = (cause as Error).message;
     }
   }
@@ -263,7 +265,7 @@
         {/if}
         <div class="composer">
           <textarea
-            bind:value={draft}
+            bind:value={() => draft, (text) => setDraft(id, text)}
             onkeydown={onKeydown}
             rows="2"
             placeholder={busy ? "Message the agent; it reads this at its next step" : "Message the agent"}
