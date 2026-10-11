@@ -49,6 +49,8 @@ interface ThreadRow {
   paused: number;
   queued: number;
   archived_at: number | null;
+  responded_at: number | null;
+  read_at: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -73,6 +75,8 @@ function fromRow(row: ThreadRow): StoredThread {
     paused: row.paused === 1,
     queued: row.queued,
     archivedAt: row.archived_at,
+    respondedAt: row.responded_at,
+    readAt: row.read_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -108,6 +112,8 @@ export class Database {
         watched INTEGER NOT NULL DEFAULT 0,
         paused INTEGER NOT NULL DEFAULT 0,
         archived_at INTEGER,
+        responded_at INTEGER,
+        read_at INTEGER,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
@@ -148,7 +154,10 @@ export class Database {
     for (const column of ["captain", "watched", "paused"]) {
       if (missing(column)) this.#db.exec(`ALTER TABLE threads ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
     }
-    if (missing("archived_at")) this.#db.exec(`ALTER TABLE threads ADD COLUMN archived_at INTEGER`);
+    // Threads from before read tracking have no response on record, so they start out read.
+    for (const column of ["archived_at", "responded_at", "read_at"]) {
+      if (missing(column)) this.#db.exec(`ALTER TABLE threads ADD COLUMN ${column} INTEGER`);
+    }
     const prColumns = this.#db.prepare(`PRAGMA table_info(pull_requests)`).all() as unknown as { name: string }[];
     if (!prColumns.some((column) => column.name === "head_oid")) {
       this.#db.exec(`ALTER TABLE pull_requests ADD COLUMN head_oid TEXT NOT NULL DEFAULT ''`);
@@ -185,8 +194,8 @@ export class Database {
       .prepare(
         `INSERT INTO threads (id, project, title, provider, model, effort, access_mode, workspace,
           branch, status, provider_session_id, parent_id, start_branch, captain, watched, paused,
-          archived_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          archived_at, responded_at, read_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         thread.id,
@@ -206,6 +215,8 @@ export class Database {
         Number(thread.watched),
         Number(thread.paused),
         thread.archivedAt,
+        thread.respondedAt,
+        thread.readAt,
         thread.createdAt,
         thread.updatedAt,
       );
@@ -214,7 +225,7 @@ export class Database {
   /**
    * Only a status change counts as activity and moves updated_at, which orders the thread lists:
    * turns starting and ending, and workspaces becoming ready. Renames, settings, pauses and session
-   * ids leave it alone. Delivered messages count too, through touchThread.
+   * ids leave it alone, and so does reading. Delivered messages count too, through touchThread.
    */
   updateThread(
     id: string,
@@ -231,6 +242,8 @@ export class Database {
         | "branch"
         | "watched"
         | "paused"
+        | "respondedAt"
+        | "readAt"
       >
     >,
   ): StoredThread {
@@ -241,7 +254,8 @@ export class Database {
     this.#db
       .prepare(
         `UPDATE threads SET status = ?, provider_session_id = ?, title = ?, model = ?, effort = ?,
-          access_mode = ?, workspace = ?, branch = ?, watched = ?, paused = ?, updated_at = ? WHERE id = ?`,
+          access_mode = ?, workspace = ?, branch = ?, watched = ?, paused = ?, responded_at = ?, read_at = ?,
+          updated_at = ? WHERE id = ?`,
       )
       .run(
         next.status,
@@ -254,6 +268,8 @@ export class Database {
         next.branch,
         Number(next.watched),
         Number(next.paused),
+        next.respondedAt,
+        next.readAt,
         next.updatedAt,
         id,
       );

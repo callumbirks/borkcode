@@ -98,6 +98,10 @@ const handlers: Handlers = {
     threads.setArchived(threadId, archived);
     return null;
   },
+  "threads.markRead": async ({ threadId }) => {
+    threads.markRead(threadId);
+    return null;
+  },
   "threads.delete": async ({ threadId, force }) => {
     await threads.delete(threadId, force ?? false);
     return null;

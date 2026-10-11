@@ -54,6 +54,10 @@ class FakeAgent implements ProviderSession {
     this.#events.item({ id: randomUUID(), kind: "assistant", text: reply });
     this.#events.turnEnded({ status: "completed" });
   }
+
+  fail(error: string) {
+    this.#events.turnEnded({ status: "failed", error });
+  }
 }
 
 const home = await mkdtemp(join(tmpdir(), "borkcode-threads-"));
@@ -405,6 +409,61 @@ test("an archived thread's pull request merging updates its state without waking
   const after = (await threads.get(thread.id)).thread;
   assert.notEqual(after.archivedAt, null);
   assert.equal(after.status, "idle");
+});
+
+function unread(threadId: string): boolean {
+  const thread = threads.list().find((each) => each.id === threadId)!;
+  return thread.respondedAt !== null && thread.respondedAt > (thread.readAt ?? 0);
+}
+
+test("a finished or failed turn leaves the thread unread until the user reads it; a stopped one does not", async () => {
+  const { thread, agent } = await startThread("look into it");
+  await agent.turn(1);
+  assert.equal(unread(thread.id), false);
+  agent.finish("found it");
+  assert.equal(unread(thread.id), true);
+
+  // Reading is not activity, so the thread keeps its place in the lists.
+  const updatedAt = () => threads.list().find((each) => each.id === thread.id)!.updatedAt;
+  const activeAt = updatedAt();
+  threads.markRead(thread.id);
+  assert.equal(unread(thread.id), false);
+  assert.equal(updatedAt(), activeAt);
+
+  await threads.send(thread.id, "keep going", { model: null, effort: null, accessMode: "full" });
+  await agent.turn(2);
+  await threads.interrupt(thread.id);
+  assert.equal(unread(thread.id), false);
+
+  await threads.send(thread.id, "try again", { model: null, effort: null, accessMode: "full" });
+  await agent.turn(3);
+  agent.fail("provider exploded");
+  assert.equal(unread(thread.id), true);
+});
+
+test("a watched child's report is its parent's to read, unless the user joined the child's turn", async () => {
+  const { thread: parent, agent: parentAgent } = await startThread("lead the work");
+  await parentAgent.turn(1);
+  parentAgent.finish("delegating");
+  threads.markRead(parent.id);
+
+  await threads.startThread(parent.id, { message: "do a part", watch: true, startFrom: "base" });
+  const [child] = threads.list().filter((thread) => thread.parentId === parent.id);
+  const childAgent = await agentOf(child!.id);
+  await childAgent.turn(1);
+  childAgent.finish("part done");
+  assert.equal(unread(child!.id), false);
+  await parentAgent.turn(2);
+  assert.equal(unread(parent.id), false);
+  parentAgent.finish("noted the part");
+  assert.equal(unread(parent.id), true);
+
+  await threads.send(child!.id, "one more tweak", { model: null, effort: null, accessMode: "full" });
+  await childAgent.turn(2);
+  childAgent.finish("tweaked");
+  assert.equal(unread(child!.id), true);
+  await parentAgent.turn(3);
+  parentAgent.finish("ok");
 });
 
 test("coming back to borkcode checks open pull requests, at most once in a short while", async (t) => {
