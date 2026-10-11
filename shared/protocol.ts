@@ -31,6 +31,8 @@ export interface ModelChoice {
 export interface Settings {
   /** Model that names new threads from their first message. */
   titleModel: ModelChoice;
+  /** Agents in worktree threads commit finished steps without being asked. */
+  autoCommit: boolean;
 }
 
 export interface RepoConfig {

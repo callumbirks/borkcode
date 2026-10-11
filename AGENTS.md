@@ -56,6 +56,9 @@ inventing a fix.
   `BORKCODE_MAIN_REPO`, `BORKCODE_WORKSPACE` and `BORKCODE_PROJECT` set.
 - **The agent's workspace orientation is injected** through each provider's system-instruction
   option (`server/src/instructions.ts`). Nothing is written into the workspace.
+- **Agents in worktree threads commit as they go** unless `autoCommit` is off; main-checkout
+  threads commit only when asked. The policy lives in the injected instructions, which are fixed
+  per session, so toggling it affects sessions started afterwards.
 - **Agents open PRs themselves with `gh`.** The app only discovers them by branch, one PR per repo.
 - **Clients get everything by broadcast.** It's fine for one local user. Revisit if remote access
   or many clients arrive. Keep payloads small: stream deltas, not whole items.

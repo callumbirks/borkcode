@@ -19,7 +19,7 @@ import type { ProjectStore } from "./projects.ts";
 import { startClaudeSession } from "./providers/claude.ts";
 import { startCodexSession } from "./providers/codex.ts";
 import type { ProviderSession, SessionOptions, TurnSettings } from "./providers/types.ts";
-import type { SettingsStore } from "./settings.ts";
+import { DEFAULT_SETTINGS, type SettingsStore } from "./settings.ts";
 import { fallbackTitle, generateTitle } from "./titles.ts";
 import {
   dirtyRepos,
@@ -272,10 +272,15 @@ export class ThreadService {
     }
     const threadId = thread.id;
     const live = this.#liveThread(threadId);
+    // A typo in the hand-editable file should not stop agents from starting.
+    const settings = await this.#settings.get().catch((error: Error) => {
+      this.#notice(threadId, "error", `${error.message}. Using default settings.`);
+      return DEFAULT_SETTINGS;
+    });
     return startSession[thread.provider]({
       cwd,
       writableRoots,
-      instructions: buildInstructions(project, toThread(thread), cwd),
+      instructions: buildInstructions(project, toThread(thread), cwd, settings),
       accessMode: thread.accessMode,
       model: thread.model,
       effort: thread.effort,

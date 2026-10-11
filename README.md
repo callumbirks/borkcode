@@ -27,6 +27,9 @@ at low effort by default), names it, and the workspace and branch are named afte
 Renaming a thread later changes only its displayed title. Model and effort can be switched
 between turns from the composer.
 
+By default, agents in worktree threads commit each finished step on the thread's branch without
+being asked. Turn this off under Settings. Threads in the main checkouts only commit when asked.
+
 Each repo can have a setup command, run inside every new worktree. It receives
 `BORKCODE_MAIN_REPO` (the main clone, handy for copying `.env` files), `BORKCODE_WORKSPACE`
 and `BORKCODE_PROJECT`.

@@ -6,6 +6,7 @@ import { isEffort } from "./providers/types.ts";
 
 export const DEFAULT_SETTINGS: Settings = {
   titleModel: { provider: "codex", model: "gpt-6-luna", effort: "low" },
+  autoCommit: true,
 };
 
 function readModelChoice(value: unknown, fallback: ModelChoice): ModelChoice {
@@ -16,6 +17,14 @@ function readModelChoice(value: unknown, fallback: ModelChoice): ModelChoice {
     provider,
     model: typeof model === "string" && model ? model : null,
     effort: isEffort(effort) ? effort : null,
+  };
+}
+
+/** Keeps known keys, falling back to defaults for anything missing or malformed. */
+function readSettings(raw: Record<string, unknown>): Settings {
+  return {
+    titleModel: readModelChoice(raw.titleModel, DEFAULT_SETTINGS.titleModel),
+    autoCommit: typeof raw.autoCommit === "boolean" ? raw.autoCommit : DEFAULT_SETTINGS.autoCommit,
   };
 }
 
@@ -35,11 +44,11 @@ export class SettingsStore {
     } catch (error) {
       throw new Error(`Could not read ${this.path}: ${error instanceof Error ? error.message : String(error)}`);
     }
-    return { titleModel: readModelChoice(raw.titleModel, DEFAULT_SETTINGS.titleModel) };
+    return readSettings(raw);
   }
 
   async update(settings: Settings): Promise<Settings> {
-    const next: Settings = { titleModel: readModelChoice(settings.titleModel, DEFAULT_SETTINGS.titleModel) };
+    const next = readSettings({ ...settings });
     await mkdir(dirname(this.path), { recursive: true });
     await writeFile(this.path, `${JSON.stringify(next, null, 2)}\n`);
     return next;

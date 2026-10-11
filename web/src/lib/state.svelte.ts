@@ -16,6 +16,7 @@ export const app = $state({
   /** The open thread's transcript and pending approvals. */
   detail: null as ThreadDetail | null,
   settings: null as Settings | null,
+  settingsError: null as string | null,
 });
 
 /** Each provider's model list, loaded on first use. */
@@ -84,6 +85,7 @@ function handleEvent(event: ServerEvent): void {
       return;
     case "settings.changed":
       app.settings = event.settings;
+      app.settingsError = null;
       return;
     case "thread.updated":
       upsertById(app.threads, event.thread);
@@ -114,14 +116,22 @@ function handleEvent(event: ServerEvent): void {
 }
 
 async function refresh(): Promise<void> {
-  const [projects, threads, settings] = await Promise.all([
+  // A broken settings.json should not keep projects and threads from loading.
+  void rpc.request("settings.get", {}).then(
+    (settings) => {
+      app.settings = settings;
+      app.settingsError = null;
+    },
+    (cause: Error) => {
+      app.settingsError = cause.message;
+    },
+  );
+  const [projects, threads] = await Promise.all([
     rpc.request("projects.list", {}),
     rpc.request("threads.list", {}),
-    rpc.request("settings.get", {}),
   ]);
   app.projects = projects;
   app.threads = threads;
-  app.settings = settings;
   if (nav.route.view === "thread") await openThread(nav.route.id);
 }
 
