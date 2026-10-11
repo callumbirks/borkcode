@@ -188,7 +188,8 @@ inventing a fix.
 - If you add a way in, add the way out and a way to see it.
 - Inferred types over annotations; `any` is the enemy.
 - Comments say how a thing is used or why it is surprising. Don't narrate control flow.
-- No continuously repainting animations; they peg the GPU. Spinners must not lie about state.
+- No continuously repainting animations; they peg the GPU. The one exception is `Spinner.svelte`,
+  a few stepped glyphs in pure CSS, shown only while a thread works. Spinners must not lie about state.
 - Don't add docs that restate the code. Record decisions and traps here; user-facing usage goes in
   the README.
 

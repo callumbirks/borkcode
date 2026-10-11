@@ -15,6 +15,7 @@
     type PullRequestState,
   } from "../lib/display.svelte";
   import { app, go, nav } from "../lib/state.svelte";
+  import Spinner from "./Spinner.svelte";
 
   // Threads nest under the thread that started them, and every level sorts by recent activity.
   // Archived threads are listed only on the Archived page.
@@ -109,7 +110,11 @@
                     <Inbox size={10} />{thread.queued}
                   </span>
                 {/if}
-                <span class="time">{relativeTime(thread.updatedAt)}</span>
+                {#if thread.status === "running" || thread.status === "preparing"}
+                  <span class="time"><Spinner label={thread.status === "preparing" ? "Preparing" : "Working"} /></span>
+                {:else}
+                  <span class="time">{relativeTime(thread.updatedAt)}</span>
+                {/if}
               </span>
               <span class="meta truncate">
                 <span class="provider-{thread.provider}">{providerLabel[thread.provider]}</span>
