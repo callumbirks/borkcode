@@ -368,6 +368,10 @@ export async function startCodexSession(options: SessionOptions): Promise<Provid
         const allowed = await events.approval({ title: "Apply file changes?", detail });
         return { decision: allowed ? "accept" : "decline" };
       }
+      // borkcode's own tools ask the user themselves when they need to.
+      if (method === "mcpServer/elicitation/request" && params.serverName === "borkcode") {
+        return { action: "accept", content: {}, _meta: null };
+      }
       throw new Error(`borkcode does not support ${method} yet`);
     },
     exit(detail) {
@@ -382,7 +386,12 @@ export async function startCodexSession(options: SessionOptions): Promise<Provid
     approvalPolicy: full ? "never" : "on-request",
     sandbox: full ? "danger-full-access" : "workspace-write",
     developerInstructions: options.instructions,
-    config: { "sandbox_workspace_write.writable_roots": options.writableRoots },
+    config: {
+      "sandbox_workspace_write.writable_roots": options.writableRoots,
+      "mcp_servers.borkcode.url": options.mcpUrl,
+      // Publishing waits for the user's approval, which can outlast the default timeout.
+      "mcp_servers.borkcode.tool_timeout_sec": 3600,
+    },
   };
   let started: { thread: { id: string } } | null = null;
   if (options.resumeId) {

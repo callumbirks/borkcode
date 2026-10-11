@@ -27,6 +27,16 @@ at low effort by default), names it, and the workspace and branch are named afte
 Renaming a thread later changes only its displayed title. Model and effort can be switched
 between turns from the composer.
 
+**Push & PR** in a worktree thread asks the agent to commit anything outstanding and publish
+through borkcode's `open_pull_requests` tool. borkcode pushes the thread's branch under the same
+name, opens one pull request per repo with changes (ready for review), and links sibling pull
+requests to each other. In "ask" mode you approve the push first. Pull requests found on a thread's
+branch are linked to the thread and shown beside each repo.
+
+After a thread's pull request is merged, you can keep going in the same thread. The agent syncs
+the branch onto the latest base branch, dropping the merged work but keeping anything newer, and
+the next Push & PR opens a fresh pull request from the same branch.
+
 By default, agents in worktree threads commit each finished step on the thread's branch without
 being asked. Turn this off under Settings. Threads in the main checkouts only commit when asked.
 

@@ -16,7 +16,7 @@ add machinery because it looks architecturally impressive.
   client only renders it. Keep that split; it is what makes remote cheap later.
 - **Not planned yet:** checkpoints/restore, mobile, other providers.
 - **Done:** multi-repo projects and workspaces (milestone 1).
-- **Next, roughly in order:** shared project files with agent tools (via an MCP server we inject),
+- **Next, roughly in order:** shared project files with agent tools (on the injected MCP server),
   then captain threads that delegate to child threads and see their PRs.
 
 This started as a fork of t3code, which is kept at `~/projects/apps/borkcode` as a read-only
@@ -59,7 +59,20 @@ inventing a fix.
 - **Agents in worktree threads commit as they go** unless `autoCommit` is off; main-checkout
   threads commit only when asked. The policy lives in the injected instructions, which are fixed
   per session, so toggling it affects sessions started afterwards.
-- **Agents open PRs themselves with `gh`.** The app only discovers them by branch, one PR per repo.
+- **borkcode tools reach agents over MCP.** The server serves `POST /mcp/<token>` statelessly; each
+  agent session gets a fresh random token that maps to its thread, so a tool always acts on its
+  own thread. Tools that act on the outside world ask for approval themselves in ask mode, and the
+  adapters auto-allow `borkcode` tools so the user is not asked twice.
+- **Publishing goes through the `open_pull_requests` tool,** not raw `git push`/`gh`. The server
+  pushes the thread branch under the same name (never forced), opens one PR per repo with commits
+  ahead, refuses while anything is uncommitted, and links sibling PRs in a marked description block.
+- **Follow-ups after a merge stay on the thread's branch.** The `sync_with_base` tool runs
+  `git rebase --onto origin/<base> <merged head>`, replaying only commits made after the merged
+  PR's head, because a plain rebase re-applies squash-merged commits and conflicts. Publishing
+  refuses until a merged repo is synced. The next push may overwrite the remote branch only via
+  `--force-with-lease` pinned to that merged head.
+- **PRs are linked to threads in SQLite.** The tool links what it opens, and repo status links any
+  PR found on the thread's branch, so PRs opened by other means show up too.
 - **Clients get everything by broadcast.** It's fine for one local user. Revisit if remote access
   or many clients arrive. Keep payloads small: stream deltas, not whole items.
 
@@ -68,6 +81,7 @@ inventing a fix.
 - `shared/protocol.ts`: every type that crosses the WebSocket. Change it first; server and web follow.
 - `server/src/workspaces.ts`, `projects.ts`: git worktrees and project folders.
 - `server/src/threads.ts`: thread lifecycle, live session state, approvals.
+- `server/src/mcp.ts`, `pullRequests.ts`: the agent-facing MCP tools, and pushing and opening PRs.
 - `server/src/providers/`: one adapter per provider, normalizing to `Item`s via `SessionEvents`.
   Provider quirks stay inside the adapter; `threads.ts` and the UI stay provider-agnostic.
 - `server/src/main.ts`: the HTTP/WebSocket transport. Keep handlers thin: decode, call one
@@ -95,6 +109,8 @@ inventing a fix.
   null means "no change", not "default". Codex reports each model's default effort, so the picker
   never moves a Codex thread from a set effort back to null. Claude switches with `setModel` and
   `applyFlagSettings({ effortLevel })`, where null does reset.
+- **Codex MCP tool timeout.** Codex gives MCP tool calls 60 seconds by default, too short for a
+  tool waiting on the user's approval. The adapter sets `mcp_servers.borkcode.tool_timeout_sec`.
 - **Claude SDK types.** The source of truth is
   `server/node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`. With partial messages on,
   `assistant` messages arrive one content block at a time, after the matching `stream_event`

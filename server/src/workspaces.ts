@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import type { Project, PullRequestRef, RepoConfig, RepoStatus } from "shared/protocol";
-import { git, run, runShell } from "./exec.ts";
+import type { Project, RepoConfig, RepoStatus } from "shared/protocol";
+import { git, runShell } from "./exec.ts";
 
 // A workspace is a folder holding one checkout of every project repo as siblings, named exactly
 // like the main clones in repos/. Thread workspaces live in worktrees/<name>/ and hold git
@@ -135,7 +135,6 @@ export async function repoStatuses(
         baseBranch: repo.baseBranch,
         changedFiles: [],
         ahead: null,
-        pullRequest: null,
       };
       if (!status.exists) return status;
       status.branch = await git(path, "rev-parse", "--abbrev-ref", "HEAD");
@@ -147,25 +146,7 @@ export async function repoStatuses(
         await git(path, "rev-list", "--count", `${baseRef}..HEAD`).catch(() => "NaN"),
       );
       if (Number.isNaN(status.ahead)) status.ahead = null;
-      if (status.branch !== repo.baseBranch && status.branch !== "HEAD") {
-        status.pullRequest = await findPullRequest(path, status.branch);
-      }
       return status;
     }),
   );
-}
-
-async function findPullRequest(repoDir: string, branch: string): Promise<PullRequestRef | null> {
-  try {
-    const output = await run(
-      "gh",
-      ["pr", "list", "--head", branch, "--state", "all", "--limit", "1", "--json", "number,url,state,title"],
-      { cwd: repoDir },
-    );
-    const [pr] = JSON.parse(output) as PullRequestRef[];
-    return pr ?? null;
-  } catch {
-    // Not a GitHub remote, gh missing, or offline. PR display is best-effort.
-    return null;
-  }
 }

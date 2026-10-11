@@ -1,0 +1,106 @@
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { z } from "zod";
+import { ToolError } from "./pullRequests.ts";
+import type { ThreadService } from "./threads.ts";
+
+/** Agents reach these tools as the "borkcode" MCP server. Each session's token picks its thread. */
+export const MCP_SERVER_NAME = "borkcode";
+
+function text(content: string, isError = false) {
+  return { content: [{ type: "text" as const, text: content }], isError };
+}
+
+/** Expected failures go back to the agent as tool errors it can act on; anything else is a bug. */
+async function toolResult(work: () => Promise<string>) {
+  try {
+    return text(await work());
+  } catch (error) {
+    if (error instanceof ToolError) return text(error.message, true);
+    console.error(error);
+    return text(error instanceof Error ? error.message : String(error), true);
+  }
+}
+
+function buildServer(threads: ThreadService, threadId: string): McpServer {
+  const server = new McpServer({ name: MCP_SERVER_NAME, version: "0.1.0" });
+
+  server.registerTool(
+    "list_pull_requests",
+    {
+      description:
+        "List the pull requests linked to this thread, with their repository, number, URL, state and title. " +
+        "Refreshes from GitHub first, so it includes pull requests opened on this thread's branch by other means.",
+    },
+    () => toolResult(async () => JSON.stringify(await threads.listPullRequests(threadId), null, 2)),
+  );
+
+  server.registerTool(
+    "open_pull_requests",
+    {
+      description: [
+        "Push this thread's branch and open GitHub pull requests, one per repository with commits ahead of its base branch.",
+        "Use this instead of running git push or gh pr create yourself.",
+        "Commit everything first: it refuses while any repository has uncommitted changes.",
+        "Give a title and body for each repository with commits but no open pull request.",
+        "Repositories that already have an open pull request just get the new commits pushed, and may be left out.",
+        "Sibling pull requests are linked in each description. It never force-pushes. The user may be asked to approve.",
+      ].join(" "),
+      inputSchema: {
+        pullRequests: z
+          .array(
+            z.object({
+              repo: z.string().describe("Repository directory name, as in the workspace"),
+              title: z.string().describe("Pull request title"),
+              body: z.string().describe("Pull request description in Markdown: what changed, why, and how it was tested"),
+            }),
+          )
+          .describe("One entry per repository that needs a new pull request"),
+      },
+    },
+    ({ pullRequests }) => toolResult(() => threads.openPullRequests(threadId, pullRequests)),
+  );
+
+  server.registerTool(
+    "sync_with_base",
+    {
+      description: [
+        "Bring this thread's branch up to date after one of its pull requests was merged.",
+        "In each repository whose latest pull request was merged, it fetches and replays only the commits made after the merged head onto the latest base branch, so the merged work is not repeated.",
+        "Repositories with no commits ahead are fast-forwarded to the latest base branch; others are left alone.",
+        "Refuses while any repository has uncommitted changes, so commit first.",
+        "If replaying conflicts, that repository is left unchanged and the conflicting files are listed.",
+      ].join(" "),
+    },
+    () => toolResult(() => threads.syncWithBase(threadId)),
+  );
+
+  return server;
+}
+
+/** Serves `POST /mcp/<token>` statelessly: each request gets a fresh server bound to the token's thread. */
+export async function handleMcpRequest(
+  threads: ThreadService,
+  token: string,
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<void> {
+  const threadId = threads.threadForMcpToken(token);
+  if (!threadId) {
+    response.writeHead(401).end();
+    return;
+  }
+  if (request.method !== "POST") {
+    response.writeHead(405, { allow: "POST" }).end();
+    return;
+  }
+  const server = buildServer(threads, threadId);
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+  response.on("close", () => {
+    void transport.close();
+    void server.close();
+  });
+  await server.connect(transport);
+  await transport.handleRequest(request, response);
+}

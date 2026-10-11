@@ -12,6 +12,7 @@ import type {
 } from "shared/protocol";
 import { loadConfig } from "./config.ts";
 import { Database } from "./db.ts";
+import { handleMcpRequest } from "./mcp.ts";
 import { listModels } from "./models.ts";
 import { ProjectStore } from "./projects.ts";
 import { SettingsStore } from "./settings.ts";
@@ -28,7 +29,9 @@ function broadcast(event: ServerEvent): void {
   for (const client of clients) client.send(payload);
 }
 
-const threads = new ThreadService(db, projects, settings, broadcast);
+// Agents connect from this machine, so a wildcard bind is reached through loopback.
+const mcpHost = config.host === "0.0.0.0" || config.host === "::" ? "127.0.0.1" : config.host;
+const threads = new ThreadService(db, projects, settings, broadcast, `http://${mcpHost}:${config.port}/mcp/`);
 
 async function projectsChanged<T>(result: T): Promise<T> {
   broadcast({ type: "projects.changed", projects: await projects.list() });
@@ -55,6 +58,11 @@ const handlers: Handlers = {
     return null;
   },
   "threads.rename": async ({ threadId, title }) => threads.rename(threadId, title),
+  "threads.publish": async ({ threadId, model, effort }) => {
+    // Like threads.send, the turn runs in the background.
+    void threads.publish(threadId, { model, effort }).catch((error: Error) => console.error(error));
+    return null;
+  },
   "threads.interrupt": async ({ threadId }) => {
     await threads.interrupt(threadId);
     return null;
@@ -104,6 +112,18 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 const server = createServer(async (request, response) => {
+  const mcpToken = /^\/mcp\/([\w-]+)$/.exec(request.url ?? "")?.[1];
+  if (mcpToken) {
+    if (!isAllowedOrigin(request)) {
+      response.writeHead(403).end();
+      return;
+    }
+    await handleMcpRequest(threads, mcpToken, request, response).catch((error: Error) => {
+      console.error(error);
+      if (!response.headersSent) response.writeHead(500).end();
+    });
+    return;
+  }
   if (!existsSync(config.webDist)) {
     response.writeHead(404).end("Web client not built. Run `pnpm build`, or use `pnpm dev`.");
     return;

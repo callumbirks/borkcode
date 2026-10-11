@@ -33,8 +33,14 @@ export function buildInstructions(project: Project, thread: Thread, cwd: string,
   } else {
     lines.push("Only commit when the user asks.");
   }
-  lines.push(
-    "When a change spans repositories, commit it in each affected repository. If you open pull requests, open one per repository with changes, and link the sibling pull requests in each description.",
-  );
+  lines.push("When a change spans repositories, commit it in each affected repository.");
+  if (thread.branch) {
+    lines.push(
+      "",
+      "## Pull requests",
+      "When asked to push or open pull requests, use the open_pull_requests tool from borkcode rather than git push or gh pr create. It pushes this branch, opens one pull request per repository with changes, and links them to each other.",
+      "Before pushing, and before starting follow-up work, check this thread's pull requests with list_pull_requests. If one was merged, call sync_with_base before continuing: it moves the branch onto the latest base branch without repeating the merged work, and open_pull_requests refuses until you do.",
+    );
+  }
   return lines.join("\n");
 }

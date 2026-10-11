@@ -92,11 +92,16 @@ export interface Approval {
   detail: string;
 }
 
-export interface PullRequestRef {
+/** A pull request linked to a thread: opened by its tool, or found on its branch. */
+export interface LinkedPullRequest {
+  repo: string;
   number: number;
   url: string;
+  /** As GitHub reports it: OPEN, MERGED or CLOSED. */
   state: string;
   title: string;
+  /** The PR's head commit. Once merged, syncing replays only the commits after it. */
+  headOid: string;
 }
 
 export interface RepoStatus {
@@ -108,7 +113,6 @@ export interface RepoStatus {
   changedFiles: string[];
   /** Commits on the branch that are not on the base branch. */
   ahead: number | null;
-  pullRequest: PullRequestRef | null;
 }
 
 export interface ThreadDetail {
@@ -116,6 +120,7 @@ export interface ThreadDetail {
   workspacePath: string;
   items: Item[];
   approvals: Approval[];
+  pullRequests: LinkedPullRequest[];
 }
 
 export interface Requests {
@@ -147,6 +152,11 @@ export interface Requests {
     params: { threadId: string; text: string; model: string | null; effort: Effort | null };
     result: null;
   };
+  /** Asks the agent to commit, push and open pull requests through its borkcode tool. */
+  "threads.publish": {
+    params: { threadId: string; model: string | null; effort: Effort | null };
+    result: null;
+  };
   /** Changes only the displayed title; the workspace and branch keep their names. */
   "threads.rename": { params: { threadId: string; title: string }; result: Thread };
   "threads.interrupt": { params: { threadId: string }; result: null };
@@ -171,7 +181,8 @@ export type ServerEvent =
   | { type: "item.upserted"; threadId: string; item: Item }
   | { type: "item.delta"; threadId: string; itemId: string; text: string }
   | { type: "approval.requested"; threadId: string; approval: Approval }
-  | { type: "approval.resolved"; threadId: string; approvalId: string };
+  | { type: "approval.resolved"; threadId: string; approvalId: string }
+  | { type: "pullRequests.changed"; threadId: string; pullRequests: LinkedPullRequest[] };
 
 export type ClientMessage = { id: number; method: RequestMethod; params: unknown };
 

@@ -83,6 +83,16 @@
     }
   }
 
+  async function publish() {
+    if (busy) return;
+    error = "";
+    try {
+      await rpc.request("threads.publish", { threadId: id, model, effort });
+    } catch (cause) {
+      error = (cause as Error).message;
+    }
+  }
+
   function onKeydown(event: KeyboardEvent) {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
@@ -165,6 +175,11 @@
         <div class="actions">
           <ModelPicker provider={thread.provider} bind:model bind:effort />
           <span class="spacer"></span>
+          {#if thread.workspace}
+            <button onclick={publish} disabled={busy} title="Ask the agent to commit, push and open pull requests">
+              Push &amp; PR
+            </button>
+          {/if}
           {#if thread.status === "running"}
             <button onclick={() => rpc.request("threads.interrupt", { threadId: id })}>Stop</button>
           {/if}
@@ -172,7 +187,12 @@
         </div>
       </div>
     </div>
-    <RepoPanel threadId={id} status={thread.status} workspacePath={detail.workspacePath} />
+    <RepoPanel
+      threadId={id}
+      status={thread.status}
+      workspacePath={detail.workspacePath}
+      pullRequests={detail.pullRequests}
+    />
   </div>
 {/if}
 

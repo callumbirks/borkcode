@@ -163,7 +163,10 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
       ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
       permissionMode: full ? "bypassPermissions" : "default",
       ...(full ? { allowDangerouslySkipPermissions: true } : {}),
+      mcpServers: { borkcode: { type: "http", url: options.mcpUrl } },
       canUseTool: async (toolName, input) => {
+        // borkcode's own tools ask the user themselves when they need to.
+        if (toolName.startsWith("mcp__borkcode__")) return { behavior: "allow", updatedInput: input };
         const allowed = await events.approval({
           title: `Allow ${toolName}?`,
           detail: summarizeToolInput(toolName, input),

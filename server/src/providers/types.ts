@@ -26,6 +26,8 @@ export interface SessionOptions {
   accessMode: AccessMode;
   model: string | null;
   effort: Effort | null;
+  /** borkcode's MCP endpoint for this session; the agent's borkcode tools live there. */
+  mcpUrl: string;
   resumeId: string | null;
   events: SessionEvents;
 }

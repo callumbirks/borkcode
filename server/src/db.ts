@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Item, Thread } from "shared/protocol";
+import type { Item, LinkedPullRequest, Thread } from "shared/protocol";
 
 export interface StoredThread extends Thread {
   /** Provider-native session or thread id, used to resume after a restart. */
@@ -77,11 +77,26 @@ export class Database {
         PRIMARY KEY (thread_id, id)
       );
       CREATE INDEX IF NOT EXISTS items_by_seq ON items (thread_id, seq);
+      CREATE TABLE IF NOT EXISTS pull_requests (
+        thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+        url TEXT NOT NULL,
+        repo TEXT NOT NULL,
+        number INTEGER NOT NULL,
+        state TEXT NOT NULL,
+        title TEXT NOT NULL,
+        head_oid TEXT NOT NULL DEFAULT '',
+        linked_at INTEGER NOT NULL,
+        PRIMARY KEY (thread_id, url)
+      );
       PRAGMA foreign_keys = ON;
     `);
     const columns = this.#db.prepare(`PRAGMA table_info(threads)`).all() as unknown as { name: string }[];
     if (!columns.some((column) => column.name === "effort")) {
       this.#db.exec(`ALTER TABLE threads ADD COLUMN effort TEXT`);
+    }
+    const prColumns = this.#db.prepare(`PRAGMA table_info(pull_requests)`).all() as unknown as { name: string }[];
+    if (!prColumns.some((column) => column.name === "head_oid")) {
+      this.#db.exec(`ALTER TABLE pull_requests ADD COLUMN head_oid TEXT NOT NULL DEFAULT ''`);
     }
     // A server restart ends every provider process, so nothing can still be running.
     this.#db
@@ -153,6 +168,30 @@ export class Database {
 
   deleteThread(id: string): void {
     this.#db.prepare(`DELETE FROM threads WHERE id = ?`).run(id);
+  }
+
+  listPullRequests(threadId: string): LinkedPullRequest[] {
+    return this.#db
+      .prepare(
+        `SELECT repo, number, url, state, title, head_oid AS headOid FROM pull_requests
+         WHERE thread_id = ? ORDER BY linked_at, rowid`,
+      )
+      .all(threadId)
+      .map((row) => ({ ...(row as unknown as LinkedPullRequest) }));
+  }
+
+  /** Links a pull request to a thread, or refreshes it. Returns whether anything changed. */
+  linkPullRequest(threadId: string, pr: LinkedPullRequest): boolean {
+    const result = this.#db
+      .prepare(
+        `INSERT INTO pull_requests (thread_id, url, repo, number, state, title, head_oid, linked_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (thread_id, url) DO UPDATE
+           SET state = excluded.state, title = excluded.title, head_oid = excluded.head_oid
+         WHERE state != excluded.state OR title != excluded.title OR head_oid != excluded.head_oid`,
+      )
+      .run(threadId, pr.url, pr.repo, pr.number, pr.state, pr.title, pr.headOid, Date.now());
+    return Number(result.changes) > 0;
   }
 
   listItems(threadId: string): Item[] {

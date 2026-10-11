@@ -107,6 +107,9 @@ function handleEvent(event: ServerEvent): void {
     case "approval.requested":
       if (detail?.thread.id === event.threadId) upsertById(detail.approvals, event.approval);
       return;
+    case "pullRequests.changed":
+      if (detail?.thread.id === event.threadId) detail.pullRequests = event.pullRequests;
+      return;
     case "approval.resolved":
       if (detail?.thread.id === event.threadId) {
         detail.approvals = detail.approvals.filter((approval) => approval.id !== event.approvalId);

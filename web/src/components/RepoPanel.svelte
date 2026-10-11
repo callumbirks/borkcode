@@ -1,9 +1,13 @@
 <script lang="ts">
-  import type { RepoStatus, ThreadStatus } from "shared/protocol";
+  import type { LinkedPullRequest, RepoStatus, ThreadStatus } from "shared/protocol";
   import { rpc } from "../lib/state.svelte";
 
-  let { threadId, status, workspacePath }: { threadId: string; status: ThreadStatus; workspacePath: string } =
-    $props();
+  let {
+    threadId,
+    status,
+    workspacePath,
+    pullRequests,
+  }: { threadId: string; status: ThreadStatus; workspacePath: string; pullRequests: LinkedPullRequest[] } = $props();
 
   let repos = $state<RepoStatus[]>([]);
   let loading = $state(false);
@@ -37,11 +41,13 @@
     <div class="repo">
       <div class="name">
         <strong>{repo.name}/</strong>
-        {#if repo.pullRequest}
-          <a href={repo.pullRequest.url} target="_blank" rel="noreferrer" class="pr {repo.pullRequest.state.toLowerCase()}">
-            #{repo.pullRequest.number} {repo.pullRequest.state.toLowerCase()}
-          </a>
-        {/if}
+        <span class="prs">
+          {#each pullRequests.filter((pr) => pr.repo === repo.name).reverse() as pr (pr.url)}
+            <a href={pr.url} target="_blank" rel="noreferrer" class="pr {pr.state.toLowerCase()}" title={pr.title}>
+              #{pr.number} {pr.state.toLowerCase()}
+            </a>
+          {/each}
+        </span>
       </div>
       {#if !repo.exists}
         <span class="muted">Not checked out yet</span>
@@ -91,6 +97,10 @@
   .name {
     display: flex;
     justify-content: space-between;
+  }
+  .prs {
+    display: flex;
+    gap: 6px;
   }
   .pr {
     font-size: 12px;
