@@ -211,6 +211,11 @@ export class Database {
       );
   }
 
+  /**
+   * Only a status change counts as activity and moves updated_at, which orders the thread lists:
+   * turns starting and ending, and workspaces becoming ready. Renames, settings, pauses and session
+   * ids leave it alone. Delivered messages count too, through touchThread.
+   */
   updateThread(
     id: string,
     patch: Partial<
@@ -231,7 +236,8 @@ export class Database {
   ): StoredThread {
     const current = this.getThread(id);
     if (!current) throw new Error(`Unknown thread ${id}`);
-    const next: StoredThread = { ...current, ...patch, updatedAt: Date.now() };
+    const active = patch.status !== undefined && patch.status !== current.status;
+    const next: StoredThread = { ...current, ...patch, updatedAt: active ? Date.now() : current.updatedAt };
     this.#db
       .prepare(
         `UPDATE threads SET status = ?, provider_session_id = ?, title = ?, model = ?, effort = ?,
@@ -252,6 +258,10 @@ export class Database {
         id,
       );
     return next;
+  }
+
+  touchThread(id: string): void {
+    this.#db.prepare(`UPDATE threads SET updated_at = ? WHERE id = ?`).run(Date.now(), id);
   }
 
   /** Archiving is not activity, so it leaves updated_at alone and threads keep their place. */

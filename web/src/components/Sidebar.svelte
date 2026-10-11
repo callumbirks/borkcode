@@ -16,12 +16,14 @@
   } from "../lib/display.svelte";
   import { app, go, nav } from "../lib/state.svelte";
 
-  // Threads nest under the thread that started them, newest child first; top-level threads sort by
-  // recent activity. Archived threads are listed only on the Archived page.
+  // Threads nest under the thread that started them, and every level sorts by recent activity.
+  // Archived threads are listed only on the Archived page.
   const threadsByProject = $derived.by(() => {
-    const visible = app.threads.filter((thread) => thread.archivedAt === null);
+    const visible = app.threads
+      .filter((thread) => thread.archivedAt === null)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
     const children = new Map<string, Thread[]>();
-    for (const thread of [...visible].sort((a, b) => b.createdAt - a.createdAt)) {
+    for (const thread of visible) {
       if (thread.parentId) children.set(thread.parentId, [...(children.get(thread.parentId) ?? []), thread]);
     }
     const ids = new Set(visible.map((thread) => thread.id));
@@ -32,7 +34,7 @@
       groups.set(thread.project, list);
       for (const child of children.get(thread.id) ?? []) add(child, depth + 1);
     };
-    for (const thread of [...visible].sort((a, b) => b.updatedAt - a.updatedAt)) {
+    for (const thread of visible) {
       if (!thread.parentId || !ids.has(thread.parentId)) add(thread, 0);
     }
     return groups;
