@@ -8,6 +8,7 @@
   import Settings from "@lucide/svelte/icons/settings";
   import type { Thread } from "shared/protocol";
   import {
+    isUnread,
     providerLabel,
     pullRequestIcon,
     pullRequestState,
@@ -90,10 +91,15 @@
         </div>
         {#each threads as { thread, depth } (thread.id)}
           {@const prs = prCounts(thread.id)}
+          {@const open = nav.route.view === "thread" && nav.route.id === thread.id}
+          {@const working = thread.status === "running" || thread.status === "preparing"}
+          <!-- The open thread is being read, so it never lights up; it is marked read after a few seconds. -->
+          {@const unread = isUnread(thread) && !working && !open}
           <button
             class="thread ghost"
+            class:unread
             style:padding-left="calc(var(--space-2) + {depth} * var(--space-4))"
-            class:active={nav.route.view === "thread" && nav.route.id === thread.id}
+            class:active={open}
             onclick={() => go({ view: "thread", id: thread.id })}
           >
             <span class="dot {thread.status}" title={thread.status}></span>
@@ -110,10 +116,12 @@
                     <Inbox size={10} />{thread.queued}
                   </span>
                 {/if}
-                {#if thread.status === "running" || thread.status === "preparing"}
+                {#if working}
                   <span class="time"><Spinner label={thread.status === "preparing" ? "Preparing" : "Working"} /></span>
                 {:else}
-                  <span class="time">{relativeTime(thread.updatedAt)}</span>
+                  <span class="time">
+                    {#if unread}<span class="unread-dot" title="Unread"></span>{/if}{relativeTime(thread.updatedAt)}
+                  </span>
                 {/if}
               </span>
               <span class="meta truncate">
@@ -265,6 +273,21 @@
     flex-shrink: 0;
     font-size: var(--text-2xs);
     color: var(--text-faint);
+  }
+  .unread .title {
+    font-weight: var(--weight-semibold);
+  }
+  .unread .time {
+    color: var(--accent);
+  }
+  .unread-dot {
+    display: inline-block;
+    margin-right: var(--space-1-5);
+    vertical-align: 1px;
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-full);
+    background: var(--accent);
   }
   .meta {
     font-size: var(--text-2xs);

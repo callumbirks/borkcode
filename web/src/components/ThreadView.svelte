@@ -13,7 +13,7 @@
   import Square from "@lucide/svelte/icons/square";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import type { AccessMode, Effort, Item } from "shared/protocol";
-  import { providerLabel } from "../lib/display.svelte";
+  import { isUnread, providerLabel } from "../lib/display.svelte";
   import { app, getDraft, go, openThread, rpc, setDraft } from "../lib/state.svelte";
   import ItemView from "./ItemView.svelte";
   import ModelPicker from "./ModelPicker.svelte";
@@ -87,6 +87,22 @@
 
   $effect(() => {
     if (app.connected) void openThread(id);
+  });
+
+  // A thread is read once it has been open in a visible tab for a few seconds, so a misclick
+  // doesn't count. Switching threads, hiding the tab or a new response starts the wait again.
+  const unreadSince = $derived(thread && isUnread(thread) ? thread.respondedAt : null);
+  let tabVisible = $state(document.visibilityState === "visible");
+  $effect(() => {
+    const update = () => (tabVisible = document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  });
+  $effect(() => {
+    if (unreadSince === null || !tabVisible) return;
+    const threadId = id;
+    const timer = setTimeout(() => rpc.request("threads.markRead", { threadId }).catch(() => undefined), 3000);
+    return () => clearTimeout(timer);
   });
 
   // Pin the transcript to the bottom, including when a thread opens, until the user scrolls up.
