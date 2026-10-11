@@ -7,12 +7,15 @@
     model = $bindable(),
     effort = $bindable(),
     compact = false,
+    anyEffort = false,
   }: {
     provider: ProviderKind;
     model: string | null;
     effort: Effort | null;
     /** Borderless selects without labels, for toolbars such as the composer's. */
     compact?: boolean;
+    /** A null effort means any effort rather than the default, for matching. */
+    anyEffort?: boolean;
   } = $props();
 
   $effect(() => {
@@ -28,7 +31,7 @@
   function pickModel(id: string) {
     model = id;
     const next = list.find((option) => option.id === id);
-    if (next && effort && !next.efforts.includes(effort)) effort = next.defaultEffort;
+    if (next && effort && !next.efforts.includes(effort)) effort = anyEffort ? null : next.defaultEffort;
   }
 </script>
 
@@ -51,10 +54,11 @@
     {#if !compact}Effort{/if}
     <select
       class="effort"
-      value={effort ?? current.defaultEffort ?? ""}
+      value={effort ?? (anyEffort ? "" : current.defaultEffort) ?? ""}
       onchange={(event) => (effort = (event.currentTarget.value || null) as Effort | null)}
     >
-      {#if current.defaultEffort === null}<option value="">Default</option>{/if}
+      {#if anyEffort}<option value="">Any effort</option>
+      {:else if current.defaultEffort === null}<option value="">Default</option>{/if}
       {#each current.efforts as level (level)}
         <option value={level}>{level}</option>
       {/each}

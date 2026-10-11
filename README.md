@@ -52,7 +52,9 @@ A thread can hand work off to a new thread when you ask it to, optionally with a
 or model. It writes a self-contained brief (or a project file for a long one) and the new thread
 starts in its own worktree, either fresh from the base branches or from the first thread's
 commits. Handed-off threads nest under the thread that started them, and that thread can check on
-them, their pull requests and their latest replies.
+them, their pull requests and their latest replies. The new thread copies its parent's model
+unless a rule under Settings picks another, such as Opus children at medium effort for an Opus
+parent at xhigh. Rules match the parent's model, optionally its effort, and the first match wins.
 
 A thread can also delegate and keep track: the threads it watches send each turn's final reply
 back to it, and it answers their questions with a message of its own. Start a thread as a
