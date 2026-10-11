@@ -26,6 +26,31 @@ export async function loadFiles(project: string): Promise<void> {
   app.files[project] = await rpc.request("files.list", { project });
 }
 
+/**
+ * Unsent composer text per thread. It belongs to this browser rather than the server, so it lives
+ * in localStorage and survives switching threads and reloading.
+ */
+const draftsKey = "borkcode.drafts";
+const drafts = $state<Record<string, string>>(loadDrafts());
+
+function loadDrafts(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(draftsKey) ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
+export function getDraft(threadId: string): string {
+  return drafts[threadId] ?? "";
+}
+
+export function setDraft(threadId: string, text: string): void {
+  if (text) drafts[threadId] = text;
+  else delete drafts[threadId];
+  localStorage.setItem(draftsKey, JSON.stringify(drafts));
+}
+
 /** Each provider's model list, loaded on first use. */
 export const models = $state<Partial<Record<ProviderKind, { list: ModelOption[]; error: string | null }>>>({});
 const modelRequests = new Map<ProviderKind, Promise<void>>();
@@ -109,6 +134,7 @@ function handleEvent(event: ServerEvent): void {
       return;
     case "thread.deleted":
       app.threads = app.threads.filter((thread) => thread.id !== event.threadId);
+      setDraft(event.threadId, "");
       if (detail?.thread.id === event.threadId) app.detail = null;
       return;
     case "item.upserted":
