@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="borkcode glitch lowercase b favicon">
+  <title>borkcode</title>
+  <!-- Transparent canvas. Vector-only shapes; no fonts or raster images. -->
+  <!-- Slightly displaced digital echo -->
+  <path fill="#008D40" d="M15 5h13v22c4-4 8-6 14-6 12 0 19 9 19 20S54 61 42 61c-6 0-11-2-14-6v5H15V5zm26 28c-6 0-10 4-10 9s4 9 10 9 9-4 9-9-3-9-9-9z" fill-rule="evenodd" transform="translate(1 0)"/>
+  <!-- Primary blocky b silhouette, including its transparent counter -->
+  <path fill="#00F66C" fill-rule="evenodd" d="M13 4h14v23c4-4 9-6 15-6 12 0 20 9 20 20S54 61 42 61c-6 0-11-2-15-6v5H13V4zm28 29c-6 0-10 3-10 8s4 9 10 9 10-4 10-9-4-8-10-8z"/>
+  <!-- Horizontal glitch slices and pixel offsets -->
+  <path fill="#00F66C" d="M9 12h22v3H9zM11 26h21v3H11zM10 46h20v3H10zM48 37h16v3H48zM47 53h14v3H47z"/>
+  <path fill="#062A1A" d="M13 16h6v3h-6zM13 30h5v3h-5zM13 49h5v3h-5zM54 40h8v3h-8z"/>
+  <path fill="#66FFAF" d="M19 11h12v2H19zM19 36h10v2H19zM41 26h10v2H41zM35 56h17v2H35z" opacity=".85"/>
+</svg>
