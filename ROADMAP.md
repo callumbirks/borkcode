@@ -18,7 +18,8 @@ What borkcode has shipped and what may come next. The constraints every change w
    shows icons for its open, merged and closed PRs. PR links in agent messages render as chips
    with their state. A merge or close wakes the thread that owns it, unless it's archived.
 6. **Archived threads.** Threads and their subtrees can be archived out of the sidebar onto an
-   Archived page, and come back when unarchived or messaged. Child threads sort newest first.
+   Archived page, and come back when unarchived or messaged. Threads sort by recent activity, and
+   working threads show a spinner in the sidebar.
 
 ## Next
 
