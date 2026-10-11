@@ -970,9 +970,11 @@ export class ThreadService {
   /**
    * Links or refreshes pull requests. One that was linked before and is now merged or closed wakes
    * the thread, which reports to its parent if watched; the inbox keeps the news across restarts.
+   * Archived threads are not woken, and the news is dropped so unarchiving does not replay it.
    */
   #linkPullRequests(threadId: string, pullRequests: LinkedPullRequest[]): void {
-    if (!this.#db.getThread(threadId)) return;
+    const thread = this.#db.getThread(threadId);
+    if (!thread) return;
     const before = new Map(this.#db.listPullRequests(threadId).map((pr) => [pr.url, pr.state]));
     const changed = pullRequests.filter((pr) => this.#db.linkPullRequest(threadId, pr)).length > 0;
     if (changed) {
@@ -981,7 +983,7 @@ export class ThreadService {
     const ended = pullRequests.filter(
       (pr) => before.has(pr.url) && before.get(pr.url) !== pr.state && (pr.state === "MERGED" || pr.state === "CLOSED"),
     );
-    if (ended.length > 0) {
+    if (ended.length > 0 && thread.archivedAt === null) {
       this.#db.enqueue({ threadId, fromThreadId: null, kind: "borkcode", text: pullRequestNews(ended) });
       this.#emitThread(threadId);
       void this.#deliver(threadId);
