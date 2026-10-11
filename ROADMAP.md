@@ -32,16 +32,20 @@ Not prioritized yet. The order below is a suggestion.
    agent's explicit choice would still win. A rule matches on the parent's model alone or on
    model and effort, and the first matching rule applies. With no match, the child copies its
    parent as now.
-2. **Images in the prompt.** Paste images and screenshots into the chatbox and send them with the
+2. **User questions.** When Claude or Codex asks the user a question with options (e.g. Claude's
+   AskUserQuestion), borkcode shows it in place of the chatbox. Each option has its description
+   and a number key, and there's a free-text answer field. The answer goes back to the agent's
+   tool call. t3code does this well; see its provider adapters in the reference checkout.
+3. **Images in the prompt.** Paste images and screenshots into the chatbox and send them with the
    message.
-3. **Rich file paths.** File paths in the thread become links that open a preview in a sidebar. The
+4. **Rich file paths.** File paths in the thread become links that open a preview in a sidebar. The
    server serves workspace files over HTTP for this, which the next three items reuse.
-4. **Images in tool calls.** When the agent views an image file, the expanded tool call shows the
+5. **Images in tool calls.** When the agent views an image file, the expanded tool call shows the
    image instead of a "not a text file" message. Open question: render it in the thread, in the
    sidebar, or as a thumbnail in the thread that opens in the sidebar.
-5. **HTML visualizations.** A tool that lets the agent show HTML it writes, rendered in the
+6. **HTML visualizations.** A tool that lets the agent show HTML it writes, rendered in the
    thread, instead of the user opening a separate file.
-6. **Remote and mobile over Tailscale.** Use borkcode from another device on the same tailnet while
+7. **Remote and mobile over Tailscale.** Use borkcode from another device on the same tailnet while
    the server runs on the main machine. The tailnet is the access boundary, so the server only
    needs to listen beyond localhost (it already reads `HOST`). The web client needs a layout
    that works on a phone, and file previews must keep working.
