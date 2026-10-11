@@ -1,0 +1,13 @@
+{
+  "name": "borkcode",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.10.0",
+  "scripts": {
+    "dev": "node scripts/dev.ts",
+    "build": "pnpm --filter web build",
+    "start": "node --disable-warning=ExperimentalWarning server/src/main.ts",
+    "test": "node --test --disable-warning=ExperimentalWarning 'server/src/**/*.test.ts'",
+    "typecheck": "pnpm --filter server exec tsc -p . && pnpm --filter web check"
+  }
+}

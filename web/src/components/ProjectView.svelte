@@ -1,0 +1,155 @@
+<script lang="ts">
+  import type { AccessMode, ProviderKind } from "shared/protocol";
+  import { app, go, rpc } from "../lib/state.svelte";
+  import RepoEditor from "./RepoEditor.svelte";
+
+  let { name }: { name: string } = $props();
+
+  const project = $derived(app.projects.find((candidate) => candidate.name === name));
+  const threads = $derived(
+    app.threads.filter((thread) => thread.project === name).sort((a, b) => b.createdAt - a.createdAt),
+  );
+
+  let repoUrl = $state("");
+  let repoName = $state("");
+  let cloning = $state(false);
+  let repoError = $state("");
+
+  async function addRepo(event: SubmitEvent) {
+    event.preventDefault();
+    cloning = true;
+    repoError = "";
+    try {
+      await rpc.request("repos.add", { project: name, url: repoUrl, name: repoName || undefined });
+      repoUrl = "";
+      repoName = "";
+    } catch (cause) {
+      repoError = (cause as Error).message;
+    } finally {
+      cloning = false;
+    }
+  }
+
+  let title = $state("");
+  let provider = $state<ProviderKind>("claude");
+  let accessMode = $state<AccessMode>("ask");
+  let isolated = $state(true);
+  let model = $state("");
+  let threadError = $state("");
+
+  async function createThread(event: SubmitEvent) {
+    event.preventDefault();
+    threadError = "";
+    try {
+      const thread = await rpc.request("threads.create", {
+        project: name,
+        title,
+        provider,
+        accessMode,
+        isolated,
+        model: model || undefined,
+      });
+      go({ view: "thread", id: thread.id });
+    } catch (cause) {
+      threadError = (cause as Error).message;
+    }
+  }
+</script>
+
+<div class="page">
+  {#if !project}
+    <p class="muted">Loading project…</p>
+  {:else}
+    <h1>{project.name}</h1>
+    <p class="muted"><code>{project.path}</code></p>
+
+    <section class="card">
+      <h2>New thread</h2>
+      <form class="row" onsubmit={createThread}>
+        <label class="grow">
+          Title
+          <input bind:value={title} placeholder="Fix the login flow" required />
+        </label>
+        <label>
+          Agent
+          <select bind:value={provider}>
+            <option value="claude">Claude</option>
+            <option value="codex">Codex</option>
+          </select>
+        </label>
+        <label>
+          Model
+          <input bind:value={model} placeholder="default" size="12" />
+        </label>
+        <label>
+          Access
+          <select bind:value={accessMode}>
+            <option value="ask">Ask before acting</option>
+            <option value="full">Full access</option>
+          </select>
+        </label>
+        <label>
+          Workspace
+          <select bind:value={isolated}>
+            <option value={true}>New worktrees</option>
+            <option value={false}>Main checkouts</option>
+          </select>
+        </label>
+        <button class="primary" type="submit" disabled={project.repos.length === 0}>Start</button>
+      </form>
+      {#if project.repos.length === 0}
+        <p class="muted">Add a repository first.</p>
+      {/if}
+      {#if threadError}<p class="error">{threadError}</p>{/if}
+    </section>
+
+    <section class="card">
+      <h2>Repositories</h2>
+      {#each project.repos as repo (repo.name)}
+        <RepoEditor project={project.name} {repo} />
+      {/each}
+      <form class="row add" onsubmit={addRepo}>
+        <label class="grow">
+          Git URL or GitHub owner/repo
+          <input bind:value={repoUrl} placeholder="git@github.com:me/vessel.git" required />
+        </label>
+        <label>
+          Directory name
+          <input bind:value={repoName} placeholder="from URL" size="14" />
+        </label>
+        <button type="submit" disabled={cloning}>{cloning ? "Cloning…" : "Add repository"}</button>
+      </form>
+      {#if repoError}<p class="error">{repoError}</p>{/if}
+    </section>
+
+    {#if threads.length > 0}
+      <section class="card">
+        <h2>Threads</h2>
+        {#each threads as thread (thread.id)}
+          <button class="thread" onclick={() => go({ view: "thread", id: thread.id })}>
+            <span>{thread.title}</span>
+            <span class="muted">{thread.provider} · {thread.branch ?? "main checkouts"} · {thread.status}</span>
+          </button>
+        {/each}
+      </section>
+    {/if}
+  {/if}
+</div>
+
+<style>
+  .grow {
+    flex: 1;
+    min-width: 200px;
+  }
+  .add {
+    margin-top: 12px;
+  }
+  .thread {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    background: none;
+    border: none;
+    padding: 6px 0;
+  }
+</style>
