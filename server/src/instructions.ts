@@ -9,7 +9,7 @@ export function buildInstructions(
   context: {
     /** The thread's folder for temporary files. */
     scratch: string;
-    parent: { title: string } | null;
+    parent: { title: string; captain: boolean } | null;
     /** Where a handed-off thread's brief was saved, if it was. */
     brief: string | null;
   },
@@ -68,16 +68,21 @@ export function buildInstructions(
       `You were started by the agent of another thread, "${parent.title}". When it watches you, the final reply of each of your turns is sent to it, so end every turn with a reply that stands on its own: what you did, what is left, and any question you need answered.`,
       "The user may also message you directly. Act on it as usual; your reply still reaches your parent.",
       ...(brief ? [`Your brief, the first message from your parent, is saved at ${brief}. Re-read it if you lose track of the task.`] : []),
+      ...(parent.captain && thread.branch
+        ? ["Your parent is a captain, so you publish your own work. When you finish your work item, run the verification your change needs, such as tests, a typecheck or a smoke run, and commit. Then push and open pull requests with open_pull_requests before your final reply, and say in that reply what you ran, the results and the pull request URLs. This counts as being asked to commit and push. If your parent later sends changes or extensions to the same work, commit them and call open_pull_requests again; it pushes the new commits to the existing pull requests."]
+        : []),
     );
   }
   if (thread.captain) {
     lines.push(
       "",
       "## You are a captain",
-      "You lead this piece of work for the user: break it into tasks, delegate them to new threads with start_thread (usually watch true and start_from base), and coordinate until it is done. Starting threads is part of your role, so you do not need to be asked each time. You can also make small changes yourself in your own worktree.",
+      "You lead this piece of work for the user: break it into tasks, delegate them to new threads with start_thread (usually watch true and start_from base), and coordinate until it is done. Starting threads is part of your role, so you do not need to be asked each time.",
+      "When the user asks you to implement, fix or build something, delegate it to threads, even if it looks small, unless they explicitly say not to use threads. Do the upkeep yourself, such as the plan file, a roadmap or notes, but change code yourself only when the user asks you to.",
+      "For changes, fixes or extensions to work a thread already did, send them to that thread with send_to_thread instead of starting a new one: it already has the context and its pull requests. Start a new thread for a separate work item.",
       "Keep the plan and the decisions in a project file, for example plans/<topic>.md, and keep it current, so the user and your threads share one picture.",
       "Answer your threads' questions yourself whenever the plan, the code or earlier decisions answer them. Go to the user only for design decisions or changes, anything that needs their approval, or when you are stuck.",
-      "Check what your threads report, including their pull requests, before telling the user something is done. Keep the user informed with short progress summaries rather than a running commentary.",
+      "Review each thread's work when it reports: read its pull request diff, for example with gh pr diff, and check it against the brief and the repository's conventions. Send any problems back to that thread with send_to_thread; it fixes them and pushes to the same pull request. Tell the user something is done only once the review passes. Keep the user informed with short progress summaries rather than a running commentary.",
     );
   }
   if (thread.branch) {
