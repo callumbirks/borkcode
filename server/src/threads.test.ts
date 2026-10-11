@@ -104,6 +104,10 @@ const threads = new ThreadService(db, projects, settings, emit, "http://test/mcp
     lookups.push(urls);
     return new Map(urls.flatMap((url) => (remote.has(url) ? [[url, remote.get(url)!] as const] : [])));
   },
+  listModels: async (provider) =>
+    provider === "claude"
+      ? [{ id: "opus-5-5", name: "Opus 5.5", isDefault: true, efforts: ["medium", "xhigh"], defaultEffort: "xhigh" }]
+      : [{ id: "gpt-6.1-sol", name: "GPT 6.1 Sol", isDefault: true, efforts: ["low", "high"], defaultEffort: "low" }],
 });
 
 /** The agent session of a thread, once its first turn has opened one. */
@@ -262,6 +266,40 @@ test("deliveries between threads pause at the limit and resume when the user ste
     await threads.resume(parent.id);
     assert.match(await parentAgent.turn(4), /report three/);
     assert.equal((await threads.get(parent.id)).thread.paused, false);
+  } finally {
+    await rm(settings.path, { force: true });
+  }
+});
+
+test("child model rules pick a child's model from its parent's, under the agent's explicit choices", async () => {
+  await writeFile(
+    settings.path,
+    JSON.stringify({
+      childModelRules: [
+        { when: { provider: "claude", model: "opus-5-5" }, use: { provider: "codex", model: "gpt-6.1-sol", effort: "high" } },
+      ],
+    }),
+  );
+  try {
+    // The parent is on Claude's defaults, which the rule names.
+    const { thread: parent, agent: parentAgent } = await startThread("delegate");
+    await parentAgent.turn(1);
+    parentAgent.finish("ok");
+    const choices = () =>
+      threads
+        .list()
+        .filter((thread) => thread.parentId === parent.id)
+        .map(({ provider, model, effort }) => `${provider} ${model} ${effort}`)
+        .sort();
+
+    const reply = await threads.startThread(parent.id, { message: "by rule", watch: false, startFrom: "base" });
+    assert.match(reply, /with codex gpt-6\.1-sol at high effort, picked by the user's child model rules/);
+    assert.deepEqual(choices(), ["codex gpt-6.1-sol high"]);
+
+    // An explicit effort keeps the rule's model; another provider starts from that provider's defaults.
+    await threads.startThread(parent.id, { message: "low effort", watch: false, startFrom: "base", effort: "low" });
+    await threads.startThread(parent.id, { message: "on claude", watch: false, startFrom: "base", provider: "claude" });
+    assert.deepEqual(choices(), ["claude null null", "codex gpt-6.1-sol high", "codex gpt-6.1-sol low"]);
   } finally {
     await rm(settings.path, { force: true });
   }

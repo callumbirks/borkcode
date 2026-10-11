@@ -1,6 +1,9 @@
 <script lang="ts">
-  import type { Effort, ProviderKind } from "shared/protocol";
-  import { app, rpc } from "../lib/state.svelte";
+  import ArrowDown from "@lucide/svelte/icons/arrow-down";
+  import ArrowUp from "@lucide/svelte/icons/arrow-up";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
+  import type { Effort, ModelChoice, ProviderKind } from "shared/protocol";
+  import { app, models, rpc } from "../lib/state.svelte";
   import ModelPicker from "./ModelPicker.svelte";
 
   let provider = $state<ProviderKind>("codex");
@@ -60,6 +63,55 @@
       limitsSaved = true;
     } catch (cause) {
       limitsError = (cause as Error).message;
+    }
+  }
+
+  // The parent's model may be null while editing, meaning the picker's default, which is saved by name.
+  let rules = $state<{ when: ModelChoice; use: ModelChoice }[]>([]);
+  let rulesLoaded = false;
+  let rulesSaved = $state(false);
+  let rulesError = $state("");
+
+  $effect(() => {
+    if (!app.settings || rulesLoaded) return;
+    rulesLoaded = true;
+    rules = app.settings.childModelRules.map(({ when, use }) => ({ when: { ...when }, use: { ...use } }));
+  });
+
+  function setRuleProvider(choice: ModelChoice, next: ProviderKind) {
+    choice.provider = next;
+    choice.model = null;
+    choice.effort = null;
+  }
+
+  function addRule() {
+    rules.push({
+      when: { provider: "claude", model: null, effort: null },
+      use: { provider: "claude", model: null, effort: null },
+    });
+  }
+
+  function moveRule(index: number, by: number) {
+    const [rule] = rules.splice(index, 1);
+    rules.splice(index + by, 0, rule!);
+  }
+
+  async function saveRules(event: SubmitEvent) {
+    event.preventDefault();
+    if (!app.settings) return;
+    rulesError = "";
+    rulesSaved = false;
+    try {
+      const childModelRules = rules.map(({ when, use }) => {
+        const model = when.model ?? models[when.provider]?.list.find((option) => option.isDefault)?.id;
+        if (!model) throw new Error("Pick the parent's model for every rule.");
+        return { when: { provider: when.provider, model, effort: when.effort }, use: { ...use } };
+      });
+      const next = await rpc.request("settings.update", { settings: { ...app.settings, childModelRules } });
+      rules = next.childModelRules.map(({ when, use }) => ({ when: { ...when }, use: { ...use } }));
+      rulesSaved = true;
+    } catch (cause) {
+      rulesError = (cause as Error).message;
     }
   }
 
@@ -130,6 +182,70 @@
           {#if limitsSaved}<span class="muted">Saved</span>{/if}
         </div>
         {#if limitsError}<p class="error">{limitsError}</p>{/if}
+      </form>
+      <form class="card" onsubmit={saveRules}>
+        <div class="section-label">Child thread models</div>
+        <p class="muted hint">
+          Threads that start threads pick their children's model by the first rule that matches their
+          own. Without a match, children copy their parent. An agent that names a model, effort or
+          agent for a child overrides the rule.
+        </p>
+        {#each rules as rule, index}
+          <div class="rule">
+            <div class="row">
+              <span class="step">When the parent is</span>
+              <label>
+                Agent
+                <select
+                  value={rule.when.provider}
+                  onchange={(event) => setRuleProvider(rule.when, event.currentTarget.value as ProviderKind)}
+                >
+                  <option value="claude">Claude</option>
+                  <option value="codex">Codex</option>
+                </select>
+              </label>
+              <ModelPicker provider={rule.when.provider} bind:model={rule.when.model} bind:effort={rule.when.effort} anyEffort />
+              <span class="grow"></span>
+              <button type="button" class="ghost icon" title="Move up" disabled={index === 0} onclick={() => moveRule(index, -1)}>
+                <ArrowUp size={16} />
+              </button>
+              <button
+                type="button"
+                class="ghost icon"
+                title="Move down"
+                disabled={index === rules.length - 1}
+                onclick={() => moveRule(index, 1)}
+              >
+                <ArrowDown size={16} />
+              </button>
+              <button type="button" class="ghost icon" title="Remove rule" onclick={() => rules.splice(index, 1)}>
+                <Trash2 size={16} />
+              </button>
+            </div>
+            <div class="row">
+              <span class="step">children use</span>
+              <label>
+                Agent
+                <select
+                  value={rule.use.provider}
+                  onchange={(event) => setRuleProvider(rule.use, event.currentTarget.value as ProviderKind)}
+                >
+                  <option value="claude">Claude</option>
+                  <option value="codex">Codex</option>
+                </select>
+              </label>
+              <ModelPicker provider={rule.use.provider} bind:model={rule.use.model} bind:effort={rule.use.effort} />
+            </div>
+          </div>
+        {:else}
+          <p class="muted hint">No rules: children copy their parent's model.</p>
+        {/each}
+        <div class="row">
+          <button type="button" onclick={addRule}>Add rule</button>
+          <button class="primary" type="submit">Save</button>
+          {#if rulesSaved}<span class="muted">Saved</span>{/if}
+        </div>
+        {#if rulesError}<p class="error">{rulesError}</p>{/if}
       </form>
       <form class="card" onsubmit={save}>
         <div class="section-label">Thread titles</div>
@@ -206,5 +322,18 @@
   .text .muted,
   .hint {
     font-size: var(--text-xs);
+  }
+  .rule {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-subtle);
+  }
+  .step {
+    width: 120px;
+    padding-bottom: var(--space-1-5);
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
   }
 </style>

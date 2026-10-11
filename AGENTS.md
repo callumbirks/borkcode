@@ -80,7 +80,9 @@ inventing a fix.
   `brief.md` so it survives compaction; briefs go to project files only when the user asks.
 - **Threads can start threads** through the `start_thread` tool, which goes through the same path
   as the new-thread form. Children always get a new worktree and inherit the parent's access mode
-  (so ask-mode parents approve each handoff), and its provider and model unless told otherwise.
+  (so ask-mode parents approve each handoff). Their model comes from the first child model rule
+  matching the parent's (defaults resolved to names), else the parent's; the agent's explicit
+  provider, model or effort layer over that the same way, and a new provider or model drops effort.
   `start_from: this_branch` branches the child from the parent's commits (refused while the parent
   has uncommitted changes); the starting branch is stored so a restart before the workspace exists
   cannot lose it. Deleting a parent keeps its children and drops their link.

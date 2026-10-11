@@ -34,6 +34,17 @@ export interface Settings {
   /** Agents in worktree threads commit finished steps without being asked. */
   autoCommit: boolean;
   delegation: DelegationLimits;
+  /** Pick a child thread's model from its parent's. The first match applies; none means copy the parent. */
+  childModelRules: ChildModelRule[];
+}
+
+/**
+ * Matches a parent on its provider and model, and on its effort unless that is null (any effort).
+ * A parent on the provider's default model or effort matches the default's name.
+ */
+export interface ChildModelRule {
+  when: { provider: ProviderKind; model: string; effort: Effort | null };
+  use: ModelChoice;
 }
 
 /**
