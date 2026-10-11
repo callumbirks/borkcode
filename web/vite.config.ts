@@ -11,6 +11,7 @@ export default defineConfig({
     proxy: {
       // Keeps the browser on one origin; the server only accepts same-origin sockets.
       "/ws": { target: `ws://127.0.0.1:${serverPort}`, ws: true },
+      "/api": { target: `http://127.0.0.1:${serverPort}` },
     },
   },
 });

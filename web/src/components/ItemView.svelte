@@ -11,6 +11,7 @@
   import { providerLabel, pullRequestIcon, toolIcon, toolLabel } from "../lib/display.svelte";
   import { renderMarkdown } from "../lib/markdown";
   import { app, go } from "../lib/state.svelte";
+  import MessageAttachments from "./MessageAttachments.svelte";
 
   let { item }: { item: Item } = $props();
 
@@ -90,11 +91,19 @@
     <div class="clip"><div {@attach measure}>{item.text}</div></div>
   </div>
 {:else if item.kind === "user"}
-  <div class="user">
-    {#if item.fromBorkcode}<div class="from"><CornerDownRight size={12} />From borkcode</div>{/if}
-    {#if item.steered}<div class="from">Read while working</div>{/if}
-    {item.text}
-  </div>
+  {#if item.attachments?.length}
+    <div class="attached">
+      <MessageAttachments threadId={app.detail?.thread.id ?? ""} attachments={item.attachments} />
+      {#if item.steered && !item.text}<div class="from">Read while working</div>{/if}
+    </div>
+  {/if}
+  {#if item.text || !item.attachments?.length}
+    <div class="user">
+      {#if item.fromBorkcode}<div class="from"><CornerDownRight size={12} />From borkcode</div>{/if}
+      {#if item.steered}<div class="from">Read while working</div>{/if}
+      {item.text}
+    </div>
+  {/if}
 {:else if item.kind === "thread"}
   {#if linked}
     <button class="handoff" onclick={() => go({ view: "thread", id: linked.id })}>
@@ -165,6 +174,18 @@
     padding: var(--space-2-5) var(--space-3);
     white-space: pre-wrap;
     word-break: break-word;
+  }
+  .attached {
+    align-self: flex-end;
+    max-width: 80%;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--space-1);
+  }
+  /* Sits right under its images, as one message. */
+  .attached + .user {
+    margin-top: calc(var(--space-2) - var(--space-4));
   }
   .agent {
     background: var(--accent-soft);
