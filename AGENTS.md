@@ -88,7 +88,8 @@ inventing a fix.
   everything else. It is refused while any of the subtree works, and does not count as activity.
   Unarchiving also restores archived ancestors so the thread stays nested. Any delivery to an
   archived thread unarchives it first, so nothing works out of sight; `list_child_threads` still
-  lists archived children, marked as such.
+  lists archived children, marked as such. The exception is pull request merge and close news:
+  an archived thread's PR states still update, but it is not woken and the news is not kept.
 - **Messages for a busy agent queue in a per-thread inbox** (SQLite, so they survive restarts):
   the user's, a parent's, and children's reports. Delivery steers them into the running turn at
   its next step when the provider allows, otherwise they start the next turn together. After the

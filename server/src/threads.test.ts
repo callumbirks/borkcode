@@ -368,3 +368,33 @@ test("archiving takes the subtree along, refuses while any of it works, and a me
   assert.equal(archivedAt(child!.id), null);
   childAgent.finish("done");
 });
+
+test("an archived thread's pull request merging updates its state without waking it", async () => {
+  const { thread, agent } = await startThread("ship it");
+  await agent.turn(1);
+  agent.finish("opened a PR");
+  const pr: LinkedPullRequest = {
+    repo: "demo",
+    number: 21,
+    url: "https://github.com/me/demo/pull/21",
+    state: "OPEN",
+    title: "PR 21",
+    headOid: "abc",
+  };
+  db.linkPullRequest(thread.id, pr);
+  threads.setArchived(thread.id, true);
+
+  remote.set(pr.url, { state: "MERGED", title: "PR 21", headOid: "abc" });
+  const merged = broadcastOf(
+    (event) => event.type === "pullRequests.changed" && event.threadId === thread.id && event.pullRequests[0]?.state === "MERGED",
+  );
+  await threads.refreshOpenPullRequests();
+  await merged;
+
+  // Nothing queued for later either, so unarchiving does not replay the news.
+  assert.deepEqual(db.listInbox(thread.id), []);
+  assert.equal(agent.turns.length, 1);
+  const after = (await threads.get(thread.id)).thread;
+  assert.notEqual(after.archivedAt, null);
+  assert.equal(after.status, "idle");
+});
