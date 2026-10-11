@@ -27,6 +27,7 @@ function thread(branch: string | null): Thread {
     watched: false,
     queued: 0,
     paused: false,
+    archivedAt: null,
     createdAt: 0,
     updatedAt: 0,
   };

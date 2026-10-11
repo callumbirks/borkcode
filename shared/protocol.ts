@@ -97,6 +97,11 @@ export interface Thread {
   queued: number;
   /** Deliveries between threads hit a delegation limit; queued messages wait for the user. */
   paused: boolean;
+  /**
+   * When the user tucked the thread away, with its subtree; null when it is not archived. Archived
+   * threads keep everything and are listed only on the Archived page. A message unarchives them.
+   */
+  archivedAt: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -218,6 +223,11 @@ export interface Requests {
   "threads.interrupt": { params: { threadId: string }; result: null };
   /** Lifts a delegation pause and delivers what is queued. */
   "threads.resume": { params: { threadId: string }; result: null };
+  /**
+   * Archiving takes the thread's subtree with it and is refused while any of it is running.
+   * Unarchiving restores the subtree and any archived ancestors, so the thread stays nested.
+   */
+  "threads.archive": { params: { threadId: string; archived: boolean }; result: null };
   "threads.delete": { params: { threadId: string; force?: boolean }; result: null };
   "threads.repoStatus": { params: { threadId: string }; result: RepoStatus[] };
   /** Every thread's linked pull requests, keyed by thread id. `pullRequests.changed` keeps them current. */

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ArchivedView from "./components/ArchivedView.svelte";
   import FileView from "./components/FileView.svelte";
   import Home from "./components/Home.svelte";
   import ProjectView from "./components/ProjectView.svelte";
@@ -24,6 +25,8 @@
       {/key}
     {:else if nav.route.view === "settings"}
       <SettingsView />
+    {:else if nav.route.view === "archived"}
+      <ArchivedView />
     {:else if nav.route.view === "thread"}
       {#key nav.route.id}
         <ThreadView id={nav.route.id} />

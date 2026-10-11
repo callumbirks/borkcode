@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Archive from "@lucide/svelte/icons/archive";
   import Crown from "@lucide/svelte/icons/crown";
   import Folder from "@lucide/svelte/icons/folder";
   import Inbox from "@lucide/svelte/icons/inbox";
@@ -15,13 +16,15 @@
   } from "../lib/display.svelte";
   import { app, go, nav } from "../lib/state.svelte";
 
-  // Threads nest under the thread that started them; top-level threads sort by recent activity.
+  // Threads nest under the thread that started them, newest child first; top-level threads sort by
+  // recent activity. Archived threads are listed only on the Archived page.
   const threadsByProject = $derived.by(() => {
+    const visible = app.threads.filter((thread) => thread.archivedAt === null);
     const children = new Map<string, Thread[]>();
-    for (const thread of [...app.threads].sort((a, b) => a.createdAt - b.createdAt)) {
+    for (const thread of [...visible].sort((a, b) => b.createdAt - a.createdAt)) {
       if (thread.parentId) children.set(thread.parentId, [...(children.get(thread.parentId) ?? []), thread]);
     }
-    const ids = new Set(app.threads.map((thread) => thread.id));
+    const ids = new Set(visible.map((thread) => thread.id));
     const groups = new Map<string, { thread: Thread; depth: number }[]>();
     const add = (thread: Thread, depth: number) => {
       const list = groups.get(thread.project) ?? [];
@@ -29,11 +32,13 @@
       groups.set(thread.project, list);
       for (const child of children.get(thread.id) ?? []) add(child, depth + 1);
     };
-    for (const thread of [...app.threads].sort((a, b) => b.updatedAt - a.updatedAt)) {
+    for (const thread of [...visible].sort((a, b) => b.updatedAt - a.updatedAt)) {
       if (!thread.parentId || !ids.has(thread.parentId)) add(thread, 0);
     }
     return groups;
   });
+
+  const archivedCount = $derived(app.threads.filter((thread) => thread.archivedAt !== null).length);
 
   /** A thread's pull requests counted per state, in a fixed order, leaving out empty states. */
   function prCounts(threadId: string): { state: PullRequestState; count: number }[] {
@@ -121,6 +126,12 @@
       </div>
     {/each}
   </div>
+
+  <button class="link ghost" class:active={nav.route.view === "archived"} onclick={() => go({ view: "archived" })}>
+    <Archive size={16} />
+    Archived
+    {#if archivedCount > 0}<span class="count">{archivedCount}</span>{/if}
+  </button>
 </nav>
 
 <style>
