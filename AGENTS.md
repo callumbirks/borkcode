@@ -165,6 +165,8 @@ inventing a fix.
 - Smallest proof that the change works. Run `pnpm test`, and `pnpm typecheck` for type changes.
 - Workspace and git behavior is tested against real git in temp directories
   (`server/src/workspaces.test.ts`); follow that pattern rather than mocking git.
+- Pure web logic gets `node:test` tests in `web/src/**/*.test.ts`. They can't import `.svelte`
+  modules, and the server's tsconfig typechecks them, since only it has Node's types.
 - Test behavior, not wiring. Never use sleeps or timeouts to make a test pass; wait on the event
   that marks the milestone.
 - For provider changes, a scripted smoke run is the real proof: start the server on a temp home

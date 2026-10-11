@@ -5,9 +5,10 @@
   import GitFork from "@lucide/svelte/icons/git-fork";
   import Info from "@lucide/svelte/icons/info";
   import DOMPurify from "dompurify";
-  import { marked } from "marked";
+  import { mount, unmount } from "svelte";
   import type { Item } from "shared/protocol";
-  import { providerLabel, toolIcon, toolLabel } from "../lib/display.svelte";
+  import { providerLabel, pullRequestIcon, toolIcon, toolLabel } from "../lib/display.svelte";
+  import { renderMarkdown } from "../lib/markdown";
   import { app, go } from "../lib/state.svelte";
 
   let { item }: { item: Item } = $props();
@@ -18,8 +19,21 @@
     return id ? app.threads.find((thread) => thread.id === id) : undefined;
   });
 
-  function markdown(text: string): string {
-    return DOMPurify.sanitize(marked.parse(text, { async: false }));
+  /**
+   * An attachment that renders markdown, with PR links as chips, and mounts the chips' icons.
+   * It reruns when the text or any PR's state changes.
+   */
+  function markdown(text: string) {
+    return (node: HTMLElement) => {
+      const html = renderMarkdown(text, Object.values(app.pullRequests).flat());
+      node.innerHTML = DOMPurify.sanitize(html, { ADD_ATTR: ["target"] });
+      const icons = [...node.querySelectorAll<HTMLElement>("[data-pr-state]")].map((target) => {
+        const state = target.dataset.prState;
+        const Icon = state === "merged" || state === "closed" ? pullRequestIcon[state] : pullRequestIcon.open;
+        return mount(Icon, { target, props: { size: 14 } });
+      });
+      return () => icons.forEach((icon) => unmount(icon));
+    };
   }
 </script>
 
@@ -52,7 +66,7 @@
   {/if}
 {:else if item.kind === "assistant"}
   {#if item.text}
-    <div class="assistant">{@html markdown(item.text)}</div>
+    <div class="assistant" {@attach markdown(item.text)}></div>
   {/if}
 {:else if item.kind === "reasoning"}
   {#if item.text}
@@ -61,7 +75,7 @@
         <Brain size={14} />
         <span class="name">Thinking</span>
       </summary>
-      <div class="body reasoning">{@html markdown(item.text)}</div>
+      <div class="body reasoning" {@attach markdown(item.text)}></div>
     </details>
   {/if}
 {:else if item.kind === "tool"}
@@ -123,6 +137,17 @@
   .assistant :global(pre code) {
     background: none;
     padding: 0;
+  }
+  :global(.pr-chip) {
+    white-space: nowrap;
+  }
+  :global(.pr-chip [data-pr-state]) {
+    display: inline-flex;
+    vertical-align: -2px;
+    margin-right: var(--space-1);
+  }
+  :global([data-pr-state="unknown"]) {
+    color: var(--text-muted);
   }
   .step {
     font-size: var(--text-sm);
