@@ -40,13 +40,14 @@
   let error = $state("");
   let transcript: HTMLDivElement | undefined = $state();
 
-  // The composer's picks start from the thread's and are saved with the next message.
+  // The composer's picks start from the thread's and are saved with the next message. This
+  // component stays mounted when switching threads, so reload them for each thread.
   let model = $state<string | null>(null);
   let effort = $state<Effort | null>(null);
-  let picksLoaded = false;
+  let picksLoadedFor: string | null = null;
   $effect(() => {
-    if (!thread || picksLoaded) return;
-    picksLoaded = true;
+    if (!thread || picksLoadedFor === thread.id) return;
+    picksLoadedFor = thread.id;
     model = thread.model;
     effort = thread.effort;
   });
@@ -85,11 +86,13 @@
   // Watching size rather than items also follows growth that isn't a new item: streamed tool
   // output, expanded groups, late layout.
   let pinned = true;
+  let lastScrollTop = 0;
   $effect(() => {
     const element = transcript;
     const column = element?.firstElementChild;
     if (!element || !column) return;
     pinned = true;
+    lastScrollTop = 0;
     const observer = new ResizeObserver(() => {
       if (pinned) element.scrollTop = element.scrollHeight;
     });
@@ -98,9 +101,14 @@
     return () => observer.disconnect();
   });
 
+  // Only scrolling up unpins. Scroll events fire a frame late, so judging by distance from the
+  // bottom would unpin whenever a large block (an approval, say) lands right after our own scroll.
   function onTranscriptScroll() {
     if (!transcript) return;
-    pinned = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 80;
+    const { scrollTop, scrollHeight, clientHeight } = transcript;
+    if (scrollHeight - scrollTop - clientHeight < 80) pinned = true;
+    else if (scrollTop < lastScrollTop) pinned = false;
+    lastScrollTop = scrollTop;
   }
 
   async function send() {
