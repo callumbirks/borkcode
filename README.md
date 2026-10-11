@@ -38,6 +38,12 @@ at low effort by default), names it, and the workspace and branch are named afte
 Renaming a thread later changes only its displayed title. Model and effort can be switched
 between turns from the composer.
 
+Type `@` in the composer to reference a file from any of the project's repos or its shared project
+files. Suggestions narrow as you type; arrow keys move, Enter or Tab inserts, Escape closes. Repo
+files are inserted as `@<repo>/<path>`, relative to the agent's working directory, and project
+files by their absolute path. Claude reads referenced files into the message itself; Codex sees
+the path and opens the file when it needs it.
+
 In "ask" mode, Claude automatically approves ordinary edits and common filesystem commands
 inside the workspace and shared project files. Edits outside those directories, protected files,
 and other shell commands may still need approval. "Full" mode bypasses normal permission prompts.

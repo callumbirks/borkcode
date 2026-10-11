@@ -18,6 +18,7 @@
   import { answer, pick } from "../lib/questions";
   import { app, getDraft, go, openThread, rpc, setDraft } from "../lib/state.svelte";
   import ItemView from "./ItemView.svelte";
+  import MentionPicker from "./MentionPicker.svelte";
   import ModelPicker from "./ModelPicker.svelte";
   import RepoPanel from "./RepoPanel.svelte";
   import WorkGroup from "./WorkGroup.svelte";
@@ -227,7 +228,11 @@
     }
   }
 
+  let composer = $state<HTMLTextAreaElement>();
+  let mentions = $state<MentionPicker>();
+
   function onKeydown(event: KeyboardEvent) {
+    if (mentions?.keydown(event)) return;
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       void (asking ? submitAnswer() : send());
@@ -393,7 +398,9 @@
           </div>
         {/if}
         <div class="composer">
+          <MentionPicker bind:this={mentions} threadId={id} textarea={composer} text={draft} onchange={(text) => setDraft(id, text)} />
           <textarea
+            bind:this={composer}
             bind:value={() => draft, (text) => setDraft(id, text)}
             onkeydown={onKeydown}
             data-composer
