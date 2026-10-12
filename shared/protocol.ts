@@ -196,6 +196,11 @@ export type Item =
       summary: string;
       output: string | null;
       status: ToolStatus;
+      /**
+       * An image file the tool showed the agent, as the provider names it (usually absolute). The
+       * client shows it from the thread's files endpoint, so no image bytes enter the transcript.
+       */
+      image?: string;
     }
   | { id: string; kind: "notice"; level: "info" | "error"; text: string }
   /** This thread's agent started another thread. */

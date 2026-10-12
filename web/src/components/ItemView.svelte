@@ -37,7 +37,7 @@
   /** The files a tool call works on that exist in this thread, as preview links. */
   const toolFiles = $derived(
     item.kind === "tool" && links
-      ? toolPaths(item.name, item.summary).flatMap((path) => {
+      ? (item.image ? [item.image] : toolPaths(item.name, item.summary)).flatMap((path) => {
           const target = links.find(path);
           return target ? [target] : [];
         })
@@ -165,7 +165,7 @@
 {:else if item.kind === "tool"}
   {@const Icon = toolIcon(item.name)}
   <details class="step {item.status}">
-    <summary class:static={!item.output}>
+    <summary class:static={!item.output && !item.image}>
       <Icon size={14} />
       <span class="name">{toolLabel(item.name)}</span>
       {#if toolFiles.length > 0}
@@ -177,6 +177,23 @@
       {/if}
       {#if item.status === "failed"}<span class="failed-label">failed</span>{/if}
     </summary>
+    {#if item.image}
+      {@const target = toolFiles[0]}
+      {#if target}
+        <a
+          class="thumbnail"
+          href={fileUrl(threadId, target)}
+          data-file-root={target.root}
+          data-file-path={target.path}
+          title="Open {targetLabel(target)}"
+          onclick={(event) => openFileLink(threadId, event)}
+        >
+          <img src={fileUrl(threadId, target)} alt={targetLabel(target)} loading="lazy" />
+        </a>
+      {:else}
+        <p class="body faint">The image is outside this thread's workspace, so it can't be shown here.</p>
+      {/if}
+    {/if}
     {#if item.output}<pre class="body">{item.output}</pre>{/if}
   </details>
 {:else if item.kind === "question"}
@@ -334,6 +351,26 @@
     background: var(--surface-raised);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
+  }
+  .thumbnail {
+    display: inline-block;
+    margin: var(--space-1) 0 var(--space-2) var(--space-6);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    line-height: 0;
+  }
+  .thumbnail:hover {
+    border-color: var(--border-strong);
+  }
+  .thumbnail img {
+    max-width: 240px;
+    max-height: 160px;
+    object-fit: contain;
+    background: var(--surface-raised);
+  }
+  .faint {
+    color: var(--text-faint);
   }
   pre.body {
     max-height: 320px;

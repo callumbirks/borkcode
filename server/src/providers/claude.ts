@@ -144,12 +144,26 @@ function toolResultText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     return content
+      .filter((block) => !isImageBlock(block))
       .map((block) =>
         block && typeof block === "object" && "text" in block ? String(block.text) : "[non-text output]",
       )
       .join("\n");
   }
   return "";
+}
+
+function isImageBlock(block: unknown): boolean {
+  return !!block && typeof block === "object" && "type" in block && block.type === "image";
+}
+
+/**
+ * The image file a tool result showed the agent: Read returns an image file's contents as an
+ * image block. Images from other tools, such as an MCP screenshot, have no file to show.
+ */
+export function viewedImage(name: string, input: Record<string, unknown>, content: unknown): string | undefined {
+  if (name !== "Read" || typeof input.file_path !== "string") return undefined;
+  return Array.isArray(content) && content.some(isImageBlock) ? input.file_path : undefined;
 }
 
 /** Reads AskUserQuestion's input, skipping anything malformed rather than failing the tool call. */
@@ -286,7 +300,7 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
   const streamedBlocks = new Map<number, string>();
   const openText: string[] = [];
   const openThinking: string[] = [];
-  const tools = new Map<string, Extract<Item, { kind: "tool" }>>();
+  const tools = new Map<string, { item: Extract<Item, { kind: "tool" }>; input: Record<string, unknown> }>();
 
   const endTurn = (outcome: Parameters<typeof events.turnEnded>[0]) => {
     if (!turnActive) return;
@@ -344,7 +358,7 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
               output: null,
               status: "running",
             };
-            tools.set(block.id, item);
+            tools.set(block.id, { item, input: block.input as Record<string, unknown> });
             events.item(item);
           }
         }
@@ -358,10 +372,13 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
           const tool = tools.get(block.tool_use_id);
           if (!tool) continue;
           tools.delete(block.tool_use_id);
+          const image = viewedImage(tool.item.name, tool.input, block.content);
+          const output = toolResultText(block.content);
           events.item({
-            ...tool,
-            output: truncate(toolResultText(block.content)),
+            ...tool.item,
+            output: image && !output ? null : truncate(output),
             status: block.is_error ? "failed" : "done",
+            ...(image ? { image } : {}),
           });
         }
         return;
