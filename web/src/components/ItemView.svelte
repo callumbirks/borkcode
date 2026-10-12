@@ -254,7 +254,7 @@
     align-items: flex-end;
     gap: var(--space-1);
   }
-  /* Sits right under its images, as one message. */
+  /* Sits right under its attachments, as one message. */
   .attached + .user {
     margin-top: calc(var(--space-2) - var(--space-4));
   }

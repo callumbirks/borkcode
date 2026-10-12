@@ -274,7 +274,7 @@
     }
   }
 
-  // Pasted or dropped images join the message; text pasted alongside them still pastes.
+  // Pasted or dropped files join the message; text pasted alongside them still pastes.
   function onPaste(event: ClipboardEvent) {
     const files = [...(event.clipboardData?.files ?? [])];
     if (files.length === 0) return;
