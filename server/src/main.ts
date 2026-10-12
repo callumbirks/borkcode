@@ -11,7 +11,7 @@ import type {
   ServerEvent,
   ServerMessage,
 } from "shared/protocol";
-import { AttachmentError, AttachmentStore, MAX_ATTACHMENT_BYTES } from "./attachments.ts";
+import { AttachmentError, AttachmentStore, cleanType, maxBytes, servingHeaders, tooLarge } from "./attachments.ts";
 import { loadConfig } from "./config.ts";
 import { Database } from "./db.ts";
 import { FileStore } from "./files.ts";
@@ -201,27 +201,19 @@ async function handleAttachments(
 ): Promise<void> {
   if (!isAllowedOrigin(request) || !isSameSiteFetch(request)) return replyError(response, 403, "Forbidden");
   if (request.method === "POST" && !attachmentId) {
-    if (Number(request.headers["content-length"] ?? 0) > MAX_ATTACHMENT_BYTES) {
+    const mimeType = cleanType(request.headers["content-type"] ?? "");
+    if (Number(request.headers["content-length"] ?? 0) > maxBytes(mimeType)) {
       response.setHeader("connection", "close");
-      return replyError(response, 413, `Attachments can be at most ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB`);
+      return replyError(response, 413, tooLarge(mimeType));
     }
     const name = decodeURIComponent(String(request.headers["x-filename"] ?? ""));
-    const mimeType = (request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
     const attachment = await threads.upload(threadId, name, mimeType, request);
     response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(attachment));
     return;
   }
   const file = request.method === "GET" && attachmentId ? threads.attachmentFile(threadId, attachmentId) : null;
   if (!file) return replyError(response, 404, "Not found");
-  response.writeHead(200, {
-    "content-type": file.mimeType,
-    "content-length": file.size,
-    "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-    // An id always names the same bytes.
-    "cache-control": "private, max-age=31536000, immutable",
-    "x-content-type-options": "nosniff",
-    "content-security-policy": "default-src 'none'; sandbox",
-  });
+  response.writeHead(200, servingHeaders(file));
   createReadStream(file.path).pipe(response);
 }
 

@@ -1,4 +1,5 @@
 import type { AccessMode, Approval, Attachment, Effort, Item, Question } from "shared/protocol";
+import { isNativeImage } from "../attachments.ts";
 
 export type TurnOutcome = { status: "completed" | "interrupted" } | { status: "failed"; error: string };
 
@@ -87,9 +88,20 @@ export function truncate(text: string, max = 8000): string {
 
 /**
  * Images reach the model as pixels, but its tools can only use a file by path, so every attachment
- * is also named with its path, e.g. for an agent asked to commit a screenshot.
+ * is also named with its path, e.g. for an agent asked to commit a screenshot. Other files reach
+ * the agent only this way, with their type and size so it can choose how to read them.
  */
 export function withAttachmentPaths(text: string, attachments: TurnAttachment[]): string {
-  const notes = attachments.map((attachment) => `[Attached file "${attachment.name}" is saved at: ${attachment.path}]`);
+  const notes = attachments.map((attachment) =>
+    isNativeImage(attachment.mimeType)
+      ? `[Attached image "${attachment.name}" is saved at: ${attachment.path}]`
+      : `[Attached file "${attachment.name}" (${attachment.mimeType}, ${formatSize(attachment.size)}) is saved at: ${attachment.path}]`,
+  );
   return [text, ...notes].filter(Boolean).join("\n\n");
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
