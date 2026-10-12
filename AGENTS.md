@@ -179,6 +179,15 @@ inventing a fix.
   natively (Claude base64 blocks, Codex `localImage` paths) and name every attachment's path in
   the text, other files with type and size, which is how agents read them; the folder is a
   writable root (Claude `additionalDirectories`, Codex `writable_roots`) in every access mode.
+- **A new thread's uploads wait in a draft folder until the thread exists.** The new-thread page
+  uploads to `POST /api/drafts/<draft id>/attachments`, stored under `<home>/attachments/drafts/
+  <draft id>/` with the same origin checks, UUID ids, caps and layout as thread uploads (`drafts`
+  is not a UUID, so it can't be a thread's folder). The client makes a draft id per project per
+  page load, since pending files live in memory. `threads.create` takes `draftId` and the ids to
+  send; they must all resolve in that draft, then the whole folder is renamed to the thread's before
+  the thread is inserted, so the first message's files are in place when it shows. Draft folders
+  untouched for a day are removed at start and hourly. Creating the thread record before upload
+  was rejected: an empty thread would show in the sidebar and start nothing, or need a hidden state.
 - **The browser reads thread files over HTTP, never by local path,** so previews work from a
   remote browser too. `GET /api/threads/<id>/files?root=workspace|project&path=<rel>` serves a
   file or folder listing from the thread's workspace or its project files, same-origin only like
@@ -210,6 +219,12 @@ inventing a fix.
   lets `isAssetRequest` bypass only Origin and fetch-site checks, retaining the Host
   allowlist and proxy/Funnel restrictions. `assetBase` uses HTTPS through an
   allowed loopback proxy and HTTP directly; arbitrary clients cannot choose its scheme with headers.
+- **There is one composer, `Composer.svelte`,** for threads and the new-thread page
+  (`#/project/<name>/new`). It owns the editor, `@` picker, attachments, options row or phone sheet,
+  paste, drop and sending, keyed by a draft key (`<thread id>` or `new:<project>`) and an upload
+  URL; pages add banners and buttons as snippets. Only `newThread` shows the agent, role and
+  workspace pickers. The new-thread `@` picker searches the project's main checkouts
+  (`mentions.search` with `project`), since there is no workspace yet.
 - **The composer is a contenteditable whose plain text is the source of truth**
   (`ComposerEditor.svelte`), so file references can show as chips. Plain typing and deleting
   inside one text node is left to the browser and read back from that node; redrawing on every

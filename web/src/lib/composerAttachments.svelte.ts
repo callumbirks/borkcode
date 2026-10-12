@@ -2,18 +2,19 @@ import { uploadKey } from "./browser";
 import { isImage, refusal, upload, type PendingAttachment } from "./attachments";
 
 /**
- * Files waiting in each thread's composer, kept in memory so switching threads keeps them. Each
- * upload starts as soon as the file is added; a reload drops them, like an unsent upload form.
+ * Files waiting in each composer, keyed like drafts, kept in memory so switching threads keeps
+ * them. Each upload starts as soon as the file is added; a reload drops them, like an unsent
+ * upload form.
  */
-const byThread = $state<Record<string, PendingAttachment[]>>({});
+const byComposer = $state<Record<string, PendingAttachment[]>>({});
 
-export function pendingAttachments(threadId: string): PendingAttachment[] {
-  return byThread[threadId] ?? [];
+export function pendingAttachments(key: string): PendingAttachment[] {
+  return byComposer[key] ?? [];
 }
 
-export function attachFiles(threadId: string, files: File[]): void {
-  byThread[threadId] ??= [];
-  const list = byThread[threadId];
+export function attachFiles(key: string, url: string, files: File[]): void {
+  byComposer[key] ??= [];
+  const list = byComposer[key];
   for (const file of files) {
     list.push({
       key: uploadKey(),
@@ -28,30 +29,30 @@ export function attachFiles(threadId: string, files: File[]): void {
     // The reactive copy, so progress and results repaint the thumbnail or chip.
     const entry = list.at(-1)!;
     if (entry.error) continue;
-    upload(threadId, file, (fraction) => (entry.progress = fraction)).then(
+    upload(url, file, (fraction) => (entry.progress = fraction)).then(
       (attachment) => (entry.attachment = attachment),
       (error: Error) => (entry.error = error.message),
     );
   }
 }
 
-export function removeAttachment(threadId: string, key: string): void {
-  const list = byThread[threadId] ?? [];
-  const index = list.findIndex((each) => each.key === key);
+export function removeAttachment(key: string, entryKey: string): void {
+  const list = byComposer[key] ?? [];
+  const index = list.findIndex((each) => each.key === entryKey);
   if (index < 0) return;
   revoke(list[index]!);
   list.splice(index, 1);
 }
 
 /** Empties the composer for sending; `restoreAttachments` puts them back if the send fails. */
-export function takeAttachments(threadId: string): PendingAttachment[] {
-  const list = byThread[threadId] ?? [];
-  delete byThread[threadId];
+export function takeAttachments(key: string): PendingAttachment[] {
+  const list = byComposer[key] ?? [];
+  delete byComposer[key];
   return list;
 }
 
-export function restoreAttachments(threadId: string, list: PendingAttachment[]): void {
-  byThread[threadId] = [...list, ...(byThread[threadId] ?? [])];
+export function restoreAttachments(key: string, list: PendingAttachment[]): void {
+  byComposer[key] = [...list, ...(byComposer[key] ?? [])];
 }
 
 /** Once sent, the transcript shows the server's copies. */

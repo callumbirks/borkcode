@@ -13,7 +13,7 @@ export type StoredThreadSeed = { id: string; title: string; items: Item[]; updat
 export const PROJECT = "demo";
 export const WORKSPACE = "e2e";
 
-/** One project with one repo; every thread is a Codex thread in the same workspace. */
+/** One project with one repo, cloned in `repos/`; every thread is a Codex thread in the same workspace. */
 export async function seed(home: string, threads: StoredThreadSeed[], visualizations: Record<string, Record<string, string>>, png: Buffer) {
   const project = join(home, "projects", PROJECT);
   const app = join(project, "worktrees", WORKSPACE, "app");
@@ -23,6 +23,14 @@ export async function seed(home: string, threads: StoredThreadSeed[], visualizat
   execFileSync("git", ["init", "-q"], { cwd: app });
   await writeFile(join(app, "README.md"), "# App\n\nPreviewed from the transcript.\n" + "More lines of the readme.\n".repeat(40));
   await writeFile(join(app, "tall.png"), png);
+  // The main clone, which new threads list @ files from and branch their worktrees from.
+  const main = join(project, "repos", "app");
+  await mkdir(main, { recursive: true });
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: main });
+  await writeFile(join(main, "README.md"), "# App\n");
+  await writeFile(join(main, "ONBOARDING.md"), "# Onboarding\n");
+  execFileSync("git", ["add", "."], { cwd: main });
+  execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@example.com", "commit", "-qm", "init"], { cwd: main });
 
   const db = new Database(join(home, "state.sqlite"));
   const store = new VisualizationStore(new AttachmentStore(home));

@@ -1,7 +1,7 @@
 <script lang="ts">
   import MessagesSquare from "@lucide/svelte/icons/messages-square";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
-  import type { Mention } from "shared/protocol";
+  import type { Mention, MentionScope } from "shared/protocol";
   import { enterThreadMode, fileName, insertMention, mentionAt, mentionSearch, pickerEntries, type PickerEntry } from "../lib/mentions";
   import { rpc } from "../lib/state.svelte";
   import type ComposerEditor from "./ComposerEditor.svelte";
@@ -9,11 +9,11 @@
   // Suggests what to insert after an `@` typed in the composer. The composer forwards its keydown
   // events to `keydown`, which claims the ones the open list uses.
   let {
-    threadId,
+    scope,
     editor,
     text,
   }: {
-    threadId: string;
+    scope: MentionScope;
     editor: ComposerEditor | undefined;
     text: string;
   } = $props();
@@ -61,7 +61,7 @@
   let request = 0;
   $effect(() => {
     const current = query;
-    const thread = threadId;
+    const from = scope;
     const ticket = ++request;
     if (current === null) {
       results = [];
@@ -71,7 +71,7 @@
     results = [];
     active = 0;
     const timer = setTimeout(async () => {
-      const found = await rpc.request("mentions.search", { threadId: thread, ...mentionSearch(current) }).catch(() => []);
+      const found = await rpc.request("mentions.search", { ...from, ...mentionSearch(current) }).catch(() => []);
       if (ticket !== request) return;
       results = found;
       active = 0;

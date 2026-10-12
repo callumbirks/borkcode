@@ -10,6 +10,7 @@ import type {
   Thread,
   ThreadDetail,
 } from "shared/protocol";
+import { parseRoute, routeHash, type Route } from "./routes";
 import { RpcClient } from "./rpc";
 
 export const app = $state({
@@ -90,44 +91,15 @@ export function loadModels(provider: ProviderKind): Promise<void> {
   return request;
 }
 
-export type Route =
-  | { view: "home" }
-  | { view: "settings" }
-  | { view: "archived" }
-  | { view: "project"; name: string }
-  | { view: "file"; project: string; path: string }
-  | { view: "thread"; id: string };
+export type { Route } from "./routes";
 
-function parseRoute(): Route {
-  const [, view, id, sub, path] = location.hash.split("/");
-  if (view === "project" && id && sub === "file" && path) {
-    return { view: "file", project: decodeURIComponent(id), path: decodeURIComponent(path) };
-  }
-  if (view === "project" && id) return { view: "project", name: decodeURIComponent(id) };
-  if (view === "thread" && id) return { view: "thread", id };
-  if (view === "settings") return { view: "settings" };
-  if (view === "archived") return { view: "archived" };
-  return { view: "home" };
-}
-
-export const nav = $state({ route: parseRoute() });
+export const nav = $state({ route: parseRoute(location.hash) });
 window.addEventListener("hashchange", () => {
-  nav.route = parseRoute();
+  nav.route = parseRoute(location.hash);
 });
 
 export function go(route: Route): void {
-  location.hash =
-    route.view === "home"
-      ? "#/"
-      : route.view === "settings"
-        ? "#/settings"
-        : route.view === "archived"
-          ? "#/archived"
-          : route.view === "project"
-            ? `#/project/${encodeURIComponent(route.name)}`
-            : route.view === "file"
-              ? `#/project/${encodeURIComponent(route.project)}/file/${encodeURIComponent(route.path)}`
-              : `#/thread/${route.id}`;
+  location.hash = routeHash(route);
 }
 
 function upsertById<T extends { id: string }>(list: T[], value: T): void {

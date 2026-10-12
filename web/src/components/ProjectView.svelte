@@ -1,17 +1,11 @@
 <script lang="ts">
-  import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import Plus from "@lucide/svelte/icons/plus";
-  import type { AccessMode, Effort, ProviderKind } from "shared/protocol";
   import { providerLabel, relativeTime } from "../lib/display.svelte";
-  import { untrack } from "svelte";
-  import { app, go, loadFiles, models, rpc } from "../lib/state.svelte";
-  import { parseThreadDefaults, rememberThread, settingsFor, threadDefaultsKey, validChoice } from "../lib/threadDefaults";
+  import { app, go, loadFiles, rpc } from "../lib/state.svelte";
   import FileTree from "./FileTree.svelte";
-  import ComposerOptions from "./ComposerOptions.svelte";
-  import { resizeTextarea } from "../lib/textarea";
   import RepoEditor from "./RepoEditor.svelte";
 
-  let { name, compact = false }: { name: string; compact?: boolean } = $props();
+  let { name }: { name: string } = $props();
 
   const project = $derived(app.projects.find((candidate) => candidate.name === name));
   const threads = $derived(
@@ -58,73 +52,6 @@
     }
   }
 
-  let message = $state("");
-  // Starts from this device's last new thread; role and workspace always start as Thread and Worktree.
-  let saved = parseThreadDefaults(localStorage.getItem(threadDefaultsKey));
-  const initial = settingsFor(saved, saved.provider);
-  let provider = $state<ProviderKind>(saved.provider);
-  let model = $state<string | null>(initial.model);
-  let effort = $state<Effort | null>(initial.effort);
-  let accessMode = $state<AccessMode>(initial.accessMode);
-  let isolated = $state(true);
-  let captain = $state(false);
-  let starting = $state(false);
-  let threadError = $state("");
-
-  function pickProvider(next: ProviderKind) {
-    ({ model, effort, accessMode } = settingsFor(saved, next));
-  }
-
-  // A saved model or effort the provider no longer offers quietly becomes its default once the
-  // list arrives. Picks made after that come from the list, so this only runs per provider.
-  $effect(() => {
-    const catalog = models[provider];
-    if (!catalog || catalog.error) return;
-    untrack(() => ({ model, effort } = validChoice({ model, effort }, catalog.list)));
-  });
-
-  let textarea = $state<HTMLTextAreaElement>();
-  $effect(() => {
-    void message;
-    if (textarea) {
-      if (compact) resizeTextarea(textarea);
-      else textarea.style.height = "";
-    }
-  });
-
-  async function createThread(event?: SubmitEvent) {
-    event?.preventDefault();
-    if (!message.trim() || starting || project?.repos.length === 0) return;
-    threadError = "";
-    starting = true;
-    try {
-      const thread = await rpc.request("threads.create", {
-        project: name,
-        text: message,
-        provider,
-        model,
-        effort,
-        accessMode,
-        // Captains always get their own worktree.
-        isolated: isolated || captain,
-        captain,
-      });
-      saved = rememberThread(saved, provider, { model, effort, accessMode });
-      localStorage.setItem(threadDefaultsKey, JSON.stringify(saved));
-      go({ view: "thread", id: thread.id });
-    } catch (cause) {
-      threadError = (cause as Error).message;
-    } finally {
-      starting = false;
-    }
-  }
-
-  function onKeydown(event: KeyboardEvent) {
-    if (!compact && event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-      event.preventDefault();
-      void createThread();
-    }
-  }
 </script>
 
 <div class="page">
@@ -137,32 +64,17 @@
         <code class="muted">{project.path}</code>
       </div>
 
-      <form class="composer" onsubmit={createThread}>
-        <textarea
-          bind:value={message}
-          bind:this={textarea}
-          onkeydown={onKeydown}
-          rows={compact ? 1 : 3}
-          aria-label="New thread message"
-          placeholder={compact ? "What should the agent do?" : "What should the agent do? The thread is named from this."}
-          required
-        ></textarea>
-        <div class="actions">
-          <ComposerOptions bind:provider bind:model bind:effort bind:accessMode bind:captain bind:isolated newThread onpickprovider={pickProvider} />
-          <span class="grow"></span>
-          <button
-            class="primary icon"
-            type="submit"
-            aria-label="Start thread"
-            title="Start thread (Enter)"
-            disabled={project.repos.length === 0 || starting || !message.trim()}
-          >
-            <ArrowUp size={16} />
-          </button>
-        </div>
-      </form>
-      {#if project.repos.length === 0}<p class="muted">Add a repository first.</p>{/if}
-      {#if threadError}<p class="error">{threadError}</p>{/if}
+      <div class="start">
+        <button
+          class="primary"
+          onclick={() => go({ view: "new", project: name })}
+          disabled={project.repos.length === 0}
+          title={project.repos.length === 0 ? "Add a repository first" : `Start a thread in ${name}`}
+        >
+          <Plus size={14} />New thread
+        </button>
+        {#if project.repos.length === 0}<span class="muted">Add a repository first.</span>{/if}
+      </div>
 
       {#if threads.length > 0}
         <section class="card">
@@ -211,36 +123,10 @@
 </div>
 
 <style>
-  .composer {
-    background: var(--surface-raised);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-xl);
-    padding: var(--space-3) var(--space-3) var(--space-2);
-    transition: border-color var(--transition-fast);
-  }
-  .composer:focus-within {
-    border-color: var(--border-strong);
-  }
-  textarea {
-    display: block;
-    width: 100%;
-    resize: none;
-    background: none;
-    border: none;
-    padding: 0;
-    font-size: var(--text-md);
-    field-sizing: content;
-    min-height: 66px;
-    max-height: 240px;
-  }
-  .actions {
+  .start {
     display: flex;
     align-items: center;
-    gap: var(--space-1);
-    margin-top: var(--space-2);
-  }
-  .actions .icon {
-    border-radius: var(--radius-full);
+    gap: var(--space-3);
   }
   .hint {
     font-size: var(--text-xs);
@@ -256,10 +142,5 @@
   }
   .inline input:first-child {
     flex: 1;
-  }
-  @media (max-width: 900px) {
-    textarea { min-height: 44px; max-height: 24vh; font-size: 16px; }
-    .actions .grow { display: none; }
-    .actions { flex-wrap: nowrap; }
   }
 </style>

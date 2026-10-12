@@ -183,7 +183,8 @@
       {@const threads = threadsByProject.get(project.name) ?? []}
       {@const hidden = filtered.hidden.get(project.name) ?? 0}
       <div class="group">
-        <div class="group-header" class:active={nav.route.view === "project" && nav.route.name === project.name}>
+        <div class="group-header" class:active={(nav.route.view === "project" && nav.route.name === project.name) ||
+          (nav.route.view === "new" && nav.route.project === project.name)}>
           <button
             class="project ghost"
             onclick={() => go({ view: "project", name: project.name })}
@@ -197,7 +198,7 @@
           <button
             class="add ghost icon"
             title="New thread in {project.name}"
-            onclick={() => go({ view: "project", name: project.name })}
+            onclick={() => go({ view: "new", project: project.name })}
           >
             <Plus size={14} />
           </button>
@@ -297,7 +298,8 @@
     padding: var(--space-3) var(--space-2);
     min-height: 0;
   }
-  nav button {
+  /* Rows with a label; icon-only buttons keep the shared centred, fixed-width style. */
+  nav button:where(:not(.icon)) {
     width: 100%;
     justify-content: flex-start;
     font-weight: var(--weight-regular);
@@ -344,7 +346,7 @@
   .filter {
     position: relative;
     flex-shrink: 0;
-    width: 24px !important;
+    width: 24px;
     min-height: 24px;
     color: var(--text-faint);
   }
@@ -395,7 +397,7 @@
   }
   .add {
     flex-shrink: 0;
-    width: 24px !important;
+    width: 24px;
     min-height: 24px;
     color: var(--text-faint);
     opacity: 0;
@@ -405,9 +407,14 @@
     opacity: 1;
   }
   @media (pointer: coarse), (max-width: 900px) {
-    .filter {
-      width: 40px !important;
+    .filter,
+    .add {
+      width: 40px;
       min-height: 40px;
+    }
+    /* Touch has no hover to reveal it. */
+    .add {
+      opacity: 1;
     }
     .more {
       min-height: 40px;

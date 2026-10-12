@@ -11,7 +11,16 @@ import type {
   ServerEvent,
   ServerMessage,
 } from "shared/protocol";
-import { AttachmentError, AttachmentStore, cleanType, maxBytes, servingHeaders, tooLarge } from "./attachments.ts";
+import {
+  AttachmentError,
+  AttachmentStore,
+  cleanType,
+  maxBytes,
+  servingHeaders,
+  STALE_DRAFT_INTERVAL_MS,
+  STALE_DRAFT_MS,
+  tooLarge,
+} from "./attachments.ts";
 import { AUTO_ARCHIVE_INTERVAL_MS, autoArchiveChanged } from "./autoArchive.ts";
 import { loadConfig } from "./config.ts";
 import { Database } from "./db.ts";
@@ -25,6 +34,7 @@ import { ProjectStore } from "./projects.ts";
 import { DEFAULT_SETTINGS, SettingsStore } from "./settings.ts";
 import { locateAll, PreviewError, readPreview, type PreviewRoots } from "./threadFiles.ts";
 import { ThreadService } from "./threads.ts";
+import { workspacePath } from "./workspaces.ts";
 import { assetType, visualizationHeaders } from "./visualizations.ts";
 
 const config = loadConfig();
@@ -46,13 +56,14 @@ void files.watchAll().catch((error: Error) => console.error(`Could not watch pro
 
 // Agents always use the permanent loopback listener.
 const mcpHost = config.host === "::1" ? "[::1]" : config.host;
+const attachments = new AttachmentStore(config.home);
 const threads = new ThreadService(
   db,
   projects,
   settings,
   broadcast,
   `http://${mcpHost}:${config.port}/mcp/`,
-  new AttachmentStore(config.home),
+  attachments,
 );
 
 const network = new NetworkAccess(config.port, config.host, async (address) => {
@@ -78,7 +89,16 @@ const network = new NetworkAccess(config.port, config.host, async (address) => {
 
 let networkRevision = 0;
 
-const mentions = new MentionSearch(files, (threadId) => threads.location(threadId), () => threads.list());
+const mentions = new MentionSearch(
+  files,
+  async (scope) => {
+    if ("threadId" in scope) return threads.location(scope.threadId);
+    // The new thread's worktree will branch from these, so they list the same files.
+    const project = await projects.get(scope.project);
+    return { project, root: workspacePath(project, null) };
+  },
+  () => threads.list(),
+);
 
 async function previewRoots(threadId: string): Promise<PreviewRoots> {
   const { project, root } = await threads.location(threadId);
@@ -117,7 +137,8 @@ const handlers: Handlers = {
     return null;
   },
   "files.deleteFolder": ({ project, path }) => files.deleteFolder(project, path),
-  "mentions.search": ({ threadId, query, mode }) => mentions.search(threadId, query, mode),
+  "mentions.search": (params) =>
+    mentions.search("threadId" in params ? { threadId: params.threadId } : { project: params.project }, params.query, params.mode),
   "threads.locateFiles": async ({ threadId, paths }) => locateAll(await previewRoots(threadId), paths),
   "threads.list": async () => threads.list(),
   "threads.create": (params) => threads.create(params),
@@ -196,11 +217,16 @@ function replyError(response: ServerResponse, status: number, message: string): 
   response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify({ error: message }));
 }
 
-/** `POST /api/threads/<id>/attachments` stores an upload; `GET .../attachments/<id>` serves it. */
+/**
+ * `POST /api/threads/<id>/attachments` stores an upload; `GET .../attachments/<id>` serves it.
+ * `POST /api/drafts/<draft id>/attachments` stores one for a thread not created yet; it is served
+ * from the thread once created with it.
+ */
 async function handleAttachments(
   request: IncomingMessage,
   response: ServerResponse,
-  threadId: string,
+  owner: "threads" | "drafts",
+  ownerId: string,
   attachmentId: string | undefined,
 ): Promise<void> {
   if (!isAllowedOrigin(request) || !isSameSiteFetch(request)) return replyError(response, 403, "Forbidden");
@@ -211,11 +237,15 @@ async function handleAttachments(
       return replyError(response, 413, tooLarge(mimeType));
     }
     const name = decodeURIComponent(String(request.headers["x-filename"] ?? ""));
-    const attachment = await threads.upload(threadId, name, mimeType, request);
+    const attachment = owner === "threads"
+      ? await threads.upload(ownerId, name, mimeType, request)
+      : await attachments.saveDraft(ownerId, name, mimeType, request);
     response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(attachment));
     return;
   }
-  const file = request.method === "GET" && attachmentId ? threads.attachmentFile(threadId, attachmentId) : null;
+  const file = owner === "threads" && request.method === "GET" && attachmentId
+    ? threads.attachmentFile(ownerId, attachmentId)
+    : null;
   if (!file) return replyError(response, 404, "Not found");
   response.writeHead(200, servingHeaders(file));
   createReadStream(file.path).pipe(response);
@@ -319,9 +349,10 @@ const server = createServer(async (request, response) => {
     return;
   }
   const pathname = new URL(request.url ?? "/", "http://x").pathname;
-  const attachmentRoute = /^\/api\/threads\/([\w-]+)\/attachments(?:\/([\w-]+))?$/.exec(pathname);
+  const attachmentRoute = /^\/api\/(threads|drafts)\/([\w-]+)\/attachments(?:\/([\w-]+))?$/.exec(pathname);
   if (attachmentRoute) {
-    await handleAttachments(request, response, attachmentRoute[1]!, attachmentRoute[2]).catch((error: Error) => {
+    const [, owner, ownerId, attachmentId] = attachmentRoute;
+    await handleAttachments(request, response, owner as "threads" | "drafts", ownerId!, attachmentId).catch((error: Error) => {
       if (response.headersSent) return response.destroy();
       if (error instanceof AttachmentError) {
         if (error.status === 413) response.setHeader("connection", "close");
@@ -403,6 +434,8 @@ server.listen(config.port, config.host, () => {
   threads.resumeQueued();
   void threads.autoArchive().catch(console.error);
   setInterval(() => void threads.autoArchive().catch(console.error), AUTO_ARCHIVE_INTERVAL_MS).unref();
+  void attachments.removeStaleDrafts(STALE_DRAFT_MS).catch(console.error);
+  setInterval(() => void attachments.removeStaleDrafts(STALE_DRAFT_MS).catch(console.error), STALE_DRAFT_INTERVAL_MS).unref();
   const refreshNetwork = async () => {
     const revision = networkRevision;
     const enabled = (await settings.get()).networkAccess;

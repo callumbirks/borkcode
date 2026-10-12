@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -124,4 +124,37 @@ test("removing a thread's attachments deletes its folder", async () => {
   await store.save(gone, "a.webp", "image/webp", Readable.from([Buffer.from("webp")]));
   await store.remove(gone);
   assert.ok(!existsSync(store.dir(gone)));
+});
+
+test("a draft's uploads stay apart from threads, move to the thread that adopts them, and go once stale", async () => {
+  const draftId = randomUUID();
+  const saved = await store.saveDraft(draftId, "notes.md", "text/markdown", Readable.from([Buffer.from("# hi")]));
+  const draftDir = join(home, "attachments", "drafts", draftId);
+  assert.ok(existsSync(join(draftDir, saved.id, "notes.md")));
+  assert.deepEqual(store.resolveDraft(draftId, [saved.id]), [saved]);
+  assert.throws(() => store.resolveDraft(randomUUID(), [saved.id]), /attach the file again/);
+  assert.equal(store.get(draftId, saved.id), null);
+  for (const bad of ["..", "../" + threadId, "drafts", ""]) {
+    await assert.rejects(store.saveDraft(bad, "a.txt", "text/plain", Readable.from([Buffer.from("x")])), { status: 404 });
+    assert.throws(() => store.resolveDraft(bad, []), { status: 404 });
+  }
+  await assert.rejects(store.saveDraft(draftId, "big.png", "image/png", bytes(MAX_IMAGE_BYTES + 1)), { status: 413 });
+
+  const adopter = randomUUID();
+  await store.adoptDraft(draftId, adopter);
+  assert.ok(!existsSync(draftDir));
+  assert.equal(await readFile(store.get(adopter, saved.id)!.path, "utf8"), "# hi");
+  // Adopting an empty draft, one never uploaded to, does nothing.
+  await store.adoptDraft(randomUUID(), randomUUID());
+
+  const stale = randomUUID();
+  const fresh = randomUUID();
+  await store.saveDraft(stale, "a.txt", "text/plain", Readable.from([Buffer.from("x")]));
+  await store.saveDraft(fresh, "b.txt", "text/plain", Readable.from([Buffer.from("y")]));
+  const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+  await utimes(join(home, "attachments", "drafts", stale), old, old);
+  await store.removeStaleDrafts(60 * 60 * 1000);
+  assert.ok(!existsSync(join(home, "attachments", "drafts", stale)));
+  assert.ok(existsSync(join(home, "attachments", "drafts", fresh)));
+  assert.ok(existsSync(join(home, "attachments", adopter)));
 });

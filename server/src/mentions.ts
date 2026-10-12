@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { FileMention, Mention, Project, Thread, ThreadMention } from "shared/protocol";
+import type { FileMention, Mention, MentionScope, Project, Thread, ThreadMention } from "shared/protocol";
 import { git } from "./exec.ts";
 import type { FileStore } from "./files.ts";
 
@@ -63,18 +63,20 @@ export function threadMentions(
 /** Offers other active threads, workspace files and the project's shared files in the @ picker. */
 export class MentionSearch {
   readonly #files: FileStore;
-  readonly #locate: (threadId: string) => Promise<{ project: Project; root: string }>;
+  readonly #locate: (scope: MentionScope) => Promise<{ project: Project; root: string }>;
   readonly #threads: () => Thread[];
   readonly #listings = new Map<string, { at: number; paths: Promise<string[]> }>();
 
-  constructor(files: FileStore, locate: (threadId: string) => Promise<{ project: Project; root: string }>, threads: () => Thread[] = () => []) {
+  constructor(files: FileStore, locate: (scope: MentionScope) => Promise<{ project: Project; root: string }>, threads: () => Thread[] = () => []) {
     this.#files = files;
     this.#threads = threads;
     this.#locate = locate;
   }
 
-  async search(threadId: string, query: string, mode: "mixed" | "threads" = "mixed"): Promise<Mention[]> {
-    const { project, root } = await this.#locate(threadId);
+  async search(scope: MentionScope, query: string, mode: "mixed" | "threads" = "mixed"): Promise<Mention[]> {
+    const { project, root } = await this.#locate(scope);
+    // A new thread's composer has no thread of its own to leave out.
+    const threadId = "threadId" in scope ? scope.threadId : "";
     if (mode === "threads") return threadMentions(this.#threads(), project.name, threadId, query, mode);
     const filesRoot = this.#files.root(project.name);
     const matches: { score: number; match: string; mention: FileMention }[] = [];

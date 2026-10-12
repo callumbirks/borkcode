@@ -304,6 +304,9 @@ export interface ThreadDetail {
   questions: QuestionRequest[];
 }
 
+/** What the @ picker searches from: an existing thread, or a project's new-thread composer. */
+export type MentionScope = { threadId: string } | { project: string };
+
 export interface Requests {
   "projects.list": { params: Record<string, never>; result: Project[] };
   "projects.create": { params: { name: string }; result: Project };
@@ -328,9 +331,11 @@ export interface Requests {
   /**
    * At most 50 matches for the composer's @ picker. Mixed mode stays in the current project;
    * thread mode searches active threads in all projects. Query excludes the @thread: prefix.
+   * A new thread's composer has no thread yet, so it names the project and searches its main
+   * checkouts.
    */
   "mentions.search": {
-    params: { threadId: string; query: string; mode?: "mixed" | "threads" };
+    params: MentionScope & { query: string; mode?: "mixed" | "threads" };
     result: Mention[];
   };
   /**
@@ -352,6 +357,12 @@ export interface Requests {
       /** False runs the thread directly in the main checkouts. */
       isolated: boolean;
       captain: boolean;
+      /**
+       * Where the new-thread composer uploaded files (`POST /api/drafts/<draft id>/attachments`).
+       * Its uploads become the thread's; `attachments` are the ids sent with the first message.
+       */
+      draftId?: string;
+      attachments?: string[];
     };
     result: Thread;
   };

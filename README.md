@@ -43,13 +43,23 @@ gets a notice in its transcript saying why. The check runs at start, hourly, and
 is turned on or its days change. Because it is on by default, the first start with it archives
 every old inactive thread at once; turn it off under Settings first if you don't want that.
 
-A thread starts from its first message. A small model, chosen under Settings (Codex `gpt-6-luna`
+A thread starts from its first message. The **+** beside a project in the sidebar, or **New thread**
+on the project page, opens a new-thread page with the same composer as a thread. Only there it
+also picks the agent, the role (Thread or Captain) and the workspace (new worktrees or the main
+checkouts). Role and workspace start as Thread and new worktrees every time; agent, model, effort
+and access start from your last new thread on that device. The unsent message is a draft, kept per
+project in this browser like a thread's, through reloads and navigation, and cleared once the
+thread starts. Files attached there go with the first message; a thread can't start from files
+alone, since it is named from its text.
+
+A small model, chosen under Settings (Codex `gpt-6-luna`
 at low effort by default), names it, and the workspace and branch are named after that title.
 Renaming a thread later changes only its displayed title. Model and effort can be switched
 between turns from the composer.
 
 Type `@` in the composer to reference a file from any of the project's repos or its shared project
-files. Suggestions narrow as you type; arrow keys move, Enter or Tab inserts, Escape closes. Repo
+files. On the new-thread page, before the thread has a workspace, repo files come from the main
+clones in `repos/`, which its worktrees branch from. Suggestions narrow as you type; arrow keys move, Enter or Tab inserts, Escape closes. Repo
 files are inserted as `@<repo>/<path>`, relative to the agent's working directory, and project
 files by their absolute path. Claude reads referenced files into the message itself; Codex sees
 the path and opens the file when it needs it. References show as chips with the file name, in the composer and in
@@ -139,7 +149,8 @@ pnpm test:e2e     # browser tests, see below
 
 `pnpm test:e2e` builds the UI and runs `e2e/*.test.ts` in headless Chromium (desktop) and WebKit
 (an iPhone-sized touch profile, with the keyboard simulated). Each run starts a server on a
-temporary home with seeded threads; Codex is a fake script, so no provider is called. Install the
+temporary home with seeded threads and a main clone; Codex is a fake script, so no provider is
+called. Install the
 browsers once with `pnpm exec playwright install chromium webkit`. Pick one with
 `E2E_BROWSERS=chromium` or `webkit`.
 
