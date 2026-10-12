@@ -59,13 +59,14 @@ What borkcode has shipped and what may come next. The constraints every change w
     projects/threads and read transcripts through bounded MCP pages, starting from the end,
     with tool summaries, skipped reasoning and complete text available in chunks.
 
+18. **File uploads.** Attach any file to a message, from any device including a phone over the
+    tailnet: paste, drop or the paperclip (which offers Files and the photo library on phones).
+    Images keep native handling; other files, up to 100 MB, show as chips with name and size,
+    reach agents as a saved path they read with their own tools, and download from the transcript.
+
 ## Next
 
-Not prioritized yet. The order below is a suggestion.
-
-1. **File uploads.** Attach any file to a message, not just images, from any device viewing
-   borkcode, including remote ones. Builds on the attachments behind images in the prompt, and
-   comes after remote and mobile access.
+Nothing queued yet.
 
 ## Not planned yet
 

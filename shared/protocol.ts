@@ -176,7 +176,8 @@ export interface Thread {
  * A file the user uploaded to a thread to send with a message. The browser uploads the bytes with
  * `POST /api/threads/<threadId>/attachments` (the raw file as the body, its type as `content-type`
  * and its URI-encoded name as `x-filename`), which answers with this record, and shows them from
- * `GET /api/threads/<threadId>/attachments/<id>`. Only images are accepted for now.
+ * `GET /api/threads/<threadId>/attachments/<id>`: images inline, any other file as a download.
+ * Any type is accepted; `mimeType` is the browser's, or `application/octet-stream`.
  */
 export interface Attachment {
   id: string;

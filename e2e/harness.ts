@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
+import { createServer, request } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { deflateSync, crc32 } from "node:zlib";
@@ -14,12 +14,19 @@ import { seed } from "./seed.ts";
 
 const repo = resolve(import.meta.dirname, "..");
 
-export type Server = { url: string; home: string; stop: () => Promise<void> };
+export type Server = { url: string; port: number; home: string; stop: () => Promise<void> };
 
+/**
+ * `settings` is written as settings.json. `tailnet` names a MagicDNS host the fake Tailscale CLI
+ * reports, with network access on, so a browser that resolves it to loopback reaches the server as
+ * a tailnet device would, over plain HTTP. Its Tailscale address is not on this machine, so only
+ * that name is usable.
+ */
 export async function startServer(
   threads: StoredThreadSeed[],
   visualizations: Record<string, Record<string, string>> = {},
   settings?: Record<string, unknown>,
+  { tailnet }: { tailnet?: string } = {},
 ): Promise<Server> {
   const home = await mkdtemp(join(tmpdir(), "borkcode-e2e-"));
   const bin = join(home, "bin");
@@ -27,6 +34,11 @@ export async function startServer(
   for (const name of ["gh", "tailscale", "claude"]) {
     await writeFile(join(bin, name), "#!/bin/sh\nexit 1\n");
     await chmod(join(bin, name), 0o755);
+  }
+  if (tailnet) {
+    const status = { BackendState: "Running", Self: { DNSName: `${tailnet}.`, TailscaleIPs: ["100.100.100.100"] } };
+    await writeFile(join(bin, "tailscale"), `#!/bin/sh\n[ "$1" = status ] && echo '${JSON.stringify(status)}' && exit 0\nexit 1\n`);
+    settings = { ...settings, networkAccess: true };
   }
   await seed(home, threads, visualizations, tallPng(400, 900));
   if (settings) await writeFile(join(home, "settings.json"), JSON.stringify(settings));
@@ -58,8 +70,19 @@ export async function startServer(
     });
     child.once("exit", () => fail(new Error(`server exited:\n${logs}`)));
   });
+  // Network access is detected after the server starts listening; wait until it admits the name.
+  while (tailnet) {
+    const allowed = await new Promise<boolean>((done) =>
+      request({ host: "127.0.0.1", port, path: "/api/network-check", headers: { host: `${tailnet}:${port}` } }, (response) => {
+        response.resume();
+        done(response.statusCode === 200);
+      }).end(),
+    );
+    if (allowed) break;
+  }
   return {
     url: `http://127.0.0.1:${port}`,
+    port,
     home,
     async stop() {
       if (child.exitCode === null) {
@@ -125,9 +148,9 @@ exec "${bundle}/bin/MiniBrowser" "$@"
   return wrapper;
 }
 
-export async function launch(engine: Engine): Promise<Browser> {
+export async function launch(engine: Engine, args: string[] = []): Promise<Browser> {
   // Headless Chromium hides scrollbars, and the tests drag one.
-  if (engine === "chromium") return chromium.launch({ ignoreDefaultArgs: ["--hide-scrollbars"] });
+  if (engine === "chromium") return chromium.launch({ ignoreDefaultArgs: ["--hide-scrollbars"], args });
   const executablePath = await webkitExecutable();
   return webkit.launch(executablePath ? { executablePath } : {});
 }
@@ -197,8 +220,14 @@ function iosShim() {
 export type Session = { page: Page; socket: () => WebSocketRoute; close: () => Promise<void> };
 
 /** A fresh page on a thread, with the WebSocket passed through so tests can add server events. */
-export async function open(browser: Browser, engine: Engine, server: Server, threadId: string): Promise<Session> {
-  const context = await browser.newContext(profile(engine));
+export async function open(
+  browser: Browser,
+  engine: Engine,
+  server: Server,
+  threadId: string,
+  { base = server.url, context: options = profile(engine) }: { base?: string; context?: BrowserContextOptions } = {},
+): Promise<Session> {
+  const context = await browser.newContext(options);
   const page = await context.newPage();
   page.setDefaultTimeout(10_000);
   const errors: string[] = [];
@@ -209,7 +238,7 @@ export async function open(browser: Browser, engine: Engine, server: Server, thr
     ws.connectToServer();
     route = ws;
   });
-  await page.goto(`${server.url}/#/thread/${threadId}`);
+  await page.goto(`${base}/#/thread/${threadId}`);
   await page.locator("[data-composer]").waitFor();
   return {
     page,

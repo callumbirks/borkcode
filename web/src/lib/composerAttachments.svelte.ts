@@ -1,5 +1,5 @@
 import { uploadKey } from "./browser";
-import { refusal, upload, type PendingAttachment } from "./attachments";
+import { isImage, refusal, upload, type PendingAttachment } from "./attachments";
 
 /**
  * Files waiting in each thread's composer, kept in memory so switching threads keeps them. Each
@@ -18,12 +18,14 @@ export function attachFiles(threadId: string, files: File[]): void {
     list.push({
       key: uploadKey(),
       name: file.name,
-      preview: URL.createObjectURL(file),
+      mimeType: file.type,
+      size: file.size,
+      preview: isImage(file.type) ? URL.createObjectURL(file) : null,
       progress: 0,
       attachment: null,
       error: refusal(file),
     });
-    // The reactive copy, so progress and results repaint the thumbnail.
+    // The reactive copy, so progress and results repaint the thumbnail or chip.
     const entry = list.at(-1)!;
     if (entry.error) continue;
     upload(threadId, file, (fraction) => (entry.progress = fraction)).then(
@@ -37,7 +39,7 @@ export function removeAttachment(threadId: string, key: string): void {
   const list = byThread[threadId] ?? [];
   const index = list.findIndex((each) => each.key === key);
   if (index < 0) return;
-  URL.revokeObjectURL(list[index]!.preview);
+  revoke(list[index]!);
   list.splice(index, 1);
 }
 
@@ -54,5 +56,9 @@ export function restoreAttachments(threadId: string, list: PendingAttachment[]):
 
 /** Once sent, the transcript shows the server's copies. */
 export function releaseAttachments(list: PendingAttachment[]): void {
-  for (const each of list) URL.revokeObjectURL(each.preview);
+  for (const each of list) revoke(each);
+}
+
+function revoke(each: PendingAttachment): void {
+  if (each.preview) URL.revokeObjectURL(each.preview);
 }

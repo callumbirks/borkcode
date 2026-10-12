@@ -1,6 +1,5 @@
 <script lang="ts">
   import Paperclip from "@lucide/svelte/icons/paperclip";
-  import { ACCEPTED_TYPES } from "../lib/attachments";
   import { attachFiles } from "../lib/composerAttachments.svelte";
 
   let { threadId }: { threadId: string } = $props();
@@ -14,7 +13,8 @@
   }
 </script>
 
-<button class="ghost icon" title="Attach images (or paste or drop them)" onclick={() => input?.click()}>
+<button class="ghost icon" title="Attach files (or paste or drop them)" onclick={() => input?.click()}>
   <Paperclip size={14} />
 </button>
-<input bind:this={input} type="file" accept={ACCEPTED_TYPES.join(",")} multiple hidden onchange={picked} />
+<!-- No `accept`, so phones offer files as well as the camera and photo library. -->
+<input bind:this={input} type="file" multiple hidden onchange={picked} />

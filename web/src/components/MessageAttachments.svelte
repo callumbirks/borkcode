@@ -1,11 +1,15 @@
 <script lang="ts">
+  import Download from "@lucide/svelte/icons/download";
   import ExternalLink from "@lucide/svelte/icons/external-link";
   import type { Attachment } from "shared/protocol";
-  import { attachmentUrl } from "../lib/attachments";
+  import { attachmentUrl, isImage } from "../lib/attachments";
+  import FileChip from "./FileChip.svelte";
 
   let { threadId, attachments }: { threadId: string; attachments: Attachment[] } = $props();
 
   let open = $state<Attachment | null>(null);
+  const images = $derived(attachments.filter((each) => isImage(each.mimeType)));
+  const files = $derived(attachments.filter((each) => !isImage(each.mimeType)));
 
   function onKeydown(event: KeyboardEvent) {
     if (open && event.key === "Escape") open = null;
@@ -23,13 +27,26 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="thumbs">
-  {#each attachments as attachment (attachment.id)}
-    <button class="thumb" title={attachment.name} onclick={() => (open = attachment)}>
-      <img src={attachmentUrl(threadId, attachment.id)} alt={attachment.name} loading="lazy" />
-    </button>
-  {/each}
-</div>
+{#if images.length > 0}
+  <div class="thumbs">
+    {#each images as attachment (attachment.id)}
+      <button class="thumb" title={attachment.name} onclick={() => (open = attachment)}>
+        <img src={attachmentUrl(threadId, attachment.id)} alt={attachment.name} loading="lazy" />
+      </button>
+    {/each}
+  </div>
+{/if}
+{#if files.length > 0}
+  <!-- The server sends these as downloads under their own name; `download` says so up front. -->
+  <div class="files">
+    {#each files as attachment (attachment.id)}
+      <a class="file" href={attachmentUrl(threadId, attachment.id)} download={attachment.name} title="Download {attachment.name}">
+        <FileChip name={attachment.name} mimeType={attachment.mimeType} size={attachment.size} />
+        <Download size={14} />
+      </a>
+    {/each}
+  </div>
+{/if}
 
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions: Escape closes it too -->
@@ -53,6 +70,29 @@
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: var(--space-2);
+  }
+  .files {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    max-width: 100%;
+  }
+  .file {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    max-width: min(280px, 100%);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--surface-overlay);
+    color: var(--text-muted);
+    text-decoration: none;
+  }
+  .file:hover {
+    border-color: var(--border-default);
+    color: var(--text-secondary);
   }
   .thumb {
     width: 96px;

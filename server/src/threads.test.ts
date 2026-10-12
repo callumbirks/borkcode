@@ -655,7 +655,8 @@ test("attachments go with a message to the agent, steered or queued across a res
 
   agent.steerable = false;
   const queued = await upload();
-  await before.send(thread.id, "and this one", settingsNow, [queued.id]);
+  const notes = await before.upload(thread.id, "notes.txt", "text/plain", Readable.from([Buffer.from("plover")]));
+  await before.send(thread.id, "and this one", settingsNow, [queued.id, notes.id]);
   assert.throws(() => before.send(thread.id, "missing", settingsNow, [randomUUID()]), /attach the file again/);
 
   // A restart ends the agent with the message still waiting.
@@ -665,11 +666,15 @@ test("attachments go with a message to the agent, steered or queued across a res
   await resumed;
   const next = agents.at(-1)!.agent;
   assert.equal(await next.turn(1), `${borkcodeMessage(SERVER_STOPPED_NOTE)}\n\n---\n\n${userMessage("and this one")}`);
-  assert.deepEqual(next.attachments[0], [{ ...queued, path: attachments.path(thread.id, queued) }]);
+  assert.deepEqual(next.attachments[0], [
+    { ...queued, path: attachments.path(thread.id, queued) },
+    { ...notes, path: join(attachments.dir(thread.id), notes.id, "notes.txt") },
+  ]);
+  assert.equal(await readFile(next.attachments[0]![1]!.path, "utf8"), "plover");
   const items = (await restarted.get(thread.id)).items.filter((item) => item.kind === "user");
   assert.deepEqual(
     items.map((item) => item.attachments?.map((each) => each.id) ?? []),
-    [[], [steered.id], [queued.id]],
+    [[], [steered.id], [queued.id, notes.id]],
   );
   assert.equal(restarted.attachmentFile(thread.id, queued.id)?.name, "shot.png");
 

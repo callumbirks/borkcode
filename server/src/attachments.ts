@@ -1,17 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { createWriteStream, existsSync, readFileSync } from "node:fs";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { Attachment } from "shared/protocol";
 import type { TurnAttachment } from "./providers/types.ts";
 
-export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+/** Images go to the model as pixels, so they keep a lower cap than files agents read with tools. */
+export const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+export const MAX_FILE_BYTES = 100 * 1024 * 1024;
 
 /**
- * Image types both providers take natively, and the only uploads accepted for now. SVG is left
- * out on purpose: served from borkcode's origin it could run script.
+ * Image types both providers take natively, shown inline in the transcript. Anything else,
+ * SVG included, is kept as a plain file and only ever served as a download.
  */
 const IMAGE_EXTENSIONS: Record<string, string> = {
   "image/png": ".png",
@@ -22,6 +24,38 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
 
 export function isNativeImage(mimeType: string): boolean {
   return mimeType in IMAGE_EXTENSIONS;
+}
+
+export function maxBytes(mimeType: string): number {
+  return isNativeImage(mimeType) ? MAX_IMAGE_BYTES : MAX_FILE_BYTES;
+}
+
+export function tooLarge(mimeType: string): string {
+  return `${isNativeImage(mimeType) ? "Images" : "Files"} can be at most ${maxBytes(mimeType) / 1024 / 1024} MB`;
+}
+
+/** The browser's type when it is a well-formed one; it only decides image handling, never serving. */
+export function cleanType(mimeType: string): string {
+  const type = mimeType.split(";")[0]!.trim().toLowerCase();
+  return /^[a-z0-9][\w.+-]*\/[a-z0-9][\w.+-]*$/.test(type) ? type : "application/octet-stream";
+}
+
+/**
+ * How an attachment is served. Images show inline as themselves; everything else is a download of
+ * opaque bytes under its own name, so HTML, SVG or script uploaded as a file never renders from
+ * borkcode's origin. The sandbox CSP and `nosniff` hold even if a browser ignored that.
+ */
+export function servingHeaders(attachment: Attachment): Record<string, string | number> {
+  const image = isNativeImage(attachment.mimeType);
+  return {
+    "content-type": image ? attachment.mimeType : "application/octet-stream",
+    "content-length": attachment.size,
+    "content-disposition": `${image ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(attachment.name)}`,
+    // An id always names the same bytes.
+    "cache-control": "private, max-age=31536000, immutable",
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "default-src 'none'; sandbox",
+  };
 }
 
 /** Thread and attachment ids are UUIDs, so a valid id can never step outside its folder. */
@@ -42,8 +76,10 @@ export class AttachmentError extends Error {
 
 /**
  * Files uploaded to threads, kept under `<home>/attachments/<thread id>/` so nothing lands in a
- * repo: the bytes as `<id><ext>` (the extension tells agents' tools what the file is) beside
- * `<id>.json` with its record. A thread's folder goes when the thread is deleted.
+ * repo, beside `<id>.json` with each record. Images are stored as `<id><ext>`; other files as
+ * `<id>/<name>`, under their own name so agents' tools recognise them and the prompt reads
+ * naturally, in a folder of their own so no name can collide with a record. A thread's folder
+ * goes when the thread is deleted.
  */
 export class AttachmentStore {
   readonly #root: string;
@@ -58,10 +94,10 @@ export class AttachmentStore {
     return join(this.#root, threadId);
   }
 
-  /** Streams an upload to disk, refusing types not accepted and bodies over the size limit. */
+  /** Streams an upload to disk, refusing bodies over the size limit for its type. */
   async save(threadId: string, name: string, mimeType: string, body: AsyncIterable<Uint8Array>): Promise<Attachment> {
-    const extension = IMAGE_EXTENSIONS[mimeType];
-    if (!extension) throw new AttachmentError(415, "Only PNG, JPEG, GIF and WebP images can be attached");
+    const type = cleanType(mimeType);
+    const max = maxBytes(type);
     const dir = this.dir(threadId);
     await mkdir(dir, { recursive: true });
     const id = randomUUID();
@@ -70,11 +106,8 @@ export class AttachmentStore {
     const limit = new Transform({
       transform(chunk: Buffer, _encoding, callback) {
         size += chunk.length;
-        if (size > MAX_ATTACHMENT_BYTES) {
-          callback(new AttachmentError(413, `Attachments can be at most ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB`));
-        } else {
-          callback(null, chunk);
-        }
+        if (size > max) callback(new AttachmentError(413, tooLarge(type)));
+        else callback(null, chunk);
       },
     });
     try {
@@ -84,8 +117,10 @@ export class AttachmentStore {
       await rm(partial, { force: true });
       throw error;
     }
-    const attachment: Attachment = { id, name: cleanName(name, extension), mimeType, size };
-    await rename(partial, join(dir, `${id}${extension}`));
+    const attachment: Attachment = { id, name: cleanName(name, type), mimeType: type, size };
+    const path = this.path(threadId, attachment);
+    if (!isNativeImage(type)) await mkdir(join(dir, id));
+    await rename(partial, path);
     await writeFile(join(dir, `${id}.json`), JSON.stringify(attachment));
     return attachment;
   }
@@ -110,7 +145,11 @@ export class AttachmentStore {
   }
 
   path(threadId: string, attachment: Attachment): string {
-    return join(this.dir(threadId), `${attachment.id}${IMAGE_EXTENSIONS[attachment.mimeType] ?? ""}`);
+    const image = IMAGE_EXTENSIONS[attachment.mimeType];
+    // Records are written by `save`, but the name is checked again before it becomes a path.
+    return image
+      ? join(this.dir(threadId), `${attachment.id}${image}`)
+      : join(this.dir(threadId), attachment.id, cleanName(attachment.name, attachment.mimeType));
   }
 
   async remove(threadId: string): Promise<void> {
@@ -118,8 +157,27 @@ export class AttachmentStore {
   }
 }
 
-/** Shown in the transcript and quoted to the agent, so keep it one plain line. */
-function cleanName(name: string, extension: string): string {
-  const base = name.replace(/[\u0000-\u001f\u007f"]/g, "").replace(/^.*[\\/]/, "").trim().slice(0, 200);
-  return base || `image${extension}`;
+/** Longest name kept, in UTF-8 bytes, well inside the 255-byte limit of common filesystems. */
+const MAX_NAME_BYTES = 200;
+
+/**
+ * Shown in the transcript, quoted to the agent and used as the file's name on disk, so it is one
+ * plain line, a single path segment, not hidden, and keeps a short alphanumeric extension.
+ */
+export function cleanName(name: string, mimeType: string): string {
+  const base = name
+    .normalize("NFC")
+    .replace(/^.*[\\/]/, "")
+    .replace(/[\p{Cc}\p{Zl}\p{Zp}"]/gu, "")
+    .trim()
+    .replace(/^\.+/, "");
+  if (!base) return `${isNativeImage(mimeType) ? "image" : "file"}${IMAGE_EXTENSIONS[mimeType] ?? ""}`;
+  const dot = extname(base);
+  const extension = /^\.[a-z0-9]{1,16}$/i.test(dot) ? dot : "";
+  let stem = "";
+  for (const char of base.slice(0, base.length - extension.length)) {
+    if (Buffer.byteLength(stem + char + extension) > MAX_NAME_BYTES) break;
+    stem += char;
+  }
+  return (stem.trimEnd() || "file") + extension;
 }
