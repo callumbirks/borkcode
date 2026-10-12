@@ -9,6 +9,7 @@ import { after, test } from "node:test";
 import type { Item, LinkedPullRequest, Question, ServerEvent } from "shared/protocol";
 import { AttachmentStore } from "./attachments.ts";
 import { Database } from "./db.ts";
+import { borkcodeMessage, SERVER_STOPPED_NOTE, userMessage } from "./delegation.ts";
 import { ProjectStore } from "./projects.ts";
 import type { PullRequestState } from "./pullRequests.ts";
 import type { ProviderSession, SessionEvents, TurnAttachment, TurnSettings } from "./providers/types.ts";
@@ -628,7 +629,7 @@ test("attachments go with a message to the agent, steered or queued across a res
   restarted.resumeQueued();
   await resumed;
   const next = agents.at(-1)!.agent;
-  assert.equal(await next.turn(1), "and this one");
+  assert.equal(await next.turn(1), `${borkcodeMessage(SERVER_STOPPED_NOTE)}\n\n---\n\n${userMessage("and this one")}`);
   assert.deepEqual(next.attachments[0], [{ ...queued, path: attachments.path(thread.id, queued) }]);
   const items = (await restarted.get(thread.id)).items.filter((item) => item.kind === "user");
   assert.deepEqual(
@@ -641,4 +642,65 @@ test("attachments go with a message to the agent, steered or queued across a res
   await restarted.delete(thread.id, true);
   assert.equal(restarted.attachmentFile(thread.id, queued.id), null);
   assert.ok(!existsSync(attachments.dir(thread.id)));
+});
+
+const SETTINGS_NOW = { model: null, effort: null, accessMode: "full" as const };
+
+function notices(items: Item[]): string[] {
+  return items.flatMap((item) => (item.kind === "notice" ? [item.text] : []));
+}
+
+/** A service on its own database file, so a second one on the same file is a server restart. */
+async function serviceWithThread(file: string, text: string) {
+  const path = join(home, file);
+  const service = new ThreadService(new Database(path), projects, settings, emit, "http://test/mcp/", attachments, fakeDeps);
+  const thread = await service.create({ ...SETTINGS_NOW, project: "demo", text, provider: "claude", isolated: true, captain: false });
+  await (await agentOf(thread.id, service)).turn(1);
+  const restart = () => new ThreadService(new Database(path), projects, settings, emit, "http://test/mcp/", attachments, fakeDeps);
+  return { service, thread, restart };
+}
+
+/** Sends a message after a restart and returns the turn it starts on the new agent session. */
+async function nextTurn(service: ThreadService, threadId: string, text: string, n = 1): Promise<string> {
+  await service.send(threadId, text, SETTINGS_NOW);
+  return agents.at(-1)!.agent.turn(n);
+}
+
+test("a turn cut off by the server shutting down is not the user's stop, and the agent hears so once", async () => {
+  const { service, thread, restart } = await serviceWithThread("shutdown.sqlite", "long task");
+  await service.shutdown();
+  const stopped = await service.get(thread.id);
+  assert.equal(stopped.thread.status, "idle");
+  assert.deepEqual(notices(stopped.items), ["Stopped: borkcode server shut down"]);
+
+  const restarted = restart();
+  assert.deepEqual(notices((await restarted.get(thread.id)).items), ["Stopped: borkcode server shut down"]);
+  assert.equal(
+    await nextTurn(restarted, thread.id, "continue"),
+    `${borkcodeMessage(SERVER_STOPPED_NOTE)}\n\n---\n\n${userMessage("continue")}`,
+  );
+  agents.at(-1)!.agent.finish("checked and carried on");
+  assert.equal(await nextTurn(restarted, thread.id, "and then", 2), "and then");
+  agents.at(-1)!.agent.finish("done");
+});
+
+test("a turn still marked running at startup was cut off by the server, and the agent hears so", async () => {
+  const { thread, restart } = await serviceWithThread("killed.sqlite", "long task");
+  // The server was killed without a chance to record anything.
+  const restarted = restart();
+  const detail = await restarted.get(thread.id);
+  assert.equal(detail.thread.status, "idle");
+  assert.deepEqual(notices(detail.items), ["Stopped: borkcode server shut down"]);
+  assert.ok((await nextTurn(restarted, thread.id, "continue")).startsWith(borkcodeMessage(SERVER_STOPPED_NOTE)));
+  agents.at(-1)!.agent.finish("done");
+});
+
+test("the user stopping a turn is recorded as theirs, and the agent gets no server note", async () => {
+  const { thread, agent } = await startThread("stop me");
+  await agent.turn(1);
+  await threads.interrupt(thread.id);
+  await threads.send(thread.id, "go on", SETTINGS_NOW);
+  assert.equal(await agent.turn(2), "go on");
+  assert.deepEqual(notices((await threads.get(thread.id)).items), ["Interrupted"]);
+  agent.finish("done");
 });
