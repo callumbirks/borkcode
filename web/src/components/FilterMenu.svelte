@@ -79,7 +79,7 @@
   {@attach place}
 >
   <label class="option switch">
-    <span class="text">Hide inactive threads<span class="hint">Read, idle, no open PR</span></span>
+    <span class="text">Hide inactive threads<span class="hint">Read, idle, no open PR, not a captain</span></span>
     <input
       type="checkbox"
       role="switch"

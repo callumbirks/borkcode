@@ -35,10 +35,11 @@ from its parent, also brings it back.
 
 Inactive threads are archived automatically, by default after 7 days (Settings, **Archiving**;
 1 to 365 days, or off). Inactive means what the sidebar's "Hide inactive threads" filter means:
-read, idle, not waiting on you and without an open PR. The days count from the thread's last
+read, idle, not waiting on you, without an open PR and not a captain. Captains are only ever
+archived by hand, and the sidebar always lists them. The days count from the thread's last
 activity: the latest of a turn starting or ending, a message being delivered (including a PR
 merge or close notice) and you reading it. A thread goes only with its whole subtree, so it waits
-while any thread it started is still active; inactive children can go on their own. Each one
+while any thread below it is still active or a captain; inactive children can go on their own. Each one
 gets a notice in its transcript saying why. The check runs at start, hourly, and when the setting
 is turned on or its days change. Because it is on by default, the first start with it archives
 every old inactive thread at once; turn it off under Settings first if you don't want that.

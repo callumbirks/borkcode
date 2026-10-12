@@ -7,6 +7,7 @@ import { launch, profile, startServer, type Server } from "./harness.ts";
 
 const OLD = "77777777-7777-4777-8777-777777777777";
 const FRESH = "88888888-8888-4888-8888-888888888888";
+const CAPTAIN = "99999999-9999-4999-8999-999999999999";
 const DAY = 24 * 60 * 60 * 1000;
 
 let server: Server;
@@ -16,6 +17,7 @@ before(async () => {
   server = await startServer(
     [
       { id: OLD, title: "Old thread", items: [{ id: "old-a", kind: "assistant", text: "Long done." }], updatedAt: Date.now() - 20 * DAY },
+      { id: CAPTAIN, title: "Old captain", items: [{ id: "cap-a", kind: "assistant", text: "Coordinated." }], updatedAt: Date.now() - 20 * DAY, captain: true },
       { id: FRESH, title: "Fresh thread", items: [{ id: "fresh-a", kind: "assistant", text: "Just now." }] },
     ],
     {},
@@ -80,6 +82,9 @@ test("turning on automatic archiving persists and archives the old thread with a
   await page.goto(`${server.url}/#/archived`);
   await page.locator(".list-row", { hasText: "Old thread" }).waitFor();
   assert.equal(await page.locator(".list-row", { hasText: "Fresh thread" }).count(), 0);
+  // Captains are never archived as inactive, and the sidebar lists them while idle and read.
+  assert.equal(await page.locator(".list-row", { hasText: "Old captain" }).count(), 0);
+  await page.locator("nav .thread", { hasText: "Old captain" }).waitFor();
 
   await page.locator(".list-row", { hasText: "Old thread" }).click();
   await page.locator(".notice.info", { hasText: "Archived automatically after 10 days inactive" }).waitFor();
