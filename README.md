@@ -42,7 +42,8 @@ Type `@` in the composer to reference a file from any of the project's repos or 
 files. Suggestions narrow as you type; arrow keys move, Enter or Tab inserts, Escape closes. Repo
 files are inserted as `@<repo>/<path>`, relative to the agent's working directory, and project
 files by their absolute path. Claude reads referenced files into the message itself; Codex sees
-the path and opens the file when it needs it.
+the path and opens the file when it needs it. References show as chips with the file name, in the composer and in
+messages; hover one for its path. Backspace after a chip removes the whole reference.
 
 Paste, drag in or attach (the paperclip) PNG, JPEG, GIF or WebP images, up to 20 MB each, to send
 them with a message; a message can be just images. They upload as soon as you add them, and Send

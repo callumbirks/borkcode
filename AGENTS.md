@@ -125,6 +125,11 @@ inventing a fix.
   accepted for now (not SVG, which could run script from our origin). Adapters send images
   natively (Claude base64 blocks, Codex `localImage` paths) and name every attachment's path in
   the text, which is how other file types will reach agents; the folder is a writable root.
+- **The composer is a controlled contenteditable** (`ComposerEditor.svelte`), so file references
+  can show as chips while the draft stays plain text. Every edit is taken from `beforeinput`,
+  applied to the text and redrawn, with the composer's own undo stack; only IME composition edits
+  the DOM, which is read back when it ends. Chips show the file name and a relative path on hover,
+  never an absolute one.
 - **Clients get everything by broadcast.** It's fine for one local user. Revisit if remote access
   or many clients arrive. Keep payloads small: stream deltas, not whole items.
 

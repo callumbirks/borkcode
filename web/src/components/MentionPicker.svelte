@@ -1,21 +1,19 @@
 <script lang="ts">
-  import { tick } from "svelte";
   import type { Mention } from "shared/protocol";
   import { fileName, insertMention, mentionAt } from "../lib/mentions";
   import { rpc } from "../lib/state.svelte";
+  import type ComposerEditor from "./ComposerEditor.svelte";
 
   // Suggests what to insert after an `@` typed in the composer. The composer forwards its keydown
   // events to `keydown`, which claims the ones the open list uses.
   let {
     threadId,
-    textarea,
+    editor,
     text,
-    onchange,
   }: {
     threadId: string;
-    textarea: HTMLTextAreaElement | undefined;
+    editor: ComposerEditor | undefined;
     text: string;
-    onchange: (text: string) => void;
   } = $props();
 
   let caret = $state(0);
@@ -31,18 +29,20 @@
   const open = $derived(typing !== null && typing.start !== dismissed && results.length > 0);
 
   $effect(() => {
-    const element = textarea;
-    if (!element) return;
+    const box = editor;
+    const element = box?.node();
+    if (!box || !element) return;
     const sync = () => {
       focused = document.activeElement === element;
-      caret = element.selectionStart === element.selectionEnd ? element.selectionStart : -1;
+      caret = box.caret();
     };
     const blur = () => (focused = false);
-    const events = ["input", "click", "keyup", "focus"] as const;
-    for (const name of events) element.addEventListener(name, sync);
+    document.addEventListener("selectionchange", sync);
+    element.addEventListener("focus", sync);
     element.addEventListener("blur", blur);
     return () => {
-      for (const name of events) element.removeEventListener(name, sync);
+      document.removeEventListener("selectionchange", sync);
+      element.removeEventListener("focus", sync);
       element.removeEventListener("blur", blur);
     };
   });
@@ -75,7 +75,7 @@
     if (!open || !typing || event.isComposing) return false;
     if (event.key === "ArrowDown") active = (active + 1) % results.length;
     else if (event.key === "ArrowUp") active = (active - 1 + results.length) % results.length;
-    else if (event.key === "Enter" || event.key === "Tab") void choose(results[active]);
+    else if (event.key === "Enter" || event.key === "Tab") choose(results[active]);
     else if (event.key === "Escape") dismissed = typing.start;
     else return false;
     event.preventDefault();
@@ -83,15 +83,11 @@
     return true;
   }
 
-  async function choose(mention: Mention) {
-    if (!typing || !textarea) return;
+  function choose(mention: Mention) {
+    if (!typing || !editor) return;
     const next = insertMention(text, typing.start, caret, mention.reference);
-    onchange(next.text);
     results = [];
-    await tick();
-    textarea.focus();
-    textarea.setSelectionRange(next.caret, next.caret);
-    caret = next.caret;
+    editor.setText(next.text, next.caret);
   }
 
   /** How a suggestion is shown; each kind of mention adds its case here. */
