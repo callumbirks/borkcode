@@ -41,6 +41,7 @@ interface ThreadRow {
   model: string | null;
   effort: Thread["effort"];
   access_mode: Thread["accessMode"];
+  fast_mode: number;
   workspace: string | null;
   branch: string | null;
   status: Thread["status"];
@@ -68,6 +69,7 @@ function fromRow(row: ThreadRow): StoredThread {
     model: row.model,
     effort: row.effort,
     accessMode: row.access_mode,
+    fastMode: row.fast_mode === 1,
     workspace: row.workspace,
     branch: row.branch,
     status: row.status,
@@ -107,6 +109,7 @@ export class Database {
         model TEXT,
         effort TEXT,
         access_mode TEXT NOT NULL,
+        fast_mode INTEGER NOT NULL DEFAULT 0,
         workspace TEXT,
         branch TEXT,
         status TEXT NOT NULL,
@@ -158,7 +161,8 @@ export class Database {
     for (const column of ["effort", "parent_id", "start_branch"]) {
       if (missing(column)) this.#db.exec(`ALTER TABLE threads ADD COLUMN ${column} TEXT`);
     }
-    for (const column of ["captain", "watched", "paused", "marked_unread"]) {
+    // Threads from before fast mode run at standard speed, as they did.
+    for (const column of ["captain", "watched", "paused", "marked_unread", "fast_mode"]) {
       if (missing(column)) this.#db.exec(`ALTER TABLE threads ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
     }
     // Threads from before read tracking have no response on record, so they start out read.
@@ -229,10 +233,10 @@ export class Database {
   insertThread(thread: StoredThread): void {
     this.#db
       .prepare(
-        `INSERT INTO threads (id, project, title, provider, model, effort, access_mode, workspace,
+        `INSERT INTO threads (id, project, title, provider, model, effort, access_mode, fast_mode, workspace,
           branch, status, provider_session_id, parent_id, start_branch, captain, watched, paused,
           archived_at, responded_at, read_at, marked_unread, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         thread.id,
@@ -242,6 +246,7 @@ export class Database {
         thread.model,
         thread.effort,
         thread.accessMode,
+        Number(thread.fastMode),
         thread.workspace,
         thread.branch,
         thread.status,
@@ -276,6 +281,7 @@ export class Database {
         | "model"
         | "effort"
         | "accessMode"
+        | "fastMode"
         | "workspace"
         | "branch"
         | "watched"
@@ -293,7 +299,7 @@ export class Database {
     this.#db
       .prepare(
         `UPDATE threads SET status = ?, provider_session_id = ?, title = ?, model = ?, effort = ?,
-          access_mode = ?, workspace = ?, branch = ?, watched = ?, paused = ?, responded_at = ?, read_at = ?,
+          access_mode = ?, fast_mode = ?, workspace = ?, branch = ?, watched = ?, paused = ?, responded_at = ?, read_at = ?,
           marked_unread = ?, updated_at = ? WHERE id = ?`,
       )
       .run(
@@ -303,6 +309,7 @@ export class Database {
         next.model,
         next.effort,
         next.accessMode,
+        Number(next.fastMode),
         next.workspace,
         next.branch,
         Number(next.watched),

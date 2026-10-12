@@ -78,7 +78,20 @@ inventing a fix.
   threads wait for the title so their branch name means something; renaming later changes only
   the displayed title.
 - **Model lists come from the CLIs** (Claude `supportedModels()`, Codex `model/list`), never a
-  hardcoded list. A null model or effort means the provider's default.
+  hardcoded list. Choices are always concrete: Claude's "default" pseudo-model is left out of its
+  list and the model it resolves to is marked default instead, at high effort since Claude doesn't
+  report default efforts. A null model or effort (or Claude's old "default"), still in older threads
+  and settings, is resolved with `shared/models.ts` rather than migrated: pickers show and write
+  back the concrete choice, and the server resolves it before starting sessions, turns and titles
+  and before storing a child's model, so what runs is what the picker showed.
+- **Fast mode is a per-thread flag,** like access mode: saved with the next message and the
+  new-thread preferences, inherited by children unless the matching child model rule's `use`
+  sets it `on` or `off` (missing means inherit, as for rules saved before; `childFastMode`). It is sent only where the model list says the
+  model offers it (`supportsFastMode`), because asking Claude for fast mode on another model makes
+  it switch models. Claude takes it as the `fastMode` flag setting (the `settings` option, then
+  `applyFlagSettings`); the SDK serves it only when that flag layer asks. Codex takes it as
+  `serviceTierForTurn` on every `turn/start` ("priority", or "default" for standard speed), so
+  turning it off is explicit and nothing sticks to the Codex thread.
 - **Setup commands run once per new worktree,** sequentially in repo order, with
   `BORKCODE_MAIN_REPO`, `BORKCODE_WORKSPACE` and `BORKCODE_PROJECT` set.
 - **The agent's workspace orientation is injected** through each provider's system-instruction
@@ -226,8 +239,10 @@ inventing a fix.
 - **There is one composer, `Composer.svelte`,** for threads and the new-thread page
   (`#/project/<name>/new`). It owns the editor, `@` picker, attachments, options row or phone sheet,
   paste, drop and sending, keyed by a draft key (`<thread id>` or `new:<project>`) and an upload
-  URL; pages add banners and buttons as snippets. Only `newThread` shows the agent, role and
-  workspace pickers. The new-thread `@` picker searches the project's main checkouts
+  URL; pages add banners and buttons as snippets. Only `newThread` shows the agent picker and the
+  role and workspace toggles. Two-way options are icon toggles that name their state in
+  `aria-label` and set `aria-pressed` for the less usual choice; phones keep fast mode and access
+  in the row and the rest as labelled rows in the sheet, so the row fits one line at 360px. The new-thread `@` picker searches the project's main checkouts
   (`mentions.search` with `project`), since there is no workspace yet.
   The New thread buttons focus it through `startNewThread`, which sets the route, renders with
   `flushSync` and focuses inside the click: iOS opens the keyboard only for focus within the tap,

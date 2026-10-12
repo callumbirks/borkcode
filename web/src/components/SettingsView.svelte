@@ -2,7 +2,8 @@
   import ArrowDown from "@lucide/svelte/icons/arrow-down";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import Trash2 from "@lucide/svelte/icons/trash-2";
-  import type { AutoArchive, Effort, ModelChoice, ProviderKind } from "shared/protocol";
+  import type { AutoArchive, ChildFastMode, ChildModelRule, Effort, ModelChoice, ProviderKind } from "shared/protocol";
+  import { findModel } from "shared/models";
   import { app, models, rpc } from "../lib/state.svelte";
   import { copyText } from "../lib/browser";
   import ModelPicker from "./ModelPicker.svelte";
@@ -67,8 +68,8 @@
     }
   }
 
-  // The parent's model may be null while editing, meaning the picker's default, which is saved by name.
-  let rules = $state<{ when: ModelChoice; use: ModelChoice }[]>([]);
+  // Rules saved before models were always named may hold null; the pickers show and save them by name.
+  let rules = $state<{ when: ModelChoice; use: ChildModelRule["use"] }[]>([]);
   let rulesLoaded = false;
   let rulesSaved = $state(false);
   let rulesError = $state("");
@@ -104,9 +105,14 @@
     rulesSaved = false;
     try {
       const childModelRules = rules.map(({ when, use }) => {
-        const model = when.model ?? models[when.provider]?.list.find((option) => option.isDefault)?.id;
+        const model = findModel(models[when.provider]?.list ?? [], when.model)?.id ?? when.model;
         if (!model) throw new Error("Pick the parent's model for every rule.");
-        return { when: { provider: when.provider, model, effort: when.effort }, use: { ...use } };
+        // Inherit is saved as no field, as rules from before fast mode have.
+        const { fastMode, ...choice } = use;
+        return {
+          when: { provider: when.provider, model, effort: when.effort },
+          use: fastMode === "on" || fastMode === "off" ? { ...choice, fastMode } : choice,
+        };
       });
       const next = await rpc.request("settings.update", { settings: { ...app.settings, childModelRules } });
       rules = next.childModelRules.map(({ when, use }) => ({ when: { ...when }, use: { ...use } }));
@@ -332,6 +338,17 @@
                 </select>
               </label>
               <ModelPicker provider={rule.use.provider} bind:model={rule.use.model} bind:effort={rule.use.effort} />
+              <label title="On or inherited fast mode applies only where the child's model offers it">
+                Fast mode
+                <select
+                  value={rule.use.fastMode ?? "inherit"}
+                  onchange={(event) => (rule.use.fastMode = event.currentTarget.value as ChildFastMode)}
+                >
+                  <option value="inherit">Inherit</option>
+                  <option value="on">On</option>
+                  <option value="off">Off</option>
+                </select>
+              </label>
             </div>
           </div>
         {:else}

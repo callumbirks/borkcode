@@ -35,12 +35,13 @@
   let model = $state<string | null>(initial.model);
   let effort = $state<Effort | null>(initial.effort);
   let accessMode = $state<AccessMode>(initial.accessMode);
+  let fastMode = $state(initial.fastMode);
   let isolated = $state(true);
   let captain = $state(false);
   let error = $state("");
 
   function pickProvider(next: ProviderKind) {
-    ({ model, effort, accessMode } = settingsFor(saved, next));
+    ({ model, effort, accessMode, fastMode } = settingsFor(saved, next));
   }
 
   // A saved model or effort the provider no longer offers quietly becomes its default once the
@@ -67,13 +68,14 @@
       model,
       effort,
       accessMode,
+      fastMode,
       // Captains always get their own worktree.
       isolated: isolated || captain,
       captain,
       draftId,
       attachments,
     });
-    saved = rememberThread(saved, provider, { model, effort, accessMode });
+    saved = rememberThread(saved, provider, { model, effort, accessMode, fastMode });
     localStorage.setItem(threadDefaultsKey, JSON.stringify(saved));
     // The draft's folder is the thread's now.
     draftIds.delete(name);
@@ -112,6 +114,7 @@
     bind:model
     bind:effort
     bind:accessMode
+    bind:fastMode
     bind:captain
     bind:isolated
     newThread

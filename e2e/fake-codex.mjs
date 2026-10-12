@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Stands in for `codex app-server` in the browser tests, so sending a message runs a real turn
-// through the server without a provider. Each turn streams a short reply in deltas.
+// through the server without a provider. Each turn streams a short reply in deltas, ending with
+// the service tier it was asked for, which is how fast mode reaches Codex.
 import { createInterface } from "node:readline";
 
 const send = (message) => process.stdout.write(JSON.stringify(message) + "\n");
@@ -11,7 +12,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   const { id, method, params } = JSON.parse(line);
   if (id === undefined) return;
   if (method === "model/list") {
-    return send({ id, result: { nextCursor: null, data: [{ model: "fake", displayName: "Fake", isDefault: true, hidden: false, supportedReasoningEfforts: [{ reasoningEffort: "medium" }], defaultReasoningEffort: "medium" }] } });
+    const efforts = (...levels) => levels.map((reasoningEffort) => ({ reasoningEffort }));
+    return send({ id, result: { nextCursor: null, data: [
+      { model: "fake", displayName: "Fake", isDefault: true, hidden: false, supportedReasoningEfforts: efforts("low", "medium", "high"), defaultReasoningEffort: "medium", serviceTiers: [{ id: "priority", name: "Fast" }] },
+      { model: "fake-steady", displayName: "Fake Steady", isDefault: false, hidden: false, supportedReasoningEfforts: efforts("medium"), defaultReasoningEffort: "medium", serviceTiers: [] },
+    ] } });
   }
   if (method === "thread/start" || method === "thread/resume") return send({ id, result: { thread: { id: "fake-thread" } } });
   if (method !== "turn/start") return send({ id, result: {} });
@@ -31,7 +36,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       return;
     }
     clearInterval(timer);
-    notify("item/completed", { threadId, item: { type: "agentMessage", id: itemId, text: chunks.join("") + "Reply finished." } });
+    notify("item/completed", { threadId, item: { type: "agentMessage", id: itemId, text: chunks.join("") + `Reply finished.\n\nService tier: ${params.serviceTierForTurn ?? "none"}.` } });
     notify("turn/completed", { threadId, turn: { ...turn, status: "completed" } });
   }, 40);
 });

@@ -72,6 +72,20 @@ test("hand edits with unknown values fall back field by field", async () => {
   await assert.rejects(store.get(), /Could not read/);
 });
 
+test("a rule's fast mode is kept when on or off, and anything else means inherit", async () => {
+  const store = new SettingsStore(join(scratch, "rule-fast"));
+  await store.update(DEFAULT_SETTINGS);
+  const rule = (fastMode?: unknown) => ({
+    when: { provider: "claude", model: "opus", effort: null },
+    use: { provider: "claude", model: "opus", effort: "low", ...(fastMode === undefined ? {} : { fastMode }) },
+  });
+  await writeFile(store.path, JSON.stringify({ childModelRules: [rule("on"), rule("off"), rule(), rule("inherit"), rule("turbo")] }));
+  assert.deepEqual(
+    (await store.get()).childModelRules.map((each) => each.use.fastMode),
+    ["on", "off", undefined, undefined, undefined],
+  );
+});
+
 test("network access is opt-in and persists in settings.json", async () => {
   const store = new SettingsStore(join(scratch, "network"));
   const enabled = await store.update({ ...DEFAULT_SETTINGS, networkAccess: true });

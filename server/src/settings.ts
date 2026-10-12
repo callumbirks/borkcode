@@ -65,7 +65,13 @@ function readChildModelRules(value: unknown): ChildModelRule[] {
     // An unknown effort would otherwise widen the rule to any effort.
     const effort = (when as Record<string, unknown>).effort;
     if (effort != null && effort !== parent.effort) return [];
-    return [{ when: { provider: parent.provider, model: parent.model, effort: parent.effort }, use: child }];
+    const fastMode = (use as Record<string, unknown>).fastMode;
+    return [
+      {
+        when: { provider: parent.provider, model: parent.model, effort: parent.effort },
+        use: fastMode === "on" || fastMode === "off" ? { ...child, fastMode } : child,
+      },
+    ];
   });
 }
 

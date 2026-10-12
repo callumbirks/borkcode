@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Effort, ProviderKind } from "shared/protocol";
-  import { loadModels, models } from "../lib/state.svelte";
+  import { findModel, resolveDefaults } from "shared/models";
+  import { app, loadModels, models } from "../lib/state.svelte";
 
   let {
     provider,
@@ -18,31 +19,38 @@
     anyEffort?: boolean;
   } = $props();
 
+  // A failed load is retried on the next connection: the new-thread page can render before the
+  // socket is open.
   $effect(() => {
-    void loadModels(provider);
+    if (app.connected) void loadModels(provider);
   });
 
   const catalog = $derived(models[provider]);
   const list = $derived(catalog?.list ?? []);
-  // A null model means the provider's default, so that is the one shown as selected.
-  const value = $derived(model ?? list.find((option) => option.isDefault)?.id ?? "");
-  const current = $derived(list.find((option) => option.id === value));
+  const current = $derived(list.length > 0 ? findModel(list, model) : undefined);
+  const value = $derived(current?.id ?? model ?? "");
 
-  function pickModel(id: string) {
-    model = id;
-    const next = list.find((option) => option.id === id);
-    if (next && effort && !next.efforts.includes(effort)) effort = anyEffort ? null : next.defaultEffort;
-  }
+  // The picker always holds a concrete model and effort: a saved null (the provider's default),
+  // Claude's old "default", or an effort the model lacks is replaced by its name once the list
+  // arrives, so that is what is shown, sent and saved next.
+  $effect(() => {
+    if (!current) return;
+    if (model !== current.id) model = current.id;
+    const level = anyEffort
+      ? effort !== null && current.efforts.includes(effort) ? effort : null
+      : resolveDefaults({ model, effort }, list).effort;
+    if (effort !== level) effort = level;
+  });
 </script>
 
 <label class:compact title={catalog?.error ?? (compact ? "Model" : undefined)}>
   {#if !compact}Model{/if}
-  <select aria-label="Model" {value} onchange={(event) => pickModel(event.currentTarget.value)} disabled={!catalog}>
+  <select aria-label="Model" {value} onchange={(event) => (model = event.currentTarget.value)} disabled={!catalog}>
     {#if !catalog}
       <option value="">Loading…</option>
     {:else if !current}
       <!-- A model the provider no longer lists, or any model when listing failed. -->
-      <option {value}>{value || "Default"}</option>
+      <option {value}>{value || "Unknown model"}</option>
     {/if}
     {#each list as option (option.id)}
       <option value={option.id}>{option.name}</option>
@@ -55,11 +63,10 @@
     <select
       class="effort"
       aria-label="Effort"
-      value={effort ?? (anyEffort ? "" : current.defaultEffort) ?? ""}
+      value={effort ?? ""}
       onchange={(event) => (effort = (event.currentTarget.value || null) as Effort | null)}
     >
-      {#if anyEffort}<option value="">Any effort</option>
-      {:else if current.defaultEffort === null}<option value="">Default</option>{/if}
+      {#if anyEffort}<option value="">Any effort</option>{/if}
       {#each current.efforts as level (level)}
         <option value={level}>{level}</option>
       {/each}

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import {
   query,
+  type ModelInfo,
   type PermissionMode,
   type SDKMessage,
   type SDKUserMessage,
@@ -76,6 +77,39 @@ const noTurns: AsyncIterable<SDKUserMessage> = {
   [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }),
 };
 
+/**
+ * Claude lists its default as a pseudo-model, "Default (recommended)", which borkcode leaves out so
+ * a concrete model is always chosen. The model it resolves to is marked default instead, preferring
+ * its alias (e.g. "opus") over a pinned id. Claude doesn't report default efforts, so borkcode uses
+ * high, the API's default, where the model offers it.
+ */
+export function claudeModelOptions(models: ModelInfo[]): ModelOption[] {
+  const fallback = models.find((model) => model.value === "default")?.resolvedModel;
+  const listed = models.filter((model) => model.value !== "default");
+  const candidates = listed.filter((model) => fallback !== undefined && model.resolvedModel === fallback);
+  const preferred = candidates.find((model) => model.value !== model.resolvedModel) ?? candidates[0];
+  return listed.map((model) => {
+    const efforts = (model.supportsEffort && model.supportedEffortLevels) || [];
+    return {
+      id: model.value,
+      name: model.displayName,
+      isDefault: model === preferred,
+      efforts,
+      defaultEffort: efforts.includes("high") ? "high" : (efforts.at(-1) ?? null),
+      supportsFastMode: model.supportsFastMode === true,
+    };
+  });
+}
+
+/**
+ * Claude's fast mode (`/fast`) is the `fastMode` flag setting: the session starts with it as the
+ * `settings` option and switches with `applyFlagSettings`. The SDK serves fast mode only when the
+ * flag layer asks for it, and an explicit false also overrides the user's own settings files.
+ */
+export function claudeFastMode(fastMode: boolean): { fastMode: boolean } {
+  return { fastMode };
+}
+
 export async function listClaudeModels(): Promise<ModelOption[]> {
   const claudeBinary = findClaudeBinary();
   const conversation = query({
@@ -87,14 +121,7 @@ export async function listClaudeModels(): Promise<ModelOption[]> {
     },
   });
   try {
-    const models = await conversation.supportedModels();
-    return models.map((model) => ({
-      id: model.value,
-      name: model.displayName,
-      isDefault: model.value === "default",
-      efforts: (model.supportsEffort && model.supportedEffortLevels) || [],
-      defaultEffort: null,
-    }));
+    return claudeModelOptions(await conversation.supportedModels());
   } finally {
     conversation.close();
   }
@@ -252,7 +279,7 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
   // Starting in bypass mode would make the SDK warn that canUseTool is shadowed, but canUseTool is
   // needed once the thread switches to ask mode. So every session starts asking, and the first turn
   // switches to full access.
-  let current = { model: options.model, effort: options.effort, accessMode: "ask" as AccessMode };
+  let current = { model: options.model, effort: options.effort, accessMode: "ask" as AccessMode, fastMode: options.fastMode };
 
   const conversation = query({
     prompt: turns,
@@ -289,6 +316,7 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
       ...(options.resumeId ? { resume: options.resumeId } : {}),
       ...(model ? { model } : {}),
       ...(options.effort ? { effort: options.effort } : {}),
+      settings: claudeFastMode(options.fastMode),
     },
   });
 
@@ -419,6 +447,7 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
       if (settings.effort !== current.effort) {
         await conversation.applyFlagSettings({ effortLevel: settings.effort });
       }
+      if (settings.fastMode !== current.fastMode) await conversation.applyFlagSettings(claudeFastMode(settings.fastMode));
       if (settings.accessMode !== current.accessMode) {
         await conversation.setPermissionMode(permissionMode(settings.accessMode));
       }

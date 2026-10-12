@@ -47,8 +47,8 @@ every old inactive thread at once; turn it off under Settings first if you don't
 A thread starts from its first message. The **+** beside a project in the sidebar, or **New thread**
 on the project page, opens a new-thread page with the same composer as a thread, focused and
 ready to type (on a phone, the keyboard opens too). Only there it
-also picks the agent, the role (Thread or Captain) and the workspace (new worktrees or the main
-checkouts). Role and workspace start as Thread and new worktrees every time; agent, model, effort
+also picks the agent, the role (Thread, or Captain with the crown) and the workspace (a new
+worktree, or the main checkouts with the folder icon). Role and workspace start as Thread and new worktrees every time; agent, model, effort
 and access start from your last new thread on that device. The unsent message is a draft, kept per
 project in this browser like a thread's, through reloads and navigation, and cleared once the
 thread starts. Files attached there go with the first message; a thread can't start from files
@@ -57,7 +57,16 @@ alone, since it is named from its text.
 A small model, chosen under Settings (Codex `gpt-6-luna`
 at low effort by default), names it, and the workspace and branch are named after that title.
 Renaming a thread later changes only its displayed title. Model and effort can be switched
-between turns from the composer.
+between turns from the composer. They are always a named model and effort: Claude's "Default
+(recommended)" entry is not offered, and the model it stands for is preselected instead, at high
+effort (Claude doesn't report its own default effort). Threads and settings saved on the old
+defaults show, and run on, that model and effort until you change them.
+
+Fast mode (the lightning button, off by default) asks for faster output from the same model at a
+higher price: Claude Code's `/fast`, or Codex's Fast ("priority") service tier. It shows only for
+models that offer it, applies from the next turn, and is remembered per provider for new threads
+on that device. Threads started by an agent keep their parent's fast mode unless a child model rule
+turns it on or off, and never get it on a model that lacks it.
 
 Type `@` in the composer to reference a file from any of the project's repos or its shared project
 files. On the new-thread page, before the thread has a workspace, repo files come from the main
@@ -113,6 +122,7 @@ commits. Handed-off threads nest under the thread that started them, and that th
 them, their pull requests and their latest replies. The new thread copies its parent's model
 unless a rule under Settings picks another, such as Opus children at medium effort for an Opus
 parent at xhigh. Rules match the parent's model, optionally its effort, and the first match wins.
+A rule can also turn the child's fast mode on or off; by default (Inherit) it copies the parent's.
 
 A thread can also delegate and keep track: the threads it watches send each turn's final reply
 back to it, and it answers their questions with a message of its own. Start a thread as a
@@ -201,8 +211,8 @@ is already configured to proxy this borkcode port, borkcode verifies the endpoin
 
 A phone has a menu drawer and full-screen overview, file and visualization panels. Tap outside
 the drawer or use its close button. The composer follows the visible viewport above the keyboard.
-Its compact model/access button opens a sheet with the full options; the new-thread form uses the
-same sheet for provider, role and workspace. Empty inputs stay short and grow as you type.
+Its compact model button opens a sheet with the full options as labelled rows, beside the fast
+mode and access toggles; the new-thread form uses the same sheet for provider, role and workspace. Empty inputs stay short and grow as you type.
 Touch devices use a native textarea for predictive text, autocorrect and composition, with `@`
 file picking and file paste/attachment support; references become chips in sent messages. Enter
 adds a newline there; tap Send. Returning to the app or regaining the network reconnects and

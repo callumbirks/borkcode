@@ -78,6 +78,31 @@ interface CodexModel {
   isDefault: boolean;
   supportedReasoningEfforts: { reasoningEffort: string }[];
   defaultReasoningEffort: string;
+  /** Speeds the account can use with this model; missing from CLIs before service tiers. */
+  serviceTiers?: { id: string; name: string }[];
+}
+
+/** Codex's fast mode is its "priority" service tier, which `model/list` names "Fast". */
+const FAST_TIER = "priority";
+
+export function codexModelOption(model: CodexModel): ModelOption {
+  return {
+    id: model.model,
+    name: model.displayName,
+    isDefault: model.isDefault,
+    efforts: model.supportedReasoningEfforts.map((option) => option.reasoningEffort).filter(isEffort),
+    defaultEffort: isEffort(model.defaultReasoningEffort) ? model.defaultReasoningEffort : null,
+    supportsFastMode: model.serviceTiers?.some((tier) => tier.id === FAST_TIER) ?? false,
+  };
+}
+
+/**
+ * The `turn/start` service tier for a turn. Set on every turn rather than on the thread, so turning
+ * fast mode off is explicit ("default" is standard speed) and a tier in the user's config.toml
+ * can't leave a thread fast that borkcode shows as not.
+ */
+export function codexServiceTier(fastMode: boolean): string {
+  return fastMode ? FAST_TIER : "default";
 }
 
 /** `item/tool/requestUserInput`, which the request_user_input tool sends. */
@@ -216,15 +241,7 @@ export async function listCodexModels(): Promise<ModelOption[]> {
       models.push(...page.data);
       cursor = page.nextCursor;
     } while (cursor);
-    return models
-      .filter((model) => !model.hidden)
-      .map((model) => ({
-        id: model.model,
-        name: model.displayName,
-        isDefault: model.isDefault,
-        efforts: model.supportedReasoningEfforts.map((option) => option.reasoningEffort).filter(isEffort),
-        defaultEffort: isEffort(model.defaultReasoningEffort) ? model.defaultReasoningEffort : null,
-      }));
+    return models.filter((model) => !model.hidden).map(codexModelOption);
   } finally {
     connection.close();
   }
@@ -496,6 +513,7 @@ export async function startCodexSession(options: SessionOptions): Promise<Provid
           input: codexInput(text, attachments),
           model: settings.model,
           effort: settings.effort,
+          serviceTierForTurn: codexServiceTier(settings.fastMode),
           approvalPolicy: switchAccess ? approvalPolicy(settings.accessMode) : null,
           sandboxPolicy: switchAccess ? sandboxPolicy(settings.accessMode, options.writableRoots) : null,
         });

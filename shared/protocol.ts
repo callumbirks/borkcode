@@ -18,6 +18,8 @@ export interface ModelOption {
   efforts: Effort[];
   /** Null when the provider does not say which level it uses by default. */
   defaultEffort: Effort | null;
+  /** Offers fast mode: the same model with faster output, at a higher price. */
+  supportsFastMode: boolean;
 }
 
 /** Null model or effort means the provider's default. */
@@ -63,8 +65,12 @@ export interface NetworkState {
  */
 export interface ChildModelRule {
   when: { provider: ProviderKind; model: string; effort: Effort | null };
-  use: ModelChoice;
+  /** Missing fast mode means inherit, as rules did before they could set it. */
+  use: ModelChoice & { fastMode?: ChildFastMode };
 }
+
+/** A child's fast mode: its parent's, or on or off whatever the parent has; only where its model offers it. */
+export type ChildFastMode = "inherit" | "on" | "off";
 
 /**
  * Stops threads from waking each other forever. Messages between threads that would exceed a
@@ -137,6 +143,8 @@ export interface Thread {
   model: string | null;
   effort: Effort | null;
   accessMode: AccessMode;
+  /** Asks for fast mode from the next turn on, where the model offers it. */
+  fastMode: boolean;
   /** Folder name under worktrees/, or null when the thread runs in the main checkouts in repos/. */
   workspace: string | null;
   /** Branch shared by every worktree in the workspace. Null for main checkouts. */
@@ -354,6 +362,7 @@ export interface Requests {
       model: string | null;
       effort: Effort | null;
       accessMode: AccessMode;
+      fastMode: boolean;
       /** False runs the thread directly in the main checkouts. */
       isolated: boolean;
       captain: boolean;
@@ -368,7 +377,7 @@ export interface Requests {
   };
   "threads.get": { params: { threadId: string }; result: ThreadDetail };
   /**
-   * Model, effort and access mode apply to this turn and are remembered for the next. Attachments
+   * Model, effort, access and fast mode apply to this turn and are remembered for the next. Attachments
    * are ids of files uploaded to this thread; with any, the text may be empty.
    */
   "threads.send": {
@@ -379,12 +388,13 @@ export interface Requests {
       model: string | null;
       effort: Effort | null;
       accessMode: AccessMode;
+      fastMode: boolean;
     };
     result: null;
   };
   /** Asks the agent to commit, push and open pull requests through its borkcode tool. */
   "threads.publish": {
-    params: { threadId: string; model: string | null; effort: Effort | null; accessMode: AccessMode };
+    params: { threadId: string; model: string | null; effort: Effort | null; accessMode: AccessMode; fastMode: boolean };
     result: null;
   };
   /** Changes only the displayed title; the workspace and branch keep their names. */

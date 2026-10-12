@@ -32,6 +32,8 @@ export interface SessionOptions {
   accessMode: AccessMode;
   model: string | null;
   effort: Effort | null;
+  /** Only set for models that offer it, since asking Claude for it may switch to one that does. */
+  fastMode: boolean;
   /** borkcode's MCP endpoint for this session; the agent's borkcode tools live there. */
   mcpUrl: string;
   resumeId: string | null;
@@ -46,6 +48,8 @@ export interface ModelSettings {
 
 export interface TurnSettings extends ModelSettings {
   accessMode: AccessMode;
+  /** As in `SessionOptions`. */
+  fastMode: boolean;
 }
 
 /** A file sent with a message, stored on this machine at `path`. */
@@ -55,7 +59,7 @@ export interface TurnAttachment extends Attachment {
 
 export interface ProviderSession {
   /**
-   * Starts a turn, switching model, effort and access mode first if they changed. Resolves once the provider
+   * Starts a turn, switching model, effort, access and fast mode first if they changed. Resolves once the provider
    * accepts it; the end arrives as `turnEnded`.
    */
   sendTurn(text: string, settings: TurnSettings, attachments: TurnAttachment[]): Promise<void>;

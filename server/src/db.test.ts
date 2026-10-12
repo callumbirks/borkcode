@@ -36,10 +36,28 @@ test("databases from before effort existed gain the column and keep their thread
   assert.equal(new Database(path).getThread("t1")?.effort, "high");
 });
 
+test("threads from before fast mode gain it off, and turning it on is kept", () => {
+  const path = join(scratch, "before-fast.sqlite");
+  const old = new DatabaseSync(path);
+  old.exec(`
+    CREATE TABLE threads (
+      id TEXT PRIMARY KEY, project TEXT NOT NULL, title TEXT NOT NULL, provider TEXT NOT NULL,
+      model TEXT, access_mode TEXT NOT NULL, workspace TEXT, branch TEXT, status TEXT NOT NULL,
+      provider_session_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    );
+    INSERT INTO threads VALUES ('t1', 'p', 'Old thread', 'claude', NULL, 'ask', NULL, NULL, 'idle', NULL, 1, 1);
+  `);
+  old.close();
+  const db = new Database(path);
+  assert.equal(db.getThread("t1")?.fastMode, false);
+  assert.equal(db.updateThread("t1", { fastMode: true }).fastMode, true);
+  assert.equal(new Database(path).getThread("t1")?.fastMode, true);
+});
+
 test("linking a pull request reports changes only when something changed", () => {
   const db = new Database(":memory:");
   db.insertThread({
-    id: "t2", project: "p", title: "T", provider: "claude", model: null, effort: null, accessMode: "ask",
+    id: "t2", project: "p", title: "T", provider: "claude", model: null, effort: null, accessMode: "ask", fastMode: false,
     workspace: "t-t2", branch: "borkcode/t-t2", status: "idle", providerSessionId: null, parentId: null, startBranch: null,
     captain: false, watched: false, paused: false, queued: 0, archivedAt: null, respondedAt: null, readAt: null, markedUnread: false,
     createdAt: 1, updatedAt: 1,
@@ -82,7 +100,7 @@ test("pull request links from before head commits were stored gain the column", 
 test("deleting a parent keeps its children and drops their link", () => {
   const db = new Database(":memory:");
   const base = {
-    project: "p", title: "T", provider: "claude" as const, model: null, effort: null, accessMode: "ask" as const,
+    project: "p", title: "T", provider: "claude" as const, model: null, effort: null, accessMode: "ask" as const, fastMode: false,
     workspace: null, branch: null, status: "idle" as const, providerSessionId: null, startBranch: null, createdAt: 1, updatedAt: 1,
     captain: false, watched: false, paused: false, queued: 0, archivedAt: null, respondedAt: null, readAt: null, markedUnread: false,
   };
@@ -125,7 +143,7 @@ test("an inbox created before messages had kinds gains the column and keeps its 
 test("archiving is stored without counting as activity", () => {
   const db = new Database(":memory:");
   db.insertThread({
-    id: "t5", project: "p", title: "T", provider: "claude", model: null, effort: null, accessMode: "ask",
+    id: "t5", project: "p", title: "T", provider: "claude", model: null, effort: null, accessMode: "ask", fastMode: false,
     workspace: null, branch: null, status: "idle", providerSessionId: null, parentId: null, startBranch: null,
     captain: false, watched: false, paused: false, queued: 0, archivedAt: null, respondedAt: null, readAt: null, markedUnread: false, createdAt: 1, updatedAt: 1,
   });
@@ -141,7 +159,7 @@ test("archiving is stored without counting as activity", () => {
 test("only status changes and delivered messages count as activity", () => {
   const db = new Database(":memory:");
   db.insertThread({
-    id: "t6", project: "p", title: "T", provider: "claude", model: null, effort: null, accessMode: "ask",
+    id: "t6", project: "p", title: "T", provider: "claude", model: null, effort: null, accessMode: "ask", fastMode: false,
     workspace: null, branch: null, status: "idle", providerSessionId: null, parentId: null, startBranch: null,
     captain: false, watched: false, paused: false, queued: 0, archivedAt: null, respondedAt: null, readAt: null, markedUnread: false, createdAt: 1, updatedAt: 1,
   });

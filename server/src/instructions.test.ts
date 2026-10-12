@@ -19,6 +19,7 @@ function thread(branch: string | null): Thread {
     model: null,
     effort: null,
     accessMode: "ask",
+    fastMode: false,
     workspace: branch ? "fix-login-t1" : null,
     branch,
     status: "idle",

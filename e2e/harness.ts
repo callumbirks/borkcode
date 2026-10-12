@@ -9,6 +9,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { deflateSync, crc32 } from "node:zlib";
 import { chromium, devices, webkit, type Browser, type BrowserContextOptions, type Page, type WebSocketRoute } from "playwright";
+import type { ModelOption, ProviderKind } from "../shared/protocol.ts";
 import type { Item, StoredThreadSeed } from "./seed.ts";
 import { seed } from "./seed.ts";
 
@@ -232,7 +233,14 @@ export async function open(
     base = server.url,
     context: options = profile(engine),
     hash = `#/thread/${threadId}`,
-  }: { base?: string; context?: BrowserContextOptions; hash?: string } = {},
+    models,
+  }: {
+    base?: string;
+    context?: BrowserContextOptions;
+    hash?: string;
+    /** Answers `models.list` for these providers in place of the server, e.g. Claude, whose CLI fails here. */
+    models?: Partial<Record<ProviderKind, ModelOption[]>>;
+  } = {},
 ): Promise<Session> {
   const context = await browser.newContext(options);
   const page = await context.newPage();
@@ -242,8 +250,15 @@ export async function open(
   if (engine === "webkit") await page.addInitScript(iosShim);
   let route: WebSocketRoute | undefined;
   await page.routeWebSocket("**/ws", (ws) => {
-    ws.connectToServer();
+    const upstream = ws.connectToServer();
     route = ws;
+    if (!models) return;
+    ws.onMessage((message) => {
+      const request = JSON.parse(String(message)) as { id: number; method: string; params: { provider?: ProviderKind } };
+      const list = request.method === "models.list" && request.params.provider && models[request.params.provider];
+      if (list) ws.send(JSON.stringify({ id: request.id, result: list }));
+      else upstream.send(message);
+    });
   });
   await page.goto(`${base}/${hash}`);
   await page.locator("[data-composer]").waitFor();
