@@ -15,6 +15,7 @@
   import { renderMarkdown } from "../lib/markdown";
   import { app, go } from "../lib/state.svelte";
   import MessageAttachments from "./MessageAttachments.svelte";
+  import VisualizationCard from "./VisualizationCard.svelte";
 
   let { item }: { item: Item } = $props();
 
@@ -212,6 +213,8 @@
       <span>{pending ? "Input requested" : "Question left unanswered"}</span>
     </div>
   {/if}
+{:else if item.kind === "visualization"}
+  <VisualizationCard {threadId} id={item.id} title={item.title} updatedAt={item.updatedAt} />
 {:else if item.kind === "notice"}
   <div class="notice {item.level}">
     {#if item.level === "error"}<CircleAlert size={14} />{:else}<Info size={14} />{/if}

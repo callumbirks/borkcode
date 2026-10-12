@@ -143,6 +143,14 @@ inventing a fix.
   paths the server confirms exist (`threads.locateFiles`, batched as messages render), trying
   absolute, workspace-relative, repo-relative and project-file forms, so ordinary words never
   link. Images an agent viewed are recorded as a path on the tool item, not as bytes.
+- **Visualizations are agent-written HTML, so they run in an opaque origin.** `show_html` stores
+  the page as `visualizations/<id>.html` in the thread's attachments folder and records only
+  `{ id, title, updatedAt }`. `GET /api/threads/<id>/visualizations/<id>` serves it with
+  `Content-Security-Policy: sandbox allow-scripts` (never `allow-same-origin`) and frames use
+  `sandbox="allow-scripts"`, so its requests carry `Origin: null`, which `isAllowedOrigin` refuses.
+  Resources load from `https:` only (CDNs), never `http:`, so it cannot reach localhost; the policy
+  is `VISUALIZATION_CSP` in `visualizations.ts`. A served page gets a script appended that posts
+  its content height; the card accepts only a clamped number from its own frame.
 - **The composer is a contenteditable whose plain text is the source of truth**
   (`ComposerEditor.svelte`), so file references can show as chips. Plain typing and deleting
   inside one text node is left to the browser and read back from that node; redrawing on every
@@ -163,7 +171,7 @@ inventing a fix.
 - `server/src/threads.ts`: thread lifecycle, live session state, approvals.
 - `server/src/mcp.ts`: the agent-facing MCP tools. `pullRequests.ts` pushes and opens PRs;
   `files.ts` serves and watches shared project files; `threadFiles.ts` finds and reads thread
-  files for the preview panel.
+  files for the preview panel; `visualizations.ts` stores and serves `show_html` pages.
 - `server/src/providers/`: one adapter per provider, normalizing to `Item`s via `SessionEvents`.
   Provider quirks stay inside the adapter; `threads.ts` and the UI stay provider-agnostic.
 - `server/src/main.ts`: the HTTP/WebSocket transport. Keep handlers thin: decode, call one

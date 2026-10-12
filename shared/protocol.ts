@@ -209,7 +209,13 @@ export type Item =
    * The agent asked the user. Answers line up with `questions`, and stay null while the question is
    * pending or if it was dropped unanswered because the turn stopped.
    */
-  | { id: string; kind: "question"; questions: Question[]; answers: string[][] | null };
+  | { id: string; kind: "question"; questions: Question[]; answers: string[][] | null }
+  /**
+   * HTML the agent showed with `show_html`. The id names the file the client loads from
+   * `/api/threads/<thread>/visualizations/<id>`, so the HTML stays out of the transcript.
+   * `updatedAt` changes when the agent replaces it, so the client reloads it.
+   */
+  | { id: string; kind: "visualization"; title: string; updatedAt: number };
 
 /** A question the agent asks the user, with options to pick from. A typed answer is always allowed. */
 export interface Question {
