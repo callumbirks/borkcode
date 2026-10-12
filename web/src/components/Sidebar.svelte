@@ -6,6 +6,7 @@
   import Folder from "@lucide/svelte/icons/folder";
   import Inbox from "@lucide/svelte/icons/inbox";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
+  import ListFilter from "@lucide/svelte/icons/list-filter";
   import Mail from "@lucide/svelte/icons/mail";
   import MailOpen from "@lucide/svelte/icons/mail-open";
   import Plus from "@lucide/svelte/icons/plus";
@@ -21,18 +22,47 @@
     type PullRequestState,
   } from "../lib/display.svelte";
   import { longPress } from "../lib/longPress";
+  import { filterThreads, isDefaultFilter, parseFilter, type SidebarFilter } from "../lib/sidebarFilter";
   import { deleteThread } from "../lib/threadActions";
   import { workingInSubtree } from "../lib/threadTree";
   import { app, go, nav, rpc } from "../lib/state.svelte";
   import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
+  import FilterMenu from "./FilterMenu.svelte";
   import Spinner from "./Spinner.svelte";
 
+  // The filter belongs to this device, like drafts.
+  const filterKey = "borkcode.sidebarFilter";
+  let filter = $state.raw(parseFilter(localStorage.getItem(filterKey)));
+  let filterAnchor = $state.raw<HTMLElement | null>(null);
+  // Projects whose inactive threads were revealed from the "hidden" line, until the next reload.
+  let revealed = $state.raw(new Set<string>());
+
+  function setFilter(next: SidebarFilter) {
+    filter = next;
+    localStorage.setItem(filterKey, JSON.stringify(next));
+  }
+
+  function toggleRevealed(project: string) {
+    const next = new Set(revealed);
+    if (!next.delete(project)) next.add(project);
+    revealed = next;
+  }
+
+  const shownProjects = $derived(app.projects.filter((project) => !filter.excludedProjects.includes(project.name)));
+
   // Threads nest under the thread that started them, and every level sorts by recent activity.
-  // Archived threads are listed only on the Archived page.
+  // Archived threads are listed only on the Archived page. The open thread and the one whose
+  // menu is open stay listed through the filter, so they don't vanish while in use.
+  const filtered = $derived.by(() => {
+    const keep = [nav.route.view === "thread" ? nav.route.id : "", menu?.threadId ?? ""];
+    return filterThreads(
+      app.threads.filter((thread) => thread.archivedAt === null).sort((a, b) => b.updatedAt - a.updatedAt),
+      { filter, pullRequests: app.pullRequests, keep, showInactiveIn: revealed },
+    );
+  });
+
   const threadsByProject = $derived.by(() => {
-    const visible = app.threads
-      .filter((thread) => thread.archivedAt === null)
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+    const visible = filtered.shown;
     const children = new Map<string, Thread[]>();
     for (const thread of visible) {
       if (thread.parentId) children.set(thread.parentId, [...(children.get(thread.parentId) ?? []), thread]);
@@ -53,7 +83,7 @@
 
   const archivedCount = $derived(app.threads.filter((thread) => thread.archivedAt !== null).length);
 
-  let menu = $state.raw<{ x: number; y: number; items: MenuItem[] } | null>(null);
+  let menu = $state.raw<{ x: number; y: number; items: MenuItem[]; threadId?: string } | null>(null);
 
   const setRead = (threadId: string, read: boolean) => void rpc.request("threads.setRead", { threadId, read }).catch(() => undefined);
 
@@ -89,16 +119,16 @@
   }
 
   /** Right-click, or the context menu key, which reports no pointer position, so the menu opens under the row. */
-  function openMenu(event: MouseEvent, items: () => MenuItem[]) {
+  function openMenu(event: MouseEvent, items: () => MenuItem[], threadId?: string) {
     event.preventDefault();
     const fromKeyboard = event.clientX === 0 && event.clientY === 0;
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    showMenu(fromKeyboard ? rect.left : event.clientX, fromKeyboard ? rect.bottom : event.clientY, items);
+    showMenu(fromKeyboard ? rect.left : event.clientX, fromKeyboard ? rect.bottom : event.clientY, items, threadId);
   }
 
-  function showMenu(x: number, y: number, items: () => MenuItem[]) {
+  function showMenu(x: number, y: number, items: () => MenuItem[], threadId?: string) {
     const list = items();
-    menu = list.length > 0 ? { x, y, items: list } : null;
+    menu = list.length > 0 ? { x, y, items: list, threadId } : null;
   }
 
   /** A thread's pull requests counted per state, in a fixed order, leaving out empty states. */
@@ -128,9 +158,30 @@
     </button>
   </div>
 
+  <div class="threads-header">
+    <span>Threads</span>
+    <button
+      class="filter ghost icon"
+      class:filtered={!isDefaultFilter(filter)}
+      aria-label="Filter threads"
+      aria-haspopup="dialog"
+      aria-expanded={filterAnchor !== null}
+      title={isDefaultFilter(filter) ? "Filter threads" : "Filter threads (changed from the defaults)"}
+      onclick={(event) => (filterAnchor = filterAnchor ? null : event.currentTarget)}
+    >
+      <ListFilter size={14} />
+    </button>
+  </div>
+
   <div class="threads">
-    {#each app.projects as project (project.name)}
+    {#if shownProjects.length === 0 && app.projects.length > 0}
+      <button class="more ghost" onclick={() => setFilter({ ...filter, excludedProjects: [] })}>
+        All projects hidden · Show all
+      </button>
+    {/if}
+    {#each shownProjects as project (project.name)}
       {@const threads = threadsByProject.get(project.name) ?? []}
+      {@const hidden = filtered.hidden.get(project.name) ?? 0}
       <div class="group">
         <div class="group-header" class:active={nav.route.view === "project" && nav.route.name === project.name}>
           <button
@@ -141,7 +192,7 @@
           >
             <Folder size={14} />
             <span class="truncate">{project.name}</span>
-            <span class="count">{threads.length}</span>
+            <span class="count">{threads.length + hidden}</span>
           </button>
           <button
             class="add ghost icon"
@@ -163,8 +214,8 @@
             style:padding-left="calc(var(--space-2) + {depth} * var(--space-4))"
             class:active={open}
             onclick={() => go({ view: "thread", id: thread.id })}
-            oncontextmenu={(event) => openMenu(event, () => threadItems(thread))}
-            {@attach longPress((x, y) => showMenu(x, y, () => threadItems(thread)))}
+            oncontextmenu={(event) => openMenu(event, () => threadItems(thread), thread.id)}
+            {@attach longPress((x, y) => showMenu(x, y, () => threadItems(thread), thread.id))}
           >
             <span class="dot {thread.status}" title={thread.status}></span>
             <span class="lines">
@@ -204,6 +255,13 @@
             </span>
           </button>
         {/each}
+        {#if filter.hideInactive && revealed.has(project.name)}
+          <button class="more ghost" onclick={() => toggleRevealed(project.name)}>Hide inactive</button>
+        {:else if hidden > 0}
+          <button class="more ghost" onclick={() => toggleRevealed(project.name)}>
+            {threads.length === 0 ? "No active threads" : `${hidden} hidden`} · Show all
+          </button>
+        {/if}
       </div>
     {/each}
   </div>
@@ -217,6 +275,15 @@
 
 {#if menu}
   <ContextMenu {...menu} onclose={() => (menu = null)} />
+{/if}
+{#if filterAnchor}
+  <FilterMenu
+    anchor={filterAnchor}
+    projects={app.projects.map((project) => project.name)}
+    {filter}
+    onchange={setFilter}
+    onclose={() => (filterAnchor = null)}
+  />
 {/if}
 
 <style>
@@ -265,6 +332,42 @@
     background: var(--surface-active);
     color: var(--text-primary);
   }
+  .threads-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: calc(-1 * var(--space-2));
+    padding-left: var(--space-2);
+    font-size: var(--text-xs);
+    color: var(--text-faint);
+  }
+  .filter {
+    position: relative;
+    flex-shrink: 0;
+    width: 24px !important;
+    min-height: 24px;
+    color: var(--text-faint);
+  }
+  /* The filter differs from the defaults, so the list may be missing more than inactive threads. */
+  .filter.filtered {
+    color: var(--accent);
+  }
+  .filter.filtered::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-full);
+    background: var(--accent);
+  }
+  .more {
+    min-height: 24px;
+    padding: var(--space-1) var(--space-2);
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+  }
   .threads {
     flex: 1;
     min-height: 0;
@@ -300,6 +403,15 @@
   .group-header:hover .add,
   .add:focus-visible {
     opacity: 1;
+  }
+  @media (pointer: coarse), (max-width: 900px) {
+    .filter {
+      width: 40px !important;
+      min-height: 40px;
+    }
+    .more {
+      min-height: 40px;
+    }
   }
   /* A long press opens the row's menu, not the browser's callout or a text selection. */
   .project,
