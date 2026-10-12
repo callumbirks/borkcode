@@ -33,7 +33,7 @@ export function buildInstructions(
       : "These are the project's main clones, shared with the user. Do not switch branches unless asked.",
     `The project has shared files: specs, plans and decisions that the user and every thread of this project can read, now and after this thread is gone. They live in ${project.path}/files. Use the borkcode list_project_files, read_project_file and write_project_file tools, or your own file tools at that path. Check them when the user refers to a spec, plan or note. Put something there only when the user or other threads will need it later; never working files.`,
     `For temporary files, such as experiments, generated assets, downloads, logs and mockups, use your scratch folder, ${scratch}. It is outside every repository, and it is deleted with this thread.`,
-    "When a chart, diagram, comparison table or mockup would explain better than text, or the user asks to see something, show it with the borkcode show_html tool, which renders your HTML right in the thread. Keep the page self-contained apart from libraries loaded from https: CDNs.",
+    "When a chart, diagram, comparison table or mockup would explain better than text, or the user asks to see something, show it with the borkcode show_html tool, which renders your HTML right in the thread. Keep the page self-contained apart from libraries loaded from https: CDNs, or show it from a file so it can load images, fonts and other files from its folder by relative URL.",
     `If a turn ends with a tool call rejected or interrupted "by the user" but no message from the user follows, it may have been the borkcode server stopping; borkcode tells you at your next turn when that happened.`,
     "",
     "## Committing",

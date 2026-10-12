@@ -1,6 +1,7 @@
 <script lang="ts">
   import ChartColumn from "@lucide/svelte/icons/chart-column";
   import ExternalLink from "@lucide/svelte/icons/external-link";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import X from "@lucide/svelte/icons/x";
   import { closeOnEscape, previewLayout, previews, startResize } from "../lib/filePreview.svelte";
   import { app } from "../lib/state.svelte";
@@ -16,6 +17,7 @@
     ),
   );
   const url = $derived(item ? visualizationUrl(threadId, id, item.updatedAt) : null);
+  let frame: HTMLIFrameElement | undefined = $state();
 </script>
 
 <svelte:window onkeydown={(event) => closeOnEscape(threadId, event)} />
@@ -27,6 +29,7 @@
     <ChartColumn size={14} />
     <span class="title truncate" title={item?.title}>{item?.title ?? "Visualization"}</span>
     {#if url}
+      <button class="ghost icon" title="Reload" onclick={() => frame && (frame.src = url)}><RefreshCw size={14} /></button>
       <a class="ghost icon button" href={url} target="_blank" rel="noreferrer" title="Open in a new tab">
         <ExternalLink size={14} />
       </a>
@@ -34,7 +37,7 @@
     <button class="ghost icon" title="Close (Esc)" onclick={() => delete previews[threadId]}><X size={14} /></button>
   </header>
   {#if url && item}
-    <iframe src={url} title={item.title} sandbox="allow-scripts"></iframe>
+    <iframe bind:this={frame} src={url} title={item.title} sandbox="allow-scripts"></iframe>
   {:else}
     <p class="message muted">This visualization is not in the thread.</p>
   {/if}

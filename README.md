@@ -61,9 +61,11 @@ call shows a thumbnail that opens in the same panel.
 
 Agents can show you HTML they write, such as a chart, diagram, comparison table or mockup, with
 borkcode's `show_html` tool. It renders in the transcript as a card that fits its content; open it
-larger in the side panel or in a new tab from the card's buttons. The page runs sandboxed: its
-scripts work and it can load libraries from `https:` CDNs, but it cannot reach borkcode, your
-session or anything on `http:`, and it cannot submit forms, open popups or navigate away.
+larger in the side panel or in a new tab from the card's buttons. A page shown from a file in the
+thread's workspace or project files is live (Reload shows edits) and can load images, fonts,
+scripts and data from its folder by relative URL. The page runs sandboxed: its scripts work and it
+can load libraries from `https:` CDNs, but it cannot reach the rest of borkcode, your session or
+anything on `http:`, and it cannot submit forms, open popups or navigate away.
 
 In "ask" mode, Claude automatically approves ordinary edits and common filesystem commands
 inside the workspace and shared project files. Edits outside those directories, protected files,

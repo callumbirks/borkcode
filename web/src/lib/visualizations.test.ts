@@ -13,5 +13,5 @@ test("only a finite reported height gets through, clamped to the frame's bounds"
 
 test("a replaced visualization gets a new URL", () => {
   assert.notEqual(visualizationUrl("t", "v", 1), visualizationUrl("t", "v", 2));
-  assert.equal(visualizationUrl("t", "v", 1), "/api/threads/t/visualizations/v?v=1");
+  assert.equal(visualizationUrl("t", "v", 1), "/api/threads/t/visualizations/v/?v=1");
 });
