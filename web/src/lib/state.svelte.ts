@@ -214,7 +214,9 @@ async function refresh(): Promise<void> {
 
 export const rpc = new RpcClient(handleEvent, (connected) => {
   app.connected = connected;
-  if (connected) void refresh();
+  // Visibility return replaces the socket before checkPullRequests can send. Wait for cached
+  // snapshots to load before checking GitHub, so they cannot overwrite the change broadcasts.
+  if (connected) void refresh().then(checkPullRequests);
 });
 
 // Coming back to borkcode, often from merging on GitHub, is when merges should show without

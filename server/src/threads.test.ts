@@ -577,8 +577,95 @@ test("coming back to borkcode checks open pull requests, at most once in a short
 
   assert.equal(await comeBack(), true);
   assert.equal(await comeBack(), false);
-  t.mock.timers.tick(15_000);
+  t.mock.timers.tick(5_000);
   assert.equal(await comeBack(), true);
+});
+
+test("returning just after a poll refreshes every thread, including archived children in other projects", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() + 3_600_000 });
+  const database = new Database(":memory:");
+  const { thread, agent } = await startThread("refresh fixture");
+  await agent.turn(1);
+  agent.finish("ok");
+  const template = db.getThread(thread.id)!;
+  const events: ServerEvent[] = [];
+  const calls: string[][] = [];
+  let merged = false;
+  for (const [id, project, parentId, archivedAt, updatedAt, readAt] of [
+    ["old", "other", null, null, 1, null],
+    ["recent", "demo", null, null, 3, null],
+    ["child", "other", "old", 1, 2, 4],
+  ] as const) {
+    database.insertThread({ ...template, id, project, parentId, archivedAt, updatedAt, readAt, status: "idle" });
+    database.linkPullRequest(id, {
+      repo: id, number: 1, url: `https://github.com/me/${id}/pull/1`, state: "OPEN", title: id, headOid: "abc",
+    });
+  }
+  const service = new ThreadService(database, projects, settings, (event) => events.push(event), "http://test/mcp/", attachments, {
+    ...fakeDeps,
+    pullRequestStates: async (urls) => {
+      calls.push(urls);
+      return new Map(urls.map((url) => [url, { state: merged ? "MERGED" : "OPEN", title: url, headOid: "abc" }]));
+    },
+  });
+  // Hold deliveries so this test only observes persisted PR state and sidebar broadcasts.
+  await service.shutdown();
+  await service.refreshOpenPullRequests();
+  merged = true;
+  await service.refreshPullRequestsOnReturn();
+  assert.equal(calls.length, 2, "a poll must not swallow the user's return check");
+  assert.deepEqual(calls[1], ["child", "recent", "old"].map((id) => `https://github.com/me/${id}/pull/1`));
+  for (const id of ["old", "recent", "child"]) {
+    assert.equal(database.listPullRequests(id)[0]?.state, "MERGED");
+    assert.ok(events.some((event) => event.type === "pullRequests.changed" && event.threadId === id && event.pullRequests[0]?.state === "MERGED"));
+  }
+  assert.deepEqual(database.listInbox("child"), [], "archived children are refreshed without being woken");
+});
+
+test("overlapping returns share bounded batches, and failed or slow batches do not hide successful updates", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() + 3_600_000 });
+  const { thread, agent } = await startThread("batch fixture");
+  await agent.turn(1);
+  agent.finish("ok");
+  const database = new Database(":memory:");
+  database.insertThread({ ...db.getThread(thread.id)!, archivedAt: 1 });
+  for (let number = 1; number <= 81; number++) {
+    database.linkPullRequest(thread.id, {
+      repo: "batch", number, url: `https://github.com/me/batch/pull/${number}`, state: "OPEN", title: "old", headOid: "abc",
+    });
+  }
+  const batches: { urls: string[]; resolve: (states: Map<string, PullRequestState>) => void; reject: (error: Error) => void }[] = [];
+  let fourthStarted = () => {};
+  const fourth = new Promise<void>((resolve) => fourthStarted = resolve);
+  let updated = () => {};
+  const changed = new Promise<void>((resolve) => updated = resolve);
+  const service = new ThreadService(database, projects, settings, (event) => {
+    if (event.type === "pullRequests.changed") updated();
+  }, "http://test/mcp/", attachments, {
+    ...fakeDeps,
+    pullRequestStates: (urls) => new Promise((resolve, reject) => {
+      batches.push({ urls, resolve, reject });
+      if (batches.length === 4) fourthStarted();
+    }),
+  });
+  const poll = service.refreshOpenPullRequests();
+  const returning = service.refreshPullRequestsOnReturn();
+  await service.refreshPullRequestsOnReturn();
+  t.mock.timers.tick(5_000);
+  const anotherReturn = service.refreshPullRequestsOnReturn();
+  assert.deepEqual(batches.map((batch) => batch.urls.length), [25, 25, 25]);
+  batches[0]!.reject(new Error("offline repository"));
+  await fourth;
+  assert.equal(batches[3]!.urls.length, 6);
+  const merged = (urls: string[]) => new Map(urls.map((url) => [url, { state: "MERGED", title: "new", headOid: "abc" }]));
+  batches[2]!.resolve(merged(batches[2]!.urls));
+  await changed;
+  assert.equal(database.listPullRequests(thread.id)[50]?.state, "MERGED", "a slow batch does not delay successful broadcasts");
+  batches[1]!.resolve(merged(batches[1]!.urls));
+  batches[3]!.resolve(merged(batches[3]!.urls));
+  await Promise.all([poll, returning, anotherReturn]);
+  assert.equal(batches.length, 4, "returns do not duplicate an in-flight poll");
+  assert.equal(database.listPullRequests(thread.id).filter((pr) => pr.state === "MERGED").length, 56);
 });
 
 const pick: Question = {

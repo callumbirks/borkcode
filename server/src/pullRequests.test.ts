@@ -4,9 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import type { LinkedPullRequest, RepoStatus } from "shared/protocol";
-import { git } from "./exec.ts";
+import { CommandError, git, type run } from "./exec.ts";
 import {
   fastForward,
+  fetchPullRequestStates,
   mergedNotSynced,
   planPublish,
   planSync,
@@ -246,4 +247,46 @@ test("a pull request GitHub cannot resolve does not hide the others in its repos
     [[three.url, { state: "MERGED", title: "Three", headOid: "c3" }]],
   );
   assert.equal(statesFromGraphql("gh: not logged in", [three]).size, 0);
+});
+
+test("GitHub queries cap batch size and global concurrency, and retain partial and other repositories' results", async (t) => {
+  t.mock.method(console, "error", () => {});
+  let active = 0;
+  let peak = 0;
+  const sizes: number[] = [];
+  const command: typeof run = async (name, args, options) => {
+    assert.equal(name, "gh");
+    assert.equal(options?.timeoutMs, 15_000);
+    active++;
+    peak = Math.max(peak, active);
+    try {
+      // Keep queries in flight until the other calls have entered their shared limiter.
+      await Promise.resolve();
+      const query = args.at(-1)!;
+      const numbers = [...query.matchAll(/pullRequest\(number: (\d+)\)/g)].map((match) => Number(match[1]));
+      sizes.push(numbers.length);
+      if (query.includes('name: "broken"')) throw new CommandError("offline", "offline");
+      const partial = numbers.includes(1);
+      const repository = Object.fromEntries(numbers.map((number) => [
+        `pr${number}`, partial && number === 1 ? null : { state: "MERGED", title: `PR ${number}`, headRefOid: "abc" },
+      ]));
+      const output = JSON.stringify({ data: { repository } });
+      if (partial) throw new CommandError("one missing PR", "not found", output);
+      return output;
+    } finally {
+      active--;
+    }
+  };
+  const urls = (repo: string, count: number) => Array.from({ length: count }, (_, i) => pr(repo, i + 1).url);
+  const [first, second] = await Promise.all([
+    fetchPullRequestStates([...urls("alpha", 61), ...urls("broken", 1), ...urls("beta", 2)], command),
+    fetchPullRequestStates(urls("gamma", 31), command),
+  ]);
+  assert.equal(peak, 3, "overlapping refreshes share the gh concurrency limit");
+  assert.deepEqual(sizes.sort((a, b) => a - b), [1, 2, 6, 11, 25, 25, 25]);
+  assert.equal(first.size, 61);
+  assert.equal(second.size, 30);
+  assert.equal(first.get(pr("alpha", 2).url)?.state, "MERGED");
+  assert.equal(first.get(pr("beta", 2).url)?.state, "MERGED");
+  assert.equal(first.has(pr("broken", 1).url), false);
 });

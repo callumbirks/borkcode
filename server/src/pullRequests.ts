@@ -234,13 +234,31 @@ export async function findPullRequest(repo: string, repoDir: string, branch: str
 /** What can change about a linked pull request after it is opened. */
 export type PullRequestState = Pick<LinkedPullRequest, "state" | "title" | "headOid">;
 
+const QUERY_BATCH_SIZE = 25;
+const QUERY_CONCURRENCY = 3;
+let activeQueries = 0;
+const queryWaiters: (() => void)[] = [];
+
+/** Shared by polls, returns and thread opens, so overlapping refreshes still bound gh usage. */
+async function querySlot<T>(query: () => Promise<T>): Promise<T> {
+  if (activeQueries < QUERY_CONCURRENCY) activeQueries++;
+  else await new Promise<void>((resolve) => queryWaiters.push(resolve));
+  try {
+    return await query();
+  } finally {
+    const next = queryWaiters.shift();
+    if (next) next();
+    else activeQueries--;
+  }
+}
+
 /**
- * The current state of each pull request, with one GitHub query per repository. Repositories that
- * cannot be asked (offline, gh missing, not GitHub) are left out, to be tried again later.
+ * The current state of each pull request, with bounded GitHub queries per repository. Repositories
+ * that cannot be asked (offline, gh missing, not GitHub) are left out, to be tried again later.
  */
-export async function fetchPullRequestStates(urls: string[]): Promise<Map<string, PullRequestState>> {
+export async function fetchPullRequestStates(urls: string[], command = run): Promise<Map<string, PullRequestState>> {
   const repositories = new Map<string, { host: string; owner: string; name: string; prs: { url: string; number: number }[] }>();
-  for (const url of urls) {
+  for (const url of new Set(urls)) {
     const match = /^https:\/\/([^/]+)\/([^/]+)\/([^/]+)\/pull\/(\d+)/.exec(url);
     if (!match) continue;
     const [, host, owner, name, number] = match as unknown as [string, string, string, string, string];
@@ -250,13 +268,22 @@ export async function fetchPullRequestStates(urls: string[]): Promise<Map<string
     repositories.set(key, repository);
   }
   const states = new Map<string, PullRequestState>();
+  const batches = [...repositories.values()].flatMap(({ prs, ...repository }) => {
+    const batches = [];
+    for (let start = 0; start < prs.length; start += QUERY_BATCH_SIZE) {
+      batches.push({ ...repository, prs: prs.slice(start, start + QUERY_BATCH_SIZE) });
+    }
+    return batches;
+  });
   await Promise.all(
-    [...repositories.values()].map(async ({ host, owner, name, prs }) => {
+    batches.map(async ({ host, owner, name, prs }) => {
       const fields = prs.map(({ number }) => `pr${number}: pullRequest(number: ${number}) { state title headRefOid }`);
       const query = `query { repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { ${fields.join(" ")} } }`;
       let output: string;
       try {
-        output = await run("gh", ["api", "graphql", "--hostname", host, "-f", `query=${query}`], { timeoutMs: 15_000 });
+        output = await querySlot(() =>
+          command("gh", ["api", "graphql", "--hostname", host, "-f", `query=${query}`], { timeoutMs: 15_000 }),
+        );
       } catch (error) {
         // One pull request that cannot be resolved fails the whole query, but gh still prints
         // the others. Anything else (offline, gh missing) is retried on the next poll.
