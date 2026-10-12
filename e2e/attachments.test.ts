@@ -138,7 +138,7 @@ describe("attachments over a tailnet name on plain HTTP (Android-sized Chromium)
   let server: Server;
   let browser: Browser;
   before(async () => {
-    server = await startServer(threads, {}, { tailnet: TAILNET_HOST });
+    server = await startServer(threads, {}, undefined, { tailnet: TAILNET_HOST });
     browser = await launch("chromium", [`--host-resolver-rules=MAP ${TAILNET_HOST} 127.0.0.1`]);
   });
   after(async () => {

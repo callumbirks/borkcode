@@ -1,12 +1,6 @@
 import type { LinkedPullRequest } from "shared/protocol";
 
-export type PullRequestState = "open" | "merged" | "closed";
-
-/** GitHub's OPEN, MERGED or CLOSED. Pair with the `pr-<state>` colour classes in app.css. */
-export function pullRequestState(pr: LinkedPullRequest): PullRequestState {
-  const state = pr.state.toLowerCase();
-  return state === "merged" || state === "closed" ? state : "open";
-}
+export { pullRequestState, type PullRequestState } from "shared/activity";
 
 const pullRequestUrl = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)\/?$/i;
 // A bare `repo#12`, not preceded by anything that would make it part of a longer word or path.

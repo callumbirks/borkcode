@@ -7,7 +7,8 @@ import { Database, type StoredThread } from "../server/src/db.ts";
 import { VisualizationStore } from "../server/src/visualizations.ts";
 
 export type { Item };
-export type StoredThreadSeed = { id: string; title: string; items: Item[] };
+/** `updatedAt` defaults to the time of seeding, so threads are fresh unless they say otherwise. */
+export type StoredThreadSeed = { id: string; title: string; items: Item[]; updatedAt?: number };
 
 export const PROJECT = "demo";
 export const WORKSPACE = "e2e";
@@ -26,13 +27,13 @@ export async function seed(home: string, threads: StoredThreadSeed[], visualizat
   const db = new Database(join(home, "state.sqlite"));
   const store = new VisualizationStore(new AttachmentStore(home));
   const now = Date.now();
-  for (const [index, { id, title, items }] of threads.entries()) {
+  for (const [index, { id, title, items, updatedAt }] of threads.entries()) {
     const thread: StoredThread = {
       id, project: PROJECT, title, provider: "codex", model: null, effort: null, accessMode: "full",
       workspace: WORKSPACE, branch: `borkcode/${WORKSPACE}`, status: "idle", providerSessionId: null,
       parentId: null, startBranch: null, captain: false, watched: false, paused: false, queued: 0,
       archivedAt: null, respondedAt: null, readAt: null, markedUnread: false,
-      createdAt: now + index, updatedAt: now + index,
+      createdAt: now + index, updatedAt: updatedAt ?? now + index,
     };
     db.insertThread(thread);
     for (const item of items) db.upsertItem(id, item);

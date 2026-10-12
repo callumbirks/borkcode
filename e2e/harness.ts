@@ -17,13 +17,15 @@ const repo = resolve(import.meta.dirname, "..");
 export type Server = { url: string; port: number; home: string; stop: () => Promise<void> };
 
 /**
- * `tailnet` names a MagicDNS host the fake Tailscale CLI reports, with network access on, so a
- * browser that resolves it to loopback reaches the server as a tailnet device would, over plain
- * HTTP. Its Tailscale address is not on this machine, so only that name is usable.
+ * `settings` is written as settings.json. `tailnet` names a MagicDNS host the fake Tailscale CLI
+ * reports, with network access on, so a browser that resolves it to loopback reaches the server as
+ * a tailnet device would, over plain HTTP. Its Tailscale address is not on this machine, so only
+ * that name is usable.
  */
 export async function startServer(
   threads: StoredThreadSeed[],
   visualizations: Record<string, Record<string, string>> = {},
+  settings?: Record<string, unknown>,
   { tailnet }: { tailnet?: string } = {},
 ): Promise<Server> {
   const home = await mkdtemp(join(tmpdir(), "borkcode-e2e-"));
@@ -36,9 +38,10 @@ export async function startServer(
   if (tailnet) {
     const status = { BackendState: "Running", Self: { DNSName: `${tailnet}.`, TailscaleIPs: ["100.100.100.100"] } };
     await writeFile(join(bin, "tailscale"), `#!/bin/sh\n[ "$1" = status ] && echo '${JSON.stringify(status)}' && exit 0\nexit 1\n`);
-    await writeFile(join(home, "settings.json"), JSON.stringify({ networkAccess: true }));
+    settings = { ...settings, networkAccess: true };
   }
   await seed(home, threads, visualizations, tallPng(400, 900));
+  if (settings) await writeFile(join(home, "settings.json"), JSON.stringify(settings));
 
   const probe = createServer().listen(0, "127.0.0.1");
   await once(probe, "listening");

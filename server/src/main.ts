@@ -12,6 +12,7 @@ import type {
   ServerMessage,
 } from "shared/protocol";
 import { AttachmentError, AttachmentStore, cleanType, maxBytes, servingHeaders, tooLarge } from "./attachments.ts";
+import { AUTO_ARCHIVE_INTERVAL_MS, autoArchiveChanged } from "./autoArchive.ts";
 import { loadConfig } from "./config.ts";
 import { Database } from "./db.ts";
 import { FileStore } from "./files.ts";
@@ -21,7 +22,7 @@ import { MentionSearch } from "./mentions.ts";
 import { hostName, assetBase, isAllowedOrigin, isAssetRequest, isSameSiteFetch, isAllowedRequest, isLocalMcpRequest } from "./origins.ts";
 import { listModels } from "./models.ts";
 import { ProjectStore } from "./projects.ts";
-import { SettingsStore } from "./settings.ts";
+import { DEFAULT_SETTINGS, SettingsStore } from "./settings.ts";
 import { locateAll, PreviewError, readPreview, type PreviewRoots } from "./threadFiles.ts";
 import { ThreadService } from "./threads.ts";
 import { assetType, visualizationHeaders } from "./visualizations.ts";
@@ -175,9 +176,12 @@ const handlers: Handlers = {
   "settings.get": () => settings.get(),
   "settings.update": async (params) => {
     networkRevision++;
+    // A hand-broken settings.json is replaced by this save, so compare with the defaults.
+    const previous = await settings.get().catch(() => DEFAULT_SETTINGS);
     const next = await settings.update(params.settings);
     await network.refresh(next.networkAccess);
     broadcast({ type: "settings.changed", settings: next });
+    if (autoArchiveChanged(previous.autoArchive, next.autoArchive)) void threads.autoArchive().catch(console.error);
     return next;
   },
 };
@@ -397,6 +401,8 @@ sockets.on("connection", (ws: WebSocket, request: IncomingMessage) => {
 server.listen(config.port, config.host, () => {
   console.log(`borkcode listening on http://${config.host}:${config.port} (home: ${config.home})`);
   threads.resumeQueued();
+  void threads.autoArchive().catch(console.error);
+  setInterval(() => void threads.autoArchive().catch(console.error), AUTO_ARCHIVE_INTERVAL_MS).unref();
   const refreshNetwork = async () => {
     const revision = networkRevision;
     const enabled = (await settings.get()).networkAccess;
