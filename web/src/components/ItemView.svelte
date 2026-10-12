@@ -9,6 +9,7 @@
   import { mount, unmount } from "svelte";
   import type { Item } from "shared/protocol";
   import { providerLabel, pullRequestIcon, toolIcon, toolLabel } from "../lib/display.svelte";
+  import { findFileReferences, referenceRoots, splitReferences } from "../lib/fileReferences";
   import { renderMarkdown } from "../lib/markdown";
   import { app, go } from "../lib/state.svelte";
   import MessageAttachments from "./MessageAttachments.svelte";
@@ -20,6 +21,14 @@
     const id = item.kind === "thread" ? item.threadId : item.kind === "user" ? item.fromThreadId : undefined;
     return id ? app.threads.find((thread) => thread.id === id) : undefined;
   });
+
+  /** File references in messages render as chips when they point into this thread's project. */
+  const fileRoots = $derived(
+    referenceRoots(
+      app.projects.find((project) => project.name === app.detail?.thread.project),
+      app.detail?.workspacePath,
+    ),
+  );
 
   /** Lines a message from another thread shows while collapsed; keep in step with `.clip`. */
   const collapsedLines = 5;
@@ -55,7 +64,7 @@
    */
   function markdown(text: string) {
     return (node: HTMLElement) => {
-      const html = renderMarkdown(text, Object.values(app.pullRequests).flat());
+      const html = renderMarkdown(text, Object.values(app.pullRequests).flat(), fileRoots);
       node.innerHTML = DOMPurify.sanitize(html, { ADD_ATTR: ["target"] });
       const icons = [...node.querySelectorAll<HTMLElement>("[data-pr-state]")].map((target) => {
         const state = target.dataset.prState;
@@ -66,6 +75,9 @@
     };
   }
 </script>
+
+<!-- On one line: the message keeps its whitespace, so none may sneak in around the parts. -->
+{#snippet withChips(text: string)}{#each splitReferences(text, fileRoots ? findFileReferences(text, fileRoots) : []) as part, index (index)}{#if part.reference}<span class="file-chip" title={part.reference.label}>{part.reference.name}</span>{:else}{part.text}{/if}{/each}{/snippet}
 
 {#if item.kind === "user" && item.fromThreadId}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex: it is focusable only while it is a button -->
@@ -88,7 +100,7 @@
       {/if}
     </div>
     {#if item.steered}<div class="from">Read while working</div>{/if}
-    <div class="clip"><div {@attach measure}>{item.text}</div></div>
+    <div class="clip"><div {@attach measure}>{@render withChips(item.text)}</div></div>
   </div>
 {:else if item.kind === "user"}
   {#if item.attachments?.length}
@@ -101,7 +113,7 @@
     <div class="user">
       {#if item.fromBorkcode}<div class="from"><CornerDownRight size={12} />From borkcode</div>{/if}
       {#if item.steered}<div class="from">Read while working</div>{/if}
-      {item.text}
+      {@render withChips(item.text)}
     </div>
   {/if}
 {:else if item.kind === "thread"}

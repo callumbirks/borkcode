@@ -23,10 +23,12 @@
     restoreAttachments,
     takeAttachments,
   } from "../lib/composerAttachments.svelte";
+  import { referenceRoots } from "../lib/fileReferences";
   import { answer, pick } from "../lib/questions";
   import { app, getDraft, go, openThread, rpc, setDraft } from "../lib/state.svelte";
   import AttachButton from "./AttachButton.svelte";
   import ComposerAttachments from "./ComposerAttachments.svelte";
+  import ComposerEditor from "./ComposerEditor.svelte";
   import ItemView from "./ItemView.svelte";
   import MentionPicker from "./MentionPicker.svelte";
   import ModelPicker from "./ModelPicker.svelte";
@@ -266,7 +268,10 @@
     }
   }
 
-  let composer = $state<HTMLTextAreaElement>();
+  let composer = $state<ComposerEditor>();
+  const fileRoots = $derived(
+    referenceRoots(app.projects.find((project) => project.name === thread?.project), detail?.workspacePath),
+  );
   let mentions = $state<MentionPicker>();
 
   function onKeydown(event: KeyboardEvent) {
@@ -443,15 +448,15 @@
           ondragleave={() => (dragging = false)}
           ondrop={onDrop}
         >
-          <MentionPicker bind:this={mentions} threadId={id} textarea={composer} text={draft} onchange={(text) => setDraft(id, text)} />
+          <MentionPicker bind:this={mentions} threadId={id} editor={composer} text={draft} />
           <ComposerAttachments threadId={id} />
-          <textarea
+          <ComposerEditor
             bind:this={composer}
-            bind:value={() => draft, (text) => setDraft(id, text)}
+            value={draft}
+            roots={fileRoots}
+            onchange={(text) => setDraft(id, text)}
             onkeydown={onKeydown}
             onpaste={onPaste}
-            data-composer
-            rows="2"
             placeholder={question
               ? question.options.length === 0
                 ? "Type your answer"
@@ -461,7 +466,7 @@
               : busy
                 ? "Message the agent; it reads this at its next step"
                 : "Message the agent"}
-          ></textarea>
+          />
           <div class="actions">
             <AttachButton threadId={id} />
             <ModelPicker provider={thread.provider} bind:model bind:effort compact />
@@ -711,18 +716,6 @@
   .composer:focus-within,
   .composer.dragging {
     border-color: var(--border-strong);
-  }
-  textarea {
-    display: block;
-    width: 100%;
-    resize: none;
-    background: none;
-    border: none;
-    padding: 0;
-    font-size: var(--text-md);
-    max-height: 240px;
-    field-sizing: content;
-    min-height: 44px;
   }
   .actions {
     display: flex;

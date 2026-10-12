@@ -1,5 +1,6 @@
 import { Marked, type TokenizerAndRendererExtension } from "marked";
 import type { LinkedPullRequest } from "shared/protocol";
+import { findFileReferences, type FileReference, type ReferenceRoots } from "./fileReferences.ts";
 import { parsePullRequestUrl, pullRequestIndex, pullRequestRef, pullRequestState } from "./pullRequests.ts";
 
 function escape(text: string) {
@@ -19,11 +20,32 @@ function chip(href: string, state: string, label: string) {
 }
 
 /**
- * Markdown to HTML, with GitHub PR URLs and known `repo#n` references as state chips.
- * The output is not sanitized.
+ * Markdown to HTML, with GitHub PR URLs and known `repo#n` references as state chips, and file
+ * references into the thread's project as file chips. The output is not sanitized.
  */
-export function renderMarkdown(text: string, pullRequests: LinkedPullRequest[]): string {
+export function renderMarkdown(
+  text: string,
+  pullRequests: LinkedPullRequest[],
+  roots: ReferenceRoots | null = null,
+): string {
   const index = pullRequestIndex(pullRequests);
+
+  const fileReferenceExtension: TokenizerAndRendererExtension = {
+    name: "fileReference",
+    level: "inline",
+    start(src) {
+      return roots ? findFileReferences(src, roots)[0]?.start : undefined;
+    },
+    tokenizer(src) {
+      if (!roots || this.lexer.state.inLink) return;
+      const reference = findFileReferences(src, roots)[0];
+      if (reference?.start === 0) return { type: "fileReference", raw: src.slice(0, reference.end), reference };
+    },
+    renderer(token) {
+      const reference: FileReference = token.reference;
+      return `<span class="file-chip" title="${escape(reference.label)}">${escape(reference.name)}</span>`;
+    },
+  };
 
   const pullRequestRefExtension: TokenizerAndRendererExtension = {
     name: "pullRequestRef",
@@ -46,7 +68,7 @@ export function renderMarkdown(text: string, pullRequests: LinkedPullRequest[]):
   };
 
   const marked = new Marked({
-    extensions: [pullRequestRefExtension],
+    extensions: [pullRequestRefExtension, fileReferenceExtension],
     renderer: {
       link(token) {
         const parsed = parsePullRequestUrl(token.href);
