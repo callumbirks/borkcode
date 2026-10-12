@@ -56,9 +56,14 @@ inventing a fix.
   Asset CSP sources use the incoming scheme: forwarded HTTPS is trusted only from an allowed
   loopback proxy, not from direct tailnet clients.
 - **Small screens use a navigation drawer and full-screen side panels.** The app follows
-  `visualViewport` for keyboards and safe-area insets. Coarse-pointer composers use a native
-  textarea, retaining `@` picking and drafts, with chips in sent messages; desktop keeps the
-  contenteditable. Returning to the foreground replaces stale sockets and refreshes server state.
+  `visualViewport` for keyboards and safe-area insets: iOS ignores `interactive-widget` and keeps
+  the keyboard's height in vh, dvh and innerHeight, so touch layouts of any width are sized and
+  placed by `--viewport-height`/`--viewport-top`, never vh. `lib/viewport.ts` flags the keyboard
+  (`data-keyboard`, which drops the bottom inset) when the visible height falls well below the
+  tallest seen at that width. The phone composer shrinks before the controls row does, its text
+  box scrolling inside; with too little height left, the headers hide while typing.
+  Coarse-pointer composers use a native textarea, retaining `@` picking and drafts, with chips in
+  sent messages; desktop keeps the contenteditable. Returning to the foreground replaces stale sockets and refreshes server state.
 
 - **Every workspace contains every repo,** named exactly like in `repos/`. Projects depend on
   sibling paths such as `../vessel`; never make repo membership per-thread.
@@ -203,6 +208,9 @@ inventing a fix.
   Safari uses real item heights: skipped-item placeholders jump while scrolling without effective
   scroll anchoring, including WebKit builds that parse overflow-anchor. Upward scroll intent unpins
   before resizing, and upward momentum after touchend takes priority over the bottom threshold.
+  `lib/pin.ts` holds the rules: a tap or a drag ending at the bottom re-pins on touchend (no scroll
+  event follows), and positions are clamped so iOS rubber-banding and the browser clamping
+  scrollTop when the scroller grows don't read as scrolling up.
   Work groups render their steps only once opened, since long threads hold hundreds of them.
 - **The composer's input box and the sidebar are their own compositor layers**
   (`transform: translateZ(0)`), so a keystroke or a sidebar update re-rasters only that layer
