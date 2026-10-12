@@ -33,6 +33,16 @@ transcript, workspace, branch and pull requests. It can't be archived while any 
 Unarchive it from there or from the thread itself; a message to an archived thread, from you or
 from its parent, also brings it back.
 
+Inactive threads are archived automatically, by default after 7 days (Settings, **Archiving**;
+1 to 365 days, or off). Inactive means what the sidebar's "Hide inactive threads" filter means:
+read, idle, not waiting on you and without an open PR. The days count from the thread's last
+activity: the latest of a turn starting or ending, a message being delivered (including a PR
+merge or close notice) and you reading it. A thread goes only with its whole subtree, so it waits
+while any thread it started is still active; inactive children can go on their own. Each one
+gets a notice in its transcript saying why. The check runs at start, hourly, and when the setting
+is turned on or its days change. Because it is on by default, the first start with it archives
+every old inactive thread at once; turn it off under Settings first if you don't want that.
+
 A thread starts from its first message. A small model, chosen under Settings (Codex `gpt-6-luna`
 at low effort by default), names it, and the workspace and branch are named after that title.
 Renaming a thread later changes only its displayed title. Model and effort can be switched

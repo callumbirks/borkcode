@@ -16,7 +16,11 @@ const repo = resolve(import.meta.dirname, "..");
 
 export type Server = { url: string; home: string; stop: () => Promise<void> };
 
-export async function startServer(threads: StoredThreadSeed[], visualizations: Record<string, Record<string, string>> = {}): Promise<Server> {
+export async function startServer(
+  threads: StoredThreadSeed[],
+  visualizations: Record<string, Record<string, string>> = {},
+  settings?: Record<string, unknown>,
+): Promise<Server> {
   const home = await mkdtemp(join(tmpdir(), "borkcode-e2e-"));
   const bin = join(home, "bin");
   await mkdir(bin);
@@ -25,6 +29,7 @@ export async function startServer(threads: StoredThreadSeed[], visualizations: R
     await chmod(join(bin, name), 0o755);
   }
   await seed(home, threads, visualizations, tallPng(400, 900));
+  if (settings) await writeFile(join(home, "settings.json"), JSON.stringify(settings));
 
   const probe = createServer().listen(0, "127.0.0.1");
   await once(probe, "listening");
