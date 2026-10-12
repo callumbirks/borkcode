@@ -176,6 +176,12 @@ inventing a fix.
   null means "no change", not "default". Codex reports each model's default effort, so the picker
   never moves a Codex thread from a set effort back to null. Claude switches with `setModel` and
   `applyFlagSettings({ effortLevel })`, where null does reset.
+- **A dead provider process must not take the server down.** Writing to the stdin of a Codex
+  process that has exited emits `EPIPE` on the stream even while `writable` is true, and an
+  unhandled stream error crashes Node. Every child pipe gets an error handler, and the session
+  fails on the child's `exit` (not `close`, which a grandchild holding a pipe can delay forever).
+  The Claude SDK handles its own pipes but can report the exit before a turn is pushed, so
+  `sendTurn` checks for that.
 - **Codex MCP tool timeout.** Codex gives MCP tool calls 60 seconds by default, too short for a
   tool waiting on the user's approval. The adapter sets `mcp_servers.borkcode.tool_timeout_sec`.
 - **Steering differs per provider.** Codex `turn/steer` is pinned to the running turn id and fails
