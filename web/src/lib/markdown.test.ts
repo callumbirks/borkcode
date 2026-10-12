@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { LinkedPullRequest } from "shared/protocol";
 import { renderMarkdown } from "./markdown.ts";
+import { mentionedPullRequestNumbers } from "./pullRequests.ts";
 
 const merged: LinkedPullRequest = {
   repo: "borkcode",
@@ -53,4 +54,28 @@ test("file references into the project become file chips, outside code", () => {
     '<p>Read <span class="file-chip" title="borkcode/src/main.ts">main.ts</span> and ' +
       '<span class="file-chip" title="Project files/plan.md">plan.md</span>, not <code>@borkcode/x.ts</code> or @bob.</p>\n',
   );
+});
+
+test("a message renders the same against only the PRs it mentions", () => {
+  const pr = (owner: string, repo: string, number: number, state: string): LinkedPullRequest => ({
+    repo,
+    number,
+    url: `https://github.com/${owner}/${repo}/pull/${number}`,
+    state,
+    title: "",
+    headOid: "",
+  });
+  // Two repos named alike with the same number: the first linked wins `vessel#5`, so order matters.
+  const all = [
+    merged,
+    pr("someone", "vessel", 5, "OPEN"),
+    pr("other", "vessel", 5, "CLOSED"),
+    pr("callumbirks", "borkcode", 8, "OPEN"),
+  ];
+  const text = `Merged borkcode#3 and vessel#5, see https://github.com/other/vessel/pull/5 (not #12).`;
+  const numbers = mentionedPullRequestNumbers(text);
+  assert.deepEqual([...numbers].sort((a, b) => a - b), [3, 5, 12]);
+  const mentioned = all.filter((each) => numbers.has(each.number));
+  assert.equal(mentioned.length, 3);
+  assert.equal(renderMarkdown(text, mentioned), renderMarkdown(text, all));
 });
