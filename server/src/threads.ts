@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type {
   Approval,
   Attachment,
@@ -20,6 +20,7 @@ import type {
   ThreadDetail,
 } from "shared/protocol";
 import type { AttachmentStore } from "./attachments.ts";
+import { readHtmlFile, VisualizationStore } from "./visualizations.ts";
 import { toThread, type Database, type InboxMessage, type StoredThread } from "./db.ts";
 import {
   borkcodeMessage,
@@ -149,6 +150,7 @@ export class ThreadService {
   /** Agent sessions reach the MCP endpoint at this URL followed by their token. */
   readonly #mcpBaseUrl: string;
   readonly #attachments: AttachmentStore;
+  readonly #visualizations: VisualizationStore;
   readonly #deps: ThreadDeps;
   readonly #live = new Map<string, LiveThread>();
   readonly #mcpTokens = new Map<string, string>();
@@ -174,6 +176,7 @@ export class ThreadService {
     this.#emit = emit;
     this.#mcpBaseUrl = mcpBaseUrl;
     this.#attachments = attachments;
+    this.#visualizations = new VisualizationStore(attachments);
     this.#deps = deps;
     const stale = this.#db.endStaleTurns();
     for (const threadId of stale.stopped) this.#cutOff(threadId);
@@ -490,6 +493,37 @@ export class ThreadService {
   /** The file behind an attachment, or null if the thread has no such attachment. */
   attachmentFile(threadId: string, attachmentId: string): TurnAttachment | null {
     return this.#db.getThread(threadId) ? this.#attachments.get(threadId, attachmentId) : null;
+  }
+
+  /**
+   * Shows HTML in the transcript, from the agent's `html` or from a file it wrote, or replaces
+   * what an earlier call showed when given its id. Only the id and title enter the transcript.
+   */
+  async showHtml(
+    threadId: string,
+    input: { title: string; html?: string; path?: string; id?: string },
+  ): Promise<string> {
+    this.#require(threadId);
+    const title = input.title.trim();
+    if (!title) throw new ToolError("Give the visualization a title.");
+    if ((input.html === undefined) === (input.path === undefined)) throw new ToolError("Give either html or path.");
+    if (
+      input.id !== undefined &&
+      !this.#db.listItems(threadId).some((item) => item.id === input.id && item.kind === "visualization")
+    ) {
+      throw new ToolError(`This thread has no visualization ${input.id}. Leave out id to show a new one.`);
+    }
+    const html = input.html ?? (await readHtmlFile(resolve((await this.location(threadId)).root, input.path!)));
+    const id = await this.#visualizations.save(threadId, html, input.id);
+    this.#upsertItem(threadId, { id, kind: "visualization", title, updatedAt: Date.now() });
+    return input.id
+      ? `Updated "${title}" where it is shown in the thread.`
+      : `Showing "${title}" in the thread (id ${id}). To change it, call show_html again with this id.`;
+  }
+
+  /** The page behind a visualization, or null if the thread has no such visualization. */
+  visualizationPage(threadId: string, id: string): Promise<Buffer | null> {
+    return this.#db.getThread(threadId) ? this.#visualizations.page(threadId, id) : Promise.resolve(null);
   }
 
   async #send(threadId: string, trimmed: string, settings: TurnSettings, attachments: Attachment[]): Promise<void> {

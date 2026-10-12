@@ -16,11 +16,13 @@ import { Database } from "./db.ts";
 import { FileStore } from "./files.ts";
 import { handleMcpRequest } from "./mcp.ts";
 import { MentionSearch } from "./mentions.ts";
+import { isAllowedOrigin, isSameSiteFetch } from "./origins.ts";
 import { listModels } from "./models.ts";
 import { ProjectStore } from "./projects.ts";
 import { SettingsStore } from "./settings.ts";
 import { locateAll, PreviewError, readPreview, type PreviewRoots } from "./threadFiles.ts";
 import { ThreadService } from "./threads.ts";
+import { VISUALIZATION_HEADERS } from "./visualizations.ts";
 
 const config = loadConfig();
 const db = new Database(join(config.home, "state.sqlite"));
@@ -157,26 +159,6 @@ async function dispatch(message: ClientMessage): Promise<unknown> {
   return handler(message.params ?? {});
 }
 
-/** Browsers let any page open a WebSocket to localhost, so only same-origin pages may connect. */
-function isAllowedOrigin(request: IncomingMessage): boolean {
-  const origin = request.headers.origin;
-  if (!origin) return true;
-  try {
-    return new URL(origin).host === request.headers.host;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Requests that carry no Origin, such as an image loaded by a page, still say where they come from
- * in `sec-fetch-site`. Missing means a client other than a browser.
- */
-function isSameSiteFetch(request: IncomingMessage): boolean {
-  const site = request.headers["sec-fetch-site"];
-  return site === undefined || site === "same-origin" || site === "none";
-}
-
 function replyError(response: ServerResponse, status: number, message: string): void {
   response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify({ error: message }));
 }
@@ -212,6 +194,20 @@ async function handleAttachments(
     "content-security-policy": "default-src 'none'; sandbox",
   });
   createReadStream(file.path).pipe(response);
+}
+
+/** `GET /api/threads/<id>/visualizations/<id>` serves a page the agent showed, sandboxed. */
+async function handleVisualization(
+  request: IncomingMessage,
+  response: ServerResponse,
+  threadId: string,
+  visualizationId: string,
+): Promise<void> {
+  if (!isAllowedOrigin(request) || !isSameSiteFetch(request)) return replyError(response, 403, "Forbidden");
+  if (request.method !== "GET") return replyError(response, 405, "Method not allowed");
+  const page = await threads.visualizationPage(threadId, visualizationId);
+  if (!page) return replyError(response, 404, "Not found");
+  response.writeHead(200, { ...VISUALIZATION_HEADERS, "content-length": page.length }).end(page);
 }
 
 /** `GET /api/threads/<id>/files?root=&path=` serves a file or folder listing for the preview panel. */
@@ -278,6 +274,14 @@ const server = createServer(async (request, response) => {
         return replyError(response, error.status, error.message);
       }
       replyError(response, 400, error.message);
+    });
+    return;
+  }
+  const visualizationRoute = /^\/api\/threads\/([\w-]+)\/visualizations\/([\w-]+)$/.exec(pathname);
+  if (visualizationRoute) {
+    await handleVisualization(request, response, visualizationRoute[1]!, visualizationRoute[2]!).catch((error: Error) => {
+      if (response.headersSent) return response.destroy();
+      replyError(response, 500, error.message);
     });
     return;
   }

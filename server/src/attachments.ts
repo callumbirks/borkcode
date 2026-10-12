@@ -27,6 +27,10 @@ export function isNativeImage(mimeType: string): boolean {
 /** Thread and attachment ids are UUIDs, so a valid id can never step outside its folder. */
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+export function isId(value: string): boolean {
+  return ID.test(value);
+}
+
 /** A refused upload, with the HTTP status that says why. */
 export class AttachmentError extends Error {
   readonly status: number;
