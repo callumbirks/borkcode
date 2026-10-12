@@ -161,6 +161,7 @@ inventing a fix.
 - **Transcript items use `content-visibility: auto`.** Without it every keystroke in the composer
   paid to paint and hit-test the whole transcript. It contains each item's layout and paint, so a
   fixed overlay inside an item must move to `document.body` (`MessageAttachments` does).
+  Work groups render their steps only once opened, since long threads hold hundreds of them.
 - **Clients get everything by broadcast.** It's fine for one local user. Revisit if remote access
   or many clients arrive. Keep payloads small: stream deltas, not whole items.
 
@@ -218,6 +219,12 @@ inventing a fix.
 - **Claude expands `@path` in prompts.** The CLI, also under the SDK, turns each `@path` (or
   `@"path with spaces"`) in a user message into an inlined Read result. Codex passes the text
   through. The composer's `@` picker relies on this and inserts paths, never file contents.
+- **Transcript work must not scale with history on every event.** A captain thread gets frequent
+  `thread.updated`, PR and item events, and anything each message reads from them reruns
+  hundreds of times. The thread object is replaced on every update, so derive from its fields,
+  not the object. Svelte 5 also keeps counting a `$derived` as dirty once it recomputes to an equal
+  value, so it reruns on every later upstream change; keep expensive work such as markdown
+  rendering in an effect or attachment fed by cheap deriveds, as `ItemView` does.
 - **Claude SDK types.** The source of truth is
   `server/node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`. With partial messages on,
   `assistant` messages arrive one content block at a time, after the matching `stream_event`
