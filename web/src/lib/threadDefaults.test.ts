@@ -4,47 +4,53 @@ import type { ModelOption } from "shared/protocol";
 import { parseThreadDefaults, rememberThread, settingsFor, validChoice } from "./threadDefaults.ts";
 
 const list: ModelOption[] = [
-  { id: "sonnet", name: "Sonnet", isDefault: true, efforts: ["low", "medium", "high"], defaultEffort: "high" },
-  { id: "opus", name: "Opus", isDefault: false, efforts: ["low", "medium", "high", "max"], defaultEffort: "high" },
-  { id: "haiku", name: "Haiku", isDefault: false, efforts: [], defaultEffort: null },
+  { id: "sonnet", name: "Sonnet", isDefault: true, efforts: ["low", "medium", "high"], defaultEffort: "high", supportsFastMode: false },
+  { id: "opus", name: "Opus", isDefault: false, efforts: ["low", "medium", "high", "max"], defaultEffort: "high", supportsFastMode: false },
+  { id: "haiku", name: "Haiku", isDefault: false, efforts: [], defaultEffort: null, supportsFastMode: false },
 ];
 
-test("nothing saved starts with Claude, default model and effort, and asks first", () => {
+test("nothing saved starts with Claude, default model and effort, asking first, without fast mode", () => {
   const defaults = parseThreadDefaults(null);
   assert.equal(defaults.provider, "claude");
-  assert.deepEqual(settingsFor(defaults, "claude"), { model: null, effort: null, accessMode: "ask" });
-  assert.deepEqual(settingsFor(defaults, "codex"), { model: null, effort: null, accessMode: "ask" });
+  assert.deepEqual(settingsFor(defaults, "claude"), { model: null, effort: null, accessMode: "ask", fastMode: false });
+  assert.deepEqual(settingsFor(defaults, "codex"), { model: null, effort: null, accessMode: "ask", fastMode: false });
 });
 
 test("a created thread's settings come back per provider after a reload", () => {
   let defaults = parseThreadDefaults(null);
-  defaults = rememberThread(defaults, "codex", { model: "gpt", effort: "low", accessMode: "ask" });
-  defaults = rememberThread(defaults, "claude", { model: "opus", effort: "medium", accessMode: "full" });
+  defaults = rememberThread(defaults, "codex", { model: "gpt", effort: "low", accessMode: "ask", fastMode: true });
+  defaults = rememberThread(defaults, "claude", { model: "opus", effort: "medium", accessMode: "full", fastMode: false });
   const reloaded = parseThreadDefaults(JSON.stringify(defaults));
   assert.equal(reloaded.provider, "claude");
-  assert.deepEqual(settingsFor(reloaded, "claude"), { model: "opus", effort: "medium", accessMode: "full" });
-  assert.deepEqual(settingsFor(reloaded, "codex"), { model: "gpt", effort: "low", accessMode: "ask" });
+  assert.deepEqual(settingsFor(reloaded, "claude"), { model: "opus", effort: "medium", accessMode: "full", fastMode: false });
+  assert.deepEqual(settingsFor(reloaded, "codex"), { model: "gpt", effort: "low", accessMode: "ask", fastMode: true });
 });
 
-test("only provider, model, effort and access are kept", () => {
+test("only provider, model, effort, access and fast mode are kept", () => {
   const defaults = rememberThread(parseThreadDefaults(null), "claude", {
     model: "opus",
     effort: "max",
     accessMode: "full",
+    fastMode: true,
     captain: true,
     isolated: false,
   } as never);
   assert.doesNotMatch(JSON.stringify(defaults), /captain|isolated/);
 });
 
+test("settings saved before fast mode come back with it off", () => {
+  const defaults = parseThreadDefaults(JSON.stringify({ provider: "codex", providers: { codex: { model: "gpt", effort: "high", accessMode: "full" } } }));
+  assert.deepEqual(settingsFor(defaults, "codex"), { model: "gpt", effort: "high", accessMode: "full", fastMode: false });
+});
+
 test("malformed storage falls back field by field", () => {
   assert.deepEqual(parseThreadDefaults("{not json"), { provider: "claude", providers: {} });
   assert.deepEqual(parseThreadDefaults("[]"), { provider: "claude", providers: {} });
   const defaults = parseThreadDefaults(
-    JSON.stringify({ provider: "gemini", providers: { claude: { model: 3, effort: "huge", accessMode: "yolo" }, codex: "x" } }),
+    JSON.stringify({ provider: "gemini", providers: { claude: { model: 3, effort: "huge", accessMode: "yolo", fastMode: "yes" }, codex: "x" } }),
   );
   assert.equal(defaults.provider, "claude");
-  assert.deepEqual(defaults.providers, { claude: { model: null, effort: null, accessMode: "ask" } });
+  assert.deepEqual(defaults.providers, { claude: { model: null, effort: null, accessMode: "ask", fastMode: false } });
 });
 
 test("a saved choice is named concretely: a model the provider no longer lists becomes its default", () => {

@@ -37,7 +37,7 @@ export async function seed(home: string, threads: StoredThreadSeed[], visualizat
   const now = Date.now();
   for (const [index, { id, title, items, updatedAt, captain }] of threads.entries()) {
     const thread: StoredThread = {
-      id, project: PROJECT, title, provider: "codex", model: null, effort: null, accessMode: "full",
+      id, project: PROJECT, title, provider: "codex", model: null, effort: null, accessMode: "full", fastMode: false,
       workspace: WORKSPACE, branch: `borkcode/${WORKSPACE}`, status: "idle", providerSessionId: null,
       parentId: null, startBranch: null, captain: captain ?? false, watched: false, paused: false, queued: 0,
       archivedAt: null, respondedAt: null, readAt: null, markedUnread: false,

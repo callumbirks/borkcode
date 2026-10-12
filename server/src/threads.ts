@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { findModel } from "shared/models";
 import type {
   Approval,
   Attachment,
@@ -238,6 +239,7 @@ export class ThreadService {
       model: params.model,
       effort: params.effort,
       accessMode: params.accessMode,
+      fastMode: params.fastMode === true,
       workspace,
       branch: workspace ? `borkcode/${workspace}` : null,
       status: workspace ? "preparing" : "idle",
@@ -310,7 +312,11 @@ export class ThreadService {
       this.#deps.listModels,
     );
     // Stored by name, so the child shows and keeps the model it started on.
-    const choice = resolveDefaults({ provider, ...checked }, await this.#deps.listModels(provider).catch(() => null));
+    const list = await this.#deps.listModels(provider).catch(() => null);
+    const choice = resolveDefaults({ provider, ...checked }, list);
+    // Fast mode carries over unless the child's model doesn't offer it, e.g. by a rule's choice.
+    const option = list && findModel(list, choice.model);
+    const fastMode = parent.fastMode && (option ? option.supportsFastMode : !list);
 
     let startBranch: string | null = null;
     if (request.startFrom === "this_branch") {
@@ -328,7 +334,7 @@ export class ThreadService {
       const allowed = await this.#requestApproval(parentId, {
         title: "Start a new thread?",
         detail: [
-          `${provider} · ${choice.model ?? "default model"} · ${choice.effort ?? "default"} effort`,
+          `${provider} · ${choice.model ?? "default model"} · ${choice.effort ?? "default"} effort${fastMode ? " · fast mode" : ""}`,
           `Starts from ${startBranch ?? "each repository's base branch"}`,
           "",
           truncate(message, 2000),
@@ -344,6 +350,7 @@ export class ThreadService {
       model: choice.model,
       effort: choice.effort,
       accessMode: parent.accessMode,
+      fastMode,
       isolated: true,
       captain: false,
       parentId,
@@ -352,7 +359,7 @@ export class ThreadService {
     });
     this.#upsertItem(parentId, { id: randomUUID(), kind: "thread", threadId: child.id });
     return [
-      `Started thread "${child.title}" (id ${child.id}) with ${provider} ${choice.model ?? "default model"} at ${choice.effort ?? "default"} effort${rule ? ", picked by the user's child model rules" : ""},`,
+      `Started thread "${child.title}" (id ${child.id}) with ${provider} ${choice.model ?? "default model"} at ${choice.effort ?? "default"} effort${fastMode ? " in fast mode" : ""}${rule ? ", picked by the user's child model rules" : ""},`,
       `starting from ${startBranch ?? "each repository's base branch"}. Its title is being generated from your message.`,
       request.watch
         ? "You are watching it: its final reply will come back to you as a message. Reply with send_to_thread only when it needs an answer or new instructions."
@@ -606,6 +613,7 @@ export class ThreadService {
       settings.model !== thread.model ||
       settings.effort !== thread.effort ||
       settings.accessMode !== thread.accessMode ||
+      settings.fastMode !== thread.fastMode ||
       thread.paused
     ) {
       this.#db.updateThread(threadId, { ...settings, paused: false });
@@ -808,12 +816,14 @@ export class ThreadService {
 
   /**
    * The model and effort a thread runs on, by name, as its picker shows them: threads saved on the
-   * provider's defaults (null) get the default model and its default effort.
+   * provider's defaults (null) get the default model and its default effort. Fast mode is asked
+   * for only where the model offers it, since Claude would otherwise switch to a model that does.
    */
-  async #modelSettings(thread: StoredThread): Promise<ModelSettings> {
+  async #modelSettings(thread: StoredThread): Promise<ModelSettings & { fastMode: boolean }> {
     const list = await this.#deps.listModels(thread.provider).catch(() => null);
-    const { model, effort } = resolveDefaults({ provider: thread.provider, model: thread.model, effort: thread.effort }, list);
-    return { model, effort };
+    const { model, effort } = resolveDefaults({ model: thread.model, effort: thread.effort }, list);
+    const option = list && findModel(list, model);
+    return { model, effort, fastMode: thread.fastMode && (option ? option.supportsFastMode : !list) };
   }
 
   /** `serverStopped` means the text carries the note about a cut-off turn, cleared once the agent has it. */

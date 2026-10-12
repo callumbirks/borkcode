@@ -96,8 +96,18 @@ export function claudeModelOptions(models: ModelInfo[]): ModelOption[] {
       isDefault: model === preferred,
       efforts,
       defaultEffort: efforts.includes("high") ? "high" : (efforts.at(-1) ?? null),
+      supportsFastMode: model.supportsFastMode === true,
     };
   });
+}
+
+/**
+ * Claude's fast mode (`/fast`) is the `fastMode` flag setting: the session starts with it as the
+ * `settings` option and switches with `applyFlagSettings`. The SDK serves fast mode only when the
+ * flag layer asks for it, and an explicit false also overrides the user's own settings files.
+ */
+export function claudeFastMode(fastMode: boolean): { fastMode: boolean } {
+  return { fastMode };
 }
 
 export async function listClaudeModels(): Promise<ModelOption[]> {
@@ -269,7 +279,7 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
   // Starting in bypass mode would make the SDK warn that canUseTool is shadowed, but canUseTool is
   // needed once the thread switches to ask mode. So every session starts asking, and the first turn
   // switches to full access.
-  let current = { model: options.model, effort: options.effort, accessMode: "ask" as AccessMode };
+  let current = { model: options.model, effort: options.effort, accessMode: "ask" as AccessMode, fastMode: options.fastMode };
 
   const conversation = query({
     prompt: turns,
@@ -306,6 +316,7 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
       ...(options.resumeId ? { resume: options.resumeId } : {}),
       ...(model ? { model } : {}),
       ...(options.effort ? { effort: options.effort } : {}),
+      settings: claudeFastMode(options.fastMode),
     },
   });
 
@@ -436,6 +447,7 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
       if (settings.effort !== current.effort) {
         await conversation.applyFlagSettings({ effortLevel: settings.effort });
       }
+      if (settings.fastMode !== current.fastMode) await conversation.applyFlagSettings(claudeFastMode(settings.fastMode));
       if (settings.accessMode !== current.accessMode) {
         await conversation.setPermissionMode(permissionMode(settings.accessMode));
       }

@@ -84,6 +84,13 @@ inventing a fix.
   and settings, is resolved with `shared/models.ts` rather than migrated: pickers show and write
   back the concrete choice, and the server resolves it before starting sessions, turns and titles
   and before storing a child's model, so what runs is what the picker showed.
+- **Fast mode is a per-thread flag,** like access mode: saved with the next message and the
+  new-thread preferences, inherited by children. It is sent only where the model list says the
+  model offers it (`supportsFastMode`), because asking Claude for fast mode on another model makes
+  it switch models. Claude takes it as the `fastMode` flag setting (the `settings` option, then
+  `applyFlagSettings`); the SDK serves it only when that flag layer asks. Codex takes it as
+  `serviceTierForTurn` on every `turn/start` ("priority", or "default" for standard speed), so
+  turning it off is explicit and nothing sticks to the Codex thread.
 - **Setup commands run once per new worktree,** sequentially in repo order, with
   `BORKCODE_MAIN_REPO`, `BORKCODE_WORKSPACE` and `BORKCODE_PROJECT` set.
 - **The agent's workspace orientation is injected** through each provider's system-instruction

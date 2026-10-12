@@ -32,6 +32,7 @@
     model = $bindable(),
     effort = $bindable(),
     accessMode = $bindable(),
+    fastMode = $bindable(false),
     newThread = false,
     captain = $bindable(false),
     isolated = $bindable(true),
@@ -56,6 +57,7 @@
     model: string | null;
     effort: Effort | null;
     accessMode: AccessMode;
+    fastMode?: boolean;
     /** Shows the agent, role and workspace pickers, which only a new thread can choose. */
     newThread?: boolean;
     captain?: boolean;
@@ -166,7 +168,7 @@
     />
     <div class="actions" class:answering>
       <span class="attachment-control"><AttachButton {draftKey} {uploadUrl} /></span>
-      <ComposerOptions bind:provider bind:model bind:effort bind:accessMode bind:captain bind:isolated {newThread} {onpickprovider} />
+      <ComposerOptions bind:provider bind:model bind:effort bind:accessMode bind:fastMode bind:captain bind:isolated {newThread} {onpickprovider} />
       <span class="spacer"></span>
       {@render actions?.()}
       {#if showSend}

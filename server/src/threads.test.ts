@@ -122,8 +122,11 @@ const fakeDeps = {
   },
   listModels: async (provider) =>
     provider === "claude"
-      ? [{ id: "opus-5-5", name: "Opus 5.5", isDefault: true, efforts: ["medium", "xhigh"], defaultEffort: "xhigh" }]
-      : [{ id: "gpt-6.1-sol", name: "GPT 6.1 Sol", isDefault: true, efforts: ["low", "high"], defaultEffort: "low" }],
+      ? [
+          { id: "opus-5-5", name: "Opus 5.5", isDefault: true, efforts: ["medium", "xhigh"], defaultEffort: "xhigh", supportsFastMode: true },
+          { id: "haiku", name: "Haiku", isDefault: false, efforts: [], defaultEffort: null, supportsFastMode: false },
+        ]
+      : [{ id: "gpt-6.1-sol", name: "GPT 6.1 Sol", isDefault: true, efforts: ["low", "high"], defaultEffort: "low", supportsFastMode: false }],
 } satisfies ConstructorParameters<typeof ThreadService>[6];
 const db = new Database(":memory:");
 const threads = new ThreadService(db, projects, settings, emit, "http://test/mcp/", attachments, fakeDeps);
@@ -142,7 +145,7 @@ async function userItems(threadId: string): Promise<Extract<Item, { kind: "user"
   return (await threads.get(threadId)).items.filter((item) => item.kind === "user");
 }
 
-async function startThread(text: string) {
+async function startThread(text: string, fastMode = false) {
   const thread = await threads.create({
     project: "demo",
     text,
@@ -150,6 +153,7 @@ async function startThread(text: string) {
     model: null,
     effort: null,
     accessMode: "full",
+    fastMode,
     isolated: true,
     captain: false,
   });
@@ -160,13 +164,13 @@ test("a message to a busy thread joins its turn at the next step, or waits for t
   const { thread, agent } = await startThread("first task");
   assert.equal(await agent.turn(1), "first task");
 
-  await threads.send(thread.id, "while you work", { model: null, effort: null, accessMode: "full" });
+  await threads.send(thread.id, "while you work", { model: null, effort: null, accessMode: "full", fastMode: false });
   assert.equal((await threads.get(thread.id)).thread.queued, 1);
   agent.finish("done with the first");
   assert.equal(await agent.turn(2), "while you work");
 
   agent.steerable = true;
-  await threads.send(thread.id, "and also this", { model: null, effort: null, accessMode: "full" });
+  await threads.send(thread.id, "and also this", { model: null, effort: null, accessMode: "full", fastMode: false });
   assert.deepEqual(agent.steers, ["and also this"]);
   const steered = (await userItems(thread.id)).at(-1);
   assert.equal(steered?.text, "and also this");
@@ -187,7 +191,7 @@ test("a changed access mode is saved and applies to the next turn", async () => 
   const { thread, agent } = await startThread("careful now");
   await agent.turn(1);
   agent.finish("ok");
-  await threads.send(thread.id, "go ahead", { model: null, effort: null, accessMode: "ask" });
+  await threads.send(thread.id, "go ahead", { model: null, effort: null, accessMode: "ask", fastMode: false });
   await agent.turn(2);
   assert.equal(agent.settings[1]?.accessMode, "ask");
   assert.equal((await threads.get(thread.id)).thread.accessMode, "ask");
@@ -197,14 +201,66 @@ test("a changed access mode is saved and applies to the next turn", async () => 
 test("a thread saved on the provider's defaults runs on them by name, and keeps null until changed", async () => {
   const { thread, agent } = await startThread("defaults");
   await agent.turn(1);
-  assert.deepEqual(agent.settings[0], { model: "opus-5-5", effort: "xhigh", accessMode: "full" });
+  assert.deepEqual(agent.settings[0], { model: "opus-5-5", effort: "xhigh", accessMode: "full", fastMode: false });
   assert.equal((await threads.get(thread.id)).thread.model, null);
   agent.finish("ok");
-  await threads.send(thread.id, "less effort", { model: "opus-5-5", effort: "medium", accessMode: "full" });
+  await threads.send(thread.id, "less effort", { model: "opus-5-5", effort: "medium", accessMode: "full", fastMode: false });
   await agent.turn(2);
-  assert.deepEqual(agent.settings[1], { model: "opus-5-5", effort: "medium", accessMode: "full" });
+  assert.deepEqual(agent.settings[1], { model: "opus-5-5", effort: "medium", accessMode: "full", fastMode: false });
   assert.equal((await threads.get(thread.id)).thread.effort, "medium");
   agent.finish("done");
+});
+
+test("fast mode is saved with a message, applies from the next turn, and only where the model offers it", async () => {
+  const { thread, agent } = await startThread("quick one", true);
+  await agent.turn(1);
+  assert.equal(agent.settings[0]?.fastMode, true);
+  assert.equal((await threads.get(thread.id)).thread.fastMode, true);
+  agent.finish("ok");
+  await threads.send(thread.id, "slow down", { model: "opus-5-5", effort: "xhigh", accessMode: "full", fastMode: false });
+  await agent.turn(2);
+  assert.equal(agent.settings[1]?.fastMode, false);
+  assert.equal((await threads.get(thread.id)).thread.fastMode, false);
+  agent.finish("ok");
+  // Kept on the thread, but not asked of a model without it.
+  await threads.send(thread.id, "on haiku", { model: "haiku", effort: null, accessMode: "full", fastMode: true });
+  await agent.turn(3);
+  assert.equal(agent.settings[2]?.fastMode, false);
+  assert.equal((await threads.get(thread.id)).thread.fastMode, true);
+  agent.finish("done");
+});
+
+test("children inherit fast mode unless their model lacks it", async () => {
+  await writeFile(
+    settings.path,
+    JSON.stringify({
+      childModelRules: [
+        { when: { provider: "claude", model: "opus-5-5", effort: "medium" }, use: { provider: "codex", model: null, effort: null } },
+      ],
+    }),
+  );
+  try {
+    const { thread: parent, agent } = await startThread("fast parent", true);
+    await agent.turn(1);
+    agent.finish("ok");
+    const child = (message: string) => threads.list().find((each) => each.parentId === parent.id && each.title.includes(message));
+    const reply = await threads.startThread(parent.id, { message: "same model", watch: false, startFrom: "base" });
+    assert.match(reply, /in fast mode/);
+    assert.equal(child("same model")?.fastMode, true);
+    await threads.startThread(parent.id, { message: "on haiku", watch: false, startFrom: "base", model: "haiku" });
+    assert.equal(child("on haiku")?.fastMode, false);
+    // The rule's Codex model has no fast mode.
+    await threads.send(parent.id, "medium now", { model: "opus-5-5", effort: "medium", accessMode: "full", fastMode: true });
+    await agent.turn(2);
+    agent.finish("ok");
+    await threads.startThread(parent.id, { message: "by rule", watch: false, startFrom: "base" });
+    assert.deepEqual(
+      [child("by rule")?.provider, child("by rule")?.fastMode],
+      ["codex", false],
+    );
+  } finally {
+    await rm(settings.path, { force: true });
+  }
 });
 
 test("a watched child reports every turn to its parent, including turns the user started", async () => {
@@ -227,7 +283,7 @@ test("a watched child reports every turn to its parent, including turns the user
   parentAgent.finish("waiting on the user");
 
   // The user answers the child directly; the outcome still reaches the parent.
-  await threads.send(child!.id, "Use SQLite", { model: null, effort: null, accessMode: "full" });
+  await threads.send(child!.id, "Use SQLite", { model: null, effort: null, accessMode: "full", fastMode: false });
   assert.equal(await childAgent.turn(2), "Use SQLite");
   childAgent.finish("Built it with SQLite.");
   const secondReport = await parentAgent.turn(3);
@@ -278,12 +334,12 @@ test("deliveries between threads pause at the limit and resume when the user ste
     childAgent.finish("report one");
     await parentAgent.turn(2);
     parentAgent.finish("ok");
-    await threads.send(child!.id, "more", { model: null, effort: null, accessMode: "full" });
+    await threads.send(child!.id, "more", { model: null, effort: null, accessMode: "full", fastMode: false });
     await childAgent.turn(2);
     childAgent.finish("report two");
     await parentAgent.turn(3);
     parentAgent.finish("ok");
-    await threads.send(child!.id, "more again", { model: null, effort: null, accessMode: "full" });
+    await threads.send(child!.id, "more again", { model: null, effort: null, accessMode: "full", fastMode: false });
     await childAgent.turn(3);
     const paused = broadcastOf(
       (event) => event.type === "thread.updated" && event.thread.id === parent.id && event.thread.paused,
@@ -346,6 +402,7 @@ test("a main-checkout thread's scratch folder is deleted with the thread", async
     model: null,
     effort: null,
     accessMode: "full",
+    fastMode: false,
     isolated: false,
     captain: false,
   });
@@ -402,7 +459,7 @@ test("a merged or closed pull request wakes its thread, and a watched child's re
 
   // A merge found as the user's message starts a turn joins that turn instead of waking the next.
   github(8, "MERGED");
-  await threads.send(child!.id, "carry on", { model: null, effort: null, accessMode: "full" });
+  await threads.send(child!.id, "carry on", { model: null, effort: null, accessMode: "full", fastMode: false });
   const joined = await childAgent.turn(3);
   assert.match(joined, /demo#8 was merged/);
   assert.match(joined, /Message from the user:\n\ncarry on/);
@@ -505,12 +562,12 @@ test("a finished or failed turn leaves the thread unread until the user reads it
   assert.equal(unread(thread.id), false);
   assert.equal(updatedAt(), activeAt);
 
-  await threads.send(thread.id, "keep going", { model: null, effort: null, accessMode: "full" });
+  await threads.send(thread.id, "keep going", { model: null, effort: null, accessMode: "full", fastMode: false });
   await agent.turn(2);
   await threads.interrupt(thread.id);
   assert.equal(unread(thread.id), false);
 
-  await threads.send(thread.id, "try again", { model: null, effort: null, accessMode: "full" });
+  await threads.send(thread.id, "try again", { model: null, effort: null, accessMode: "full", fastMode: false });
   await agent.turn(3);
   agent.fail("provider exploded");
   assert.equal(unread(thread.id), true);
@@ -567,7 +624,7 @@ test("a watched child's report is its parent's to read, unless the user joined t
   parentAgent.finish("noted the part");
   assert.equal(unread(parent.id), true);
 
-  await threads.send(child!.id, "one more tweak", { model: null, effort: null, accessMode: "full" });
+  await threads.send(child!.id, "one more tweak", { model: null, effort: null, accessMode: "full", fastMode: false });
   await childAgent.turn(2);
   childAgent.finish("tweaked");
   assert.equal(unread(child!.id), true);
@@ -650,13 +707,14 @@ test("attachments go with a message to the agent, steered or queued across a res
     model: null,
     effort: null,
     accessMode: "full",
+    fastMode: false,
     isolated: true,
     captain: false,
   });
   const agent = await agentOf(thread.id, before);
   await agent.turn(1);
   const upload = () => before.upload(thread.id, "shot.png", "image/png", Readable.from([PNG]));
-  const settingsNow = { model: null, effort: null, accessMode: "full" as const };
+  const settingsNow = { model: null, effort: null, accessMode: "full" as const, fastMode: false };
 
   agent.steerable = true;
   const steered = await upload();
@@ -730,7 +788,7 @@ test("a new thread takes its draft's uploads, sends the named ones with its firs
   assert.ok(!existsSync(attachments.dir(thread.id)));
 });
 
-const SETTINGS_NOW = { model: null, effort: null, accessMode: "full" as const };
+const SETTINGS_NOW = { model: null, effort: null, accessMode: "full" as const, fastMode: false };
 
 function notices(items: Item[]): string[] {
   return items.flatMap((item) => (item.kind === "notice" ? [item.text] : []));
@@ -947,6 +1005,7 @@ test("automatic archiving tucks away inactive subtrees with a notice, and does n
       model: null,
       effort: null,
       accessMode: "full",
+      fastMode: false,
       workspace: null,
       branch: null,
       status,

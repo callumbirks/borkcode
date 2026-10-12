@@ -113,7 +113,7 @@ test("thread mode searches all projects, ranks local then recent, and omits file
   const db = new Database(join(scratch, "thread-mode.sqlite"));
   const seed = (id: string, project: string, updatedAt: number, archivedAt: number | null = null) => {
     db.insertThread({ id, project, title: `Notes ${id}`, provider: "codex", model: null, effort: null,
-      accessMode: "full", workspace: null, branch: null, status: "idle", parentId: null, captain: false,
+      accessMode: "full", fastMode: false, workspace: null, branch: null, status: "idle", parentId: null, captain: false,
       watched: false, queued: 0, paused: false, archivedAt, respondedAt: null, readAt: null, markedUnread: false,
       createdAt: 1, updatedAt, providerSessionId: null, startBranch: null });
   };

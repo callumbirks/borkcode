@@ -63,6 +63,7 @@
   let model = $state<string | null>(null);
   let effort = $state<Effort | null>(null);
   let accessMode = $state<AccessMode>("ask");
+  let fastMode = $state(false);
   let picksLoadedFor: string | null = null;
   $effect(() => {
     if (!thread || picksLoadedFor === thread.id) return;
@@ -70,6 +71,7 @@
     model = thread.model;
     effort = thread.effort;
     accessMode = thread.accessMode;
+    fastMode = thread.fastMode;
   });
 
   let overview = $state(false);
@@ -245,7 +247,7 @@
   // While the agent works, a message joins its turn at the next step or waits for the turn to end.
   async function send(text: string, attachments: string[]) {
     followToBottom();
-    await rpc.request("threads.send", { threadId: id, text, attachments, model, effort, accessMode });
+    await rpc.request("threads.send", { threadId: id, text, attachments, model, effort, accessMode, fastMode });
   }
 
   async function resume() {
@@ -258,7 +260,7 @@
     error = "";
     followToBottom();
     try {
-      await rpc.request("threads.publish", { threadId: id, model, effort, accessMode });
+      await rpc.request("threads.publish", { threadId: id, model, effort, accessMode, fastMode });
     } catch (cause) {
       error = (cause as Error).message;
     }
@@ -396,6 +398,7 @@
         bind:model
         bind:effort
         bind:accessMode
+        bind:fastMode
         onsend={send}
         onsubmit={asking ? () => void submitAnswer() : undefined}
         showSend={!asking && (thread.status !== "running" || draft.trim() !== "" || hasAttachments)}

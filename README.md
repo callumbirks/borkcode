@@ -62,6 +62,11 @@ between turns from the composer. They are always a named model and effort: Claud
 effort (Claude doesn't report its own default effort). Threads and settings saved on the old
 defaults show, and run on, that model and effort until you change them.
 
+Fast mode (the lightning button, off by default) asks for faster output from the same model at a
+higher price: Claude Code's `/fast`, or Codex's Fast ("priority") service tier. It shows only for
+models that offer it, applies from the next turn, and is remembered per provider for new threads
+on that device. Threads started by an agent keep their parent's fast mode unless their model lacks it.
+
 Type `@` in the composer to reference a file from any of the project's repos or its shared project
 files. On the new-thread page, before the thread has a workspace, repo files come from the main
 clones in `repos/`, which its worktrees branch from. Suggestions narrow as you type; arrow keys move, Enter or Tab inserts, Escape closes. Repo

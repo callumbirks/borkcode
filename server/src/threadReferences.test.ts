@@ -16,7 +16,7 @@ await projects.create("other");
 const db = new Database(join(home, "db.sqlite"));
 function seed(id: string, patch: Partial<StoredThread> = {}) {
   const t: StoredThread = { id, project: "demo", title: id, provider: "codex", model: null, effort: null,
-    accessMode: "full", workspace: null, branch: null, status: "idle", parentId: null, captain: false,
+    accessMode: "full", fastMode: false, workspace: null, branch: null, status: "idle", parentId: null, captain: false,
     watched: false, queued: 0, paused: false, archivedAt: null, respondedAt: 100, readAt: null, markedUnread: false,
     createdAt: 1, updatedAt: 100, providerSessionId: null, startBranch: null, ...patch };
   db.insertThread(t);

@@ -2,18 +2,19 @@
   import Shield from "@lucide/svelte/icons/shield";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import Zap from "@lucide/svelte/icons/zap";
   import type { AccessMode, Effort, ProviderKind } from "shared/protocol";
   import { findModel } from "shared/models";
   import { models } from "../lib/state.svelte";
   import ModelPicker from "./ModelPicker.svelte";
 
   let {
-    provider = $bindable(), model = $bindable(), effort = $bindable(), accessMode = $bindable(),
+    provider = $bindable(), model = $bindable(), effort = $bindable(), accessMode = $bindable(), fastMode = $bindable(false),
     newThread = false, captain = $bindable(false), isolated = $bindable(true), onpickprovider,
   }: {
-    provider: ProviderKind; model: string | null; effort: Effort | null; accessMode: AccessMode;
+    provider: ProviderKind; model: string | null; effort: Effort | null; accessMode: AccessMode; fastMode?: boolean;
     newThread?: boolean; captain?: boolean; isolated?: boolean;
-    /** Sets the new provider's model, effort and access; without it they reset to its defaults. */
+    /** Sets the new provider's model, effort, access and fast mode; without it they reset to its defaults. */
     onpickprovider?: (provider: ProviderKind) => void;
   } = $props();
   let dialog: HTMLDialogElement;
@@ -29,6 +30,7 @@
     else {
       model = null;
       effort = null;
+      fastMode = false;
     }
   }
   function dismissBackdrop(event: MouseEvent) {
@@ -52,6 +54,23 @@
     </select>
   </label>
 {/snippet}
+<!-- Shown only for models that offer it; the choice is kept, and asked for again on one that does. -->
+{#snippet fastToggle()}
+  {#if current?.supportsFastMode}
+    <button type="button" class="ghost icon toggle" class:on={fastMode} aria-pressed={fastMode}
+      aria-label={`Fast mode: ${fastMode ? "on" : "off"}`} title={`Fast mode: ${fastMode ? "on" : "off"} (same model, faster output, higher price)`}
+      onclick={() => (fastMode = !fastMode)}>
+      <Zap size={16} fill={fastMode ? "currentColor" : "none"} />
+    </button>
+  {/if}
+{/snippet}
+{#snippet fastPicker()}
+  {#if current?.supportsFastMode}
+    <label>Fast mode
+      <select aria-label="Fast mode" bind:value={fastMode}><option value={false}>Off</option><option value={true}>On: faster output, higher price</option></select>
+    </label>
+  {/if}
+{/snippet}
 {#snippet threadOptions()}
   <label>Role
     <select aria-label="Role" bind:value={captain}><option value={false}>Thread</option><option value={true}>Captain</option></select>
@@ -64,6 +83,7 @@
 <div class="desktop-options">
   {#if newThread}{@render providerPicker()}{/if}
   <ModelPicker {provider} bind:model bind:effort compact />
+  {@render fastToggle()}
   {@render accessPicker()}
   {#if newThread}{@render threadOptions()}{/if}
 </div>
@@ -79,6 +99,7 @@
   <div class="fields">
     {#if newThread}{@render providerPicker()}{/if}
     <ModelPicker {provider} bind:model bind:effort />
+    {@render fastPicker()}
     {@render accessPicker()}
     {#if newThread}{@render threadOptions()}{/if}
   </div>
@@ -92,6 +113,8 @@
     color: var(--text-secondary); padding: var(--space-1) var(--space-1-5);
   }
   .desktop-options :global(select:hover:not(:disabled)) { background: var(--surface-hover); color: var(--text-primary); }
+  .toggle { color: var(--text-secondary); }
+  .toggle.on { color: var(--text-primary); }
   .phone-options { display: none; }
   dialog {
     color: var(--text-primary); background: var(--surface-raised); border: 1px solid var(--border-default);

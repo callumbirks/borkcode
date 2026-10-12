@@ -14,13 +14,14 @@ export interface ProviderSettings {
   model: string | null;
   effort: Effort | null;
   accessMode: AccessMode;
+  fastMode: boolean;
 }
 
 export const threadDefaultsKey = "borkcode.threadDefaults";
 
 const providers: ProviderKind[] = ["claude", "codex"];
 const efforts: Effort[] = ["low", "medium", "high", "xhigh", "max"];
-const empty: ProviderSettings = { model: null, effort: null, accessMode: "ask" };
+const empty: ProviderSettings = { model: null, effort: null, accessMode: "ask", fastMode: false };
 
 /** Reads what `rememberThread` saved, dropping anything malformed field by field. */
 export function parseThreadDefaults(raw: string | null): ThreadDefaults {
@@ -43,12 +44,13 @@ export function parseThreadDefaults(raw: string | null): ThreadDefaults {
       model: typeof entry.model === "string" && entry.model ? entry.model : null,
       effort: efforts.includes(entry.effort as Effort) ? (entry.effort as Effort) : null,
       accessMode: entry.accessMode === "full" ? "full" : "ask",
+      fastMode: entry.fastMode === true,
     };
   }
   return result;
 }
 
-/** A provider's saved settings, or the provider's defaults with access asked first. */
+/** A provider's saved settings, or the provider's defaults with access asked first and fast mode off. */
 export function settingsFor(defaults: ThreadDefaults, provider: ProviderKind): ProviderSettings {
   return { ...(defaults.providers[provider] ?? empty) };
 }
@@ -71,9 +73,9 @@ export function validChoice(
 export function rememberThread(
   defaults: ThreadDefaults,
   provider: ProviderKind,
-  { model, effort, accessMode }: ProviderSettings,
+  { model, effort, accessMode, fastMode }: ProviderSettings,
 ): ThreadDefaults {
-  return { provider, providers: { ...defaults.providers, [provider]: { model, effort, accessMode } } };
+  return { provider, providers: { ...defaults.providers, [provider]: { model, effort, accessMode, fastMode } } };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
