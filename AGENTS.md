@@ -210,9 +210,13 @@ inventing a fix.
   Safari uses real item heights: skipped-item placeholders jump while scrolling without effective
   scroll anchoring, including WebKit builds that parse overflow-anchor. Upward scroll intent unpins
   before resizing, and upward momentum after touchend takes priority over the bottom threshold.
-  `lib/pin.ts` holds the rules: a tap or a drag ending at the bottom re-pins on touchend (no scroll
-  event follows), and positions are clamped so iOS rubber-banding and the browser clamping
-  scrollTop when the scroller grows don't read as scrolling up.
+  `lib/pin.ts` holds the rules. Only the user unpins: an upward scroll counts only while the
+  transcript is held (touch, or a mouse button on it or its scrollbar), or within 150ms of a
+  wheel, key or drag, chained so momentum and animated scrolling count. The browser moves
+  scrollTop by itself (clamping when the range shrinks, as when the "Working…" line goes at a
+  turn's end; anchoring; focusing a clicked message), and those scroll events can arrive before
+  the ResizeObserver callback, so judging by position alone silently unpinned. A tap or click
+  re-pins on release and opens no gesture window. Sending a message jumps to the bottom and pins.
   Work groups render their steps only once opened, since long threads hold hundreds of them.
 - **The composer's input box and the sidebar are their own compositor layers**
   (`transform: translateZ(0)`), so a keystroke or a sidebar update re-rasters only that layer
@@ -321,7 +325,12 @@ inventing a fix.
 - For provider changes, a scripted smoke run is the real proof: start the server on a temp home
   with a captured PID, drive it over `/ws`, auto-approve, and check the transcript and repo
   status. Say when you could not run one.
-- Do not open a browser or use computer use unless the user agrees.
+- Auto-scroll and other transcript behavior have browser tests in `e2e/` (`pnpm test:e2e`, see
+  the README): a seeded temp-home server, a fake Codex for real turns, and server events injected
+  through Playwright's WebSocket routing. Add a scenario there when changing `lib/pin.ts` or the
+  transcript layout, and run it in both browsers.
+- Do not open a browser or use computer use unless the user agrees; `pnpm test:e2e` is headless
+  and already agreed.
 
 ## Taste
 

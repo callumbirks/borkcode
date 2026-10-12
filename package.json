@@ -8,6 +8,10 @@
     "build": "pnpm --filter web build",
     "start": "node --disable-warning=ExperimentalWarning server/src/main.ts",
     "test": "node --test --disable-warning=ExperimentalWarning '{server,web}/src/**/*.test.ts'",
-    "typecheck": "pnpm --filter server exec tsc -p . && pnpm --filter web check"
+    "typecheck": "pnpm --filter server exec tsc -p . && pnpm --filter web check",
+    "test:e2e": "pnpm build && node --test --test-concurrency=1 --disable-warning=ExperimentalWarning 'e2e/*.test.ts'"
+  },
+  "devDependencies": {
+    "playwright": "1.64.0"
   }
 }
