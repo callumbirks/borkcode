@@ -14,7 +14,7 @@
   import { randomUuid } from "../lib/browser";
   import { referenceRoots } from "../lib/fileReferences";
   import { newThreadDraftKey } from "../lib/routes";
-  import { app, go, models, rpc } from "../lib/state.svelte";
+  import { app, go, models, rpc, showingNewThreadComposer } from "../lib/state.svelte";
   import { parseThreadDefaults, rememberThread, settingsFor, threadDefaultsKey, validChoice } from "../lib/threadDefaults";
   import Composer from "./Composer.svelte";
 
@@ -49,6 +49,11 @@
     const catalog = models[provider];
     if (!catalog || catalog.error) return;
     untrack(() => ({ model, effort } = validChoice({ model, effort }, catalog.list)));
+  });
+
+  let composer = $state<Composer>();
+  $effect(() => {
+    if (composer) return showingNewThreadComposer(composer);
   });
 
   // The new thread branches from the main checkouts, so references point into them until then.
@@ -97,6 +102,7 @@
     </div>
   </div>
   <Composer
+    bind:this={composer}
     {draftKey}
     uploadUrl={uploadUrl({ draftId })}
     scope={{ project: name }}

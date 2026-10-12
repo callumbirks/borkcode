@@ -103,6 +103,11 @@
   }
 
   let editor = $state<ComposerEditor>();
+
+  /** Puts the caret after the draft, ready to type. */
+  export function focus() {
+    editor?.focusEnd();
+  }
   let mentions = $state<MentionPicker>();
 
   function onKeydown(event: KeyboardEvent) {

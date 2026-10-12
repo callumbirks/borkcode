@@ -25,7 +25,7 @@
   import { filterThreads, isDefaultFilter, parseFilter, type SidebarFilter } from "../lib/sidebarFilter";
   import { deleteThread } from "../lib/threadActions";
   import { workingInSubtree } from "../lib/threadTree";
-  import { app, go, nav, rpc } from "../lib/state.svelte";
+  import { app, go, nav, rpc, startNewThread } from "../lib/state.svelte";
   import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
   import FilterMenu from "./FilterMenu.svelte";
   import Spinner from "./Spinner.svelte";
@@ -198,7 +198,7 @@
           <button
             class="add ghost icon"
             title="New thread in {project.name}"
-            onclick={() => go({ view: "new", project: project.name })}
+            onclick={() => startNewThread(project.name)}
           >
             <Plus size={14} />
           </button>
