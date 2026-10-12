@@ -276,7 +276,11 @@ inventing a fix.
   `features.default_mode_request_user_input` config, which the adapter sets. Claude's
   `AskUserQuestion` reaches `canUseTool` in every permission mode, including bypass.
 - **Thread references use `borkcode:thread:<uuid>`, without `@`.** The `@` picker inserts this
-  stable form so Claude does not expand it as a file. Chips resolve title/project/status from
+  stable form so Claude does not expand it as a file. Bare `@` offers a client-only Threads
+  category above files; mixed queries stay project-scoped. Choosing the category inserts
+  `@thread:` with the caret after the colon, entering all-project thread search; deleting the
+  colon returns to mixed mode. The server's `mentions.search` mode owns search scope and ranking;
+  `Mention` still describes only file/thread references. Chips resolve title/project/status from
   server-owned threads and open `#/thread/<id>`. MCP discovery and transcript reads work across
   projects, without read receipts, PR refreshes, activity updates or agent deliveries. Transcript
   cursors use SQLite seq, count non-reasoning items, and advance older from the end/newer from the

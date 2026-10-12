@@ -313,8 +313,14 @@ export interface Requests {
   "files.delete": { params: { project: string; path: string }; result: null };
   /** Deletes a folder and everything in it. Returns how many files were removed. */
   "files.deleteFolder": { params: { project: string; path: string }; result: number };
-  /** The best matches for an `@` reference in a thread's composer, at most 50. */
-  "mentions.search": { params: { threadId: string; query: string }; result: Mention[] };
+  /**
+   * At most 50 matches for the composer's @ picker. Mixed mode stays in the current project;
+   * thread mode searches active threads in all projects. Query excludes the @thread: prefix.
+   */
+  "mentions.search": {
+    params: { threadId: string; query: string; mode?: "mixed" | "threads" };
+    result: Mention[];
+  };
   /**
    * Which of these paths, as written in a transcript, name an existing file or folder of the
    * thread: absolute, relative to the workspace root, to any repo, or to the project files. Null

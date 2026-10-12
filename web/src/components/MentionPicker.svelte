@@ -1,6 +1,8 @@
 <script lang="ts">
+  import MessagesSquare from "@lucide/svelte/icons/messages-square";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import type { Mention } from "shared/protocol";
-  import { fileName, insertMention, mentionAt } from "../lib/mentions";
+  import { enterThreadMode, fileName, insertMention, mentionAt, mentionSearch, pickerEntries, type PickerEntry } from "../lib/mentions";
   import { rpc } from "../lib/state.svelte";
   import type ComposerEditor from "./ComposerEditor.svelte";
 
@@ -26,7 +28,8 @@
 
   const typing = $derived(focused ? mentionAt(text, caret) : null);
   const query = $derived(typing?.query ?? null);
-  const open = $derived(typing !== null && typing.start !== dismissed && results.length > 0);
+  const entries = $derived(query === null ? [] : pickerEntries(query, results));
+  const open = $derived(typing !== null && typing.start !== dismissed && entries.length > 0);
 
   $effect(() => {
     const box = editor;
@@ -65,8 +68,10 @@
       dismissed = null;
       return;
     }
+    results = [];
+    active = 0;
     const timer = setTimeout(async () => {
-      const found = await rpc.request("mentions.search", { threadId: thread, query: current }).catch(() => []);
+      const found = await rpc.request("mentions.search", { threadId: thread, ...mentionSearch(current) }).catch(() => []);
       if (ticket !== request) return;
       results = found;
       active = 0;
@@ -81,9 +86,9 @@
   /** Handles the keys the open list uses; returns whether it did. */
   export function keydown(event: KeyboardEvent): boolean {
     if (!open || !typing || event.isComposing) return false;
-    if (event.key === "ArrowDown") active = (active + 1) % results.length;
-    else if (event.key === "ArrowUp") active = (active - 1 + results.length) % results.length;
-    else if (event.key === "Enter" || event.key === "Tab") choose(results[active]);
+    if (event.key === "ArrowDown") active = (active + 1) % entries.length;
+    else if (event.key === "ArrowUp") active = (active - 1 + entries.length) % entries.length;
+    else if (event.key === "Enter" || event.key === "Tab") choose(entries[active]);
     else if (event.key === "Escape") dismissed = typing.start;
     else return false;
     event.preventDefault();
@@ -91,15 +96,18 @@
     return true;
   }
 
-  function choose(mention: Mention) {
+  function choose(mention: PickerEntry) {
     if (!typing || !editor) return;
-    const next = insertMention(text, typing.start, caret, mention.reference);
+    const next = mention.kind === "category"
+      ? enterThreadMode(text, typing.start, caret)
+      : insertMention(text, typing.start, caret, mention.reference);
     results = [];
     editor.setText(next.text, next.caret);
   }
 
   /** How a suggestion is shown; each kind of mention adds its case here. */
-  function describe(mention: Mention): { title: string; label: string; detail: string } {
+  function describe(mention: PickerEntry): { title: string; label: string; detail: string } {
+    if (mention.kind === "category") return { title: "Threads", label: "", detail: "Search threads in all projects" };
     if (mention.kind === "thread") return { title: `↳ ${mention.title}`, label: "Thread", detail: `${mention.project} · ${mention.status}` };
     return { title: fileName(mention.path), label: mention.repo ?? "Project files", detail: mention.path };
   }
@@ -107,7 +115,7 @@
 
 {#if open}
   <div class="mentions" role="listbox" bind:this={list}>
-    {#each results as mention, index (mention.reference)}
+    {#each entries as mention, index (mention.reference)}
       {@const row = describe(mention)}
       <button
         class="mention ghost"
@@ -119,9 +127,10 @@
         onmousemove={() => (active = index)}
         onclick={() => choose(mention)}
       >
-        <span class="title truncate">{row.title}</span>
-        <span class="label">{row.label}</span>
+        <span class="title truncate">{#if mention.kind === "category"}<MessagesSquare size={14} />{/if}{row.title}</span>
+        {#if row.label}<span class="label">{row.label}</span>{/if}
         <span class="detail truncate">{row.detail}</span>
+        {#if mention.kind === "category"}<ChevronRight size={14} />{/if}
       </button>
     {/each}
   </div>
@@ -156,6 +165,9 @@
     background: var(--surface-active);
   }
   .title {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
     flex-shrink: 0;
     max-width: 50%;
     color: var(--text-primary);
