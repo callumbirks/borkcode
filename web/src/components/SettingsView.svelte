@@ -4,6 +4,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import type { Effort, ModelChoice, ProviderKind } from "shared/protocol";
   import { app, models, rpc } from "../lib/state.svelte";
+  import { copyText } from "../lib/browser";
   import ModelPicker from "./ModelPicker.svelte";
 
   let provider = $state<ProviderKind>("codex");
@@ -126,6 +127,21 @@
       toggleError = (cause as Error).message;
     }
   }
+  let networkBusy = $state(false);
+  let networkError = $state("");
+  let copiedUrl = $state("");
+  async function setNetwork(networkAccess: boolean) {
+    if (!app.settings) return;
+    networkBusy = true;
+    networkError = "";
+    try { await rpc.request("settings.update", { settings: { ...app.settings, networkAccess } }); }
+    catch (cause) { networkError = (cause as Error).message; }
+    finally { networkBusy = false; }
+  }
+  async function copyUrl(url: string) {
+    try { await copyText(url); copiedUrl = url; }
+    catch (cause) { networkError = (cause as Error).message; }
+  }
 </script>
 
 <div class="page">
@@ -139,6 +155,27 @@
     {:else if !app.settings}
       <p class="muted">Loading settings…</p>
     {:else}
+      <section class="card network-access">
+        <label class="switch">
+          <input type="checkbox" role="switch" aria-label="Network access" checked={app.network?.enabled ?? app.settings.networkAccess}
+            disabled={networkBusy} onchange={(event) => setNetwork(event.currentTarget.checked)} />
+          <span class="track"></span>
+          <span class="text">Network access<span class="muted">Use borkcode from devices on your tailnet. Local network access stays off.</span></span>
+        </label>
+        {#if app.network?.message}<p class="muted">{app.network.message}</p>{/if}
+        {#if app.network}
+          <details open={app.network.enabled}>
+            <summary>Reachable at {app.network.endpoints.find((entry) => entry.label !== "This machine")?.url ?? app.network.endpoints[0]?.url}
+              {#if app.network.endpoints.length > 1} +{app.network.endpoints.length - 1}{/if}
+            </summary>
+            {#each app.network.endpoints as endpoint (endpoint.url)}
+              <div class="endpoint"><span>{endpoint.label}</span><a href={endpoint.url} target="_blank" rel="noreferrer">{endpoint.url}</a>
+                <button class="ghost" onclick={() => copyUrl(endpoint.url)}>{copiedUrl === endpoint.url ? "Copied" : "Copy URL"}</button></div>
+            {/each}
+          </details>
+        {/if}
+        {#if networkError}<p class="error">{networkError}</p>{/if}
+      </section>
       <section class="card">
         <div class="section-label">Worktree threads</div>
         <label class="switch">
@@ -336,4 +373,7 @@
     font-size: var(--text-sm);
     color: var(--text-secondary);
   }
+  .endpoint { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 0; }
+  .endpoint a { overflow-wrap: anywhere; flex: 1; min-width: 150px; }
+  .network-access summary { overflow-wrap: anywhere; }
 </style>

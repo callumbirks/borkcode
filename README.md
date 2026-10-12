@@ -43,7 +43,7 @@ files. Suggestions narrow as you type; arrow keys move, Enter or Tab inserts, Es
 files are inserted as `@<repo>/<path>`, relative to the agent's working directory, and project
 files by their absolute path. Claude reads referenced files into the message itself; Codex sees
 the path and opens the file when it needs it. References show as chips with the file name, in the composer and in
-messages; hover one for its path. Backspace after a chip removes the whole reference.
+messages; hover one for its path, or tap it on a phone. Backspace after a chip removes the whole reference.
 
 Paste, drag in or attach (the paperclip) PNG, JPEG, GIF or WebP images, up to 20 MB each, to send
 them with a message; a message can be just images. They upload as soon as you add them, and Send
@@ -121,4 +121,37 @@ pnpm test
 pnpm typecheck
 ```
 
-The server binds to 127.0.0.1 and only accepts same-origin WebSocket connections.
+The server binds to 127.0.0.1 by default and only accepts expected Host headers and same-origin
+browser requests. State and files stay on the server; drafts are separate in each browser.
+
+### Network access
+
+Start the built app as usual, open **Settings**, and turn on **Network access**. borkcode detects
+its Tailscale IPv4/IPv6 addresses and opens listeners only on those addresses. Loopback stays
+available for the local UI and agents; the LAN is never exposed.
+
+Settings lists **This machine**, **Tailscale IP**, and **Tailscale MagicDNS** URLs, with **Copy URL**
+for each. Connect Tailscale on your phone or other computer and open a listed Tailscale URL.
+Keep borkcode running on the main machine. No environment variables or Serve setup are required.
+If Tailscale isn't available, the setting says so and checks again every 30 seconds. Switching
+access off closes remote listeners and connections while keeping localhost running.
+
+The tailnet's access rules decide who can reach the app. Anyone allowed to reach it can use your
+projects and agents; there are no separate app accounts. Host headers are allowlisted from the
+detected addresses and MagicDNS name. Funnel requests are refused, and `/mcp/` accepts only
+direct local agent requests. Sandboxed visualization assets use a capability route; other
+opaque-origin requests remain refused.
+
+HTTP on the Tailscale IP or MagicDNS name supports image paste, attachment upload, file previews,
+visualizations and copying paths/URLs. If [Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve)
+is already configured to proxy this borkcode port, borkcode verifies the endpoint and also lists
+**Tailscale HTTPS (Serve)**. HTTPS is optional; it works with the same Host and asset guards.
+
+A phone has a menu drawer and full-screen overview, file and visualization panels. Tap outside
+the drawer or use its close button. The composer follows the visible viewport above the keyboard.
+Its compact model/access button opens a sheet with the full options; the new-thread form uses the
+same sheet for provider, role and workspace. Empty inputs stay short and grow as you type.
+Touch devices use a native textarea for predictive text, autocorrect and composition, with `@`
+file picking and image paste/attachment support; references become chips in sent messages. Enter
+adds a newline there; tap Send. Returning to the app or regaining the network reconnects and
+reloads server state while keeping your draft.

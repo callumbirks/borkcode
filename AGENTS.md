@@ -12,8 +12,8 @@ Build the smallest thing that makes the intended behavior obvious. Fight scope c
 add machinery because it looks architecturally impressive.
 
 - **Providers:** Claude and Codex only.
-- **Local only for now.** Remote access may come later, so the server owns all state and the
-  client only renders it. Keep that split; it is what makes remote cheap later.
+- **Local or tailnet access.** The server owns all state and the client only renders it. Keep
+  that split; remote clients use the same protocol and HTTP file routes.
 - **Roadmap:** what's done, next and not planned is in `ROADMAP.md`.
 
 This started as a fork of t3code, which is kept at `~/projects/apps/borkcode` as a read-only
@@ -34,6 +34,31 @@ inventing a fix.
 - **provider:** Claude or Codex, behind an adapter in `server/src/providers/`.
 
 ## Design decisions
+
+- **Network access is a server-owned Settings toggle, off by default.** `networkAccess` persists
+  in settings.json. `NetworkAccess` keeps the main loopback listener on and adds/removes listeners
+  only on Tailscale addresses (100.64.0.0/10 and fd7a:115c:a1e0::/48). No wildcard or LAN bind.
+  Discovery retries every 30 seconds while enabled. The CLI's self TailscaleIPs are authoritative;
+  without it only Linux tailscale0 or macOS utun interfaces with a Tailscale-range address qualify.
+  Never infer Tailscale ownership from the CGNAT range on an arbitrary interface.
+  The server broadcasts reachable URLs; the browser does not discover its own addresses. An
+  existing Serve configuration targeting this port is probed before its HTTPS URL is advertised.
+- **Host is allowlisted from loopback and detected Tailscale addresses/MagicDNS.** Proxy headers
+  are accepted only from a loopback peer for an allowlisted remote host; Funnel is refused.
+  Non-loopback peers must also have Tailscale addresses, closing access from LAN routes.
+  `/mcp/` requires a direct loopback peer, loopback Host, no Origin, no browser fetch metadata
+  and no proxy headers. Browser Origin and Sec-Fetch-Site checks cover static files and upgrades
+  too, except the capability asset routes below and user-activated top-level app navigation.
+  Disabling access clears remote Hosts and closes remote sockets without closing the local UI.
+- **Plain tailnet HTTP is supported.** Upload queue keys use `crypto.getRandomValues`, available
+  outside secure contexts; saved file IDs still come from the server. Copy uses the clipboard API
+  when available, then selected-text copy. Image paste uses the paste event, never clipboard.read.
+  Asset CSP sources use the incoming scheme: forwarded HTTPS is trusted only from an allowed
+  loopback proxy, not from direct tailnet clients.
+- **Small screens use a navigation drawer and full-screen side panels.** The app follows
+  `visualViewport` for keyboards and safe-area insets. Coarse-pointer composers use a native
+  textarea, retaining `@` picking and drafts, with chips in sent messages; desktop keeps the
+  contenteditable. Returning to the foreground replaces stale sockets and refreshes server state.
 
 - **Every workspace contains every repo,** named exactly like in `repos/`. Projects depend on
   sibling paths such as `../vessel`; never make repo membership per-thread.
@@ -148,9 +173,10 @@ inventing a fix.
   `{ id, title, updatedAt }`. `GET /api/threads/<id>/visualizations/<id>` serves it with
   `Content-Security-Policy: sandbox allow-scripts` (never `allow-same-origin`) and frames use
   `sandbox="allow-scripts"`, so its requests carry `Origin: null`, which `isAllowedOrigin` refuses.
-  Resources load from `https:` only (CDNs), never `http:`, so it cannot reach localhost; the policy
-  is `visualizationCsp` in `visualizations.ts`. A served page gets a script appended that posts
-  its content height; the card accepts only a clamped number from its own frame.
+  Resources load from `https:` CDNs or the visualization's own asset route, never arbitrary
+  `http:` hosts. Other opaque-origin requests to borkcode are refused by Origin or Sec-Fetch-Site
+  even over HTTPS; the policy is `visualizationCsp` in `visualizations.ts`. A served page gets a
+  script appended that posts its content height; the card accepts only a clamped number from its own frame.
 - **A visualization shown from a file is served live and loads the files beside it.** When the
   file is in the thread's workspace or project files, `<id>.json` records its root and path; the
   page is read from there on each load (the copy stands in if it goes away) and served at
@@ -160,8 +186,10 @@ inventing a fix.
   `Access-Control-Allow-Origin: null` for fonts and fetches. It is the one route that accepts
   the sandbox's `Origin: null` and cross-site requests (`isAssetRequest`); the UUIDs in its URL
   are the capability. The page's CSP names that exact URL prefix as a source, since `'self'` is
-  unreliable for an opaque origin and would open all of `/api`. Any request gate in front of all
-  routes must let `isAssetRequest` through.
+  unreliable for an opaque origin and would open all of `/api`. The global request gate
+  lets `isAssetRequest` bypass only Origin and fetch-site checks, retaining the Host
+  allowlist and proxy/Funnel restrictions. `assetBase` uses HTTPS through an
+  allowed loopback proxy and HTTP directly; arbitrary clients cannot choose its scheme with headers.
 - **The composer is a contenteditable whose plain text is the source of truth**
   (`ComposerEditor.svelte`), so file references can show as chips. Plain typing and deleting
   inside one text node is left to the browser and read back from that node; redrawing on every
@@ -169,17 +197,22 @@ inventing a fix.
   are applied to the text and redrawn, with the composer's own undo stack. IME composition edits
   the DOM and is read back when it ends. Chips show the file name and a relative path on hover,
   never an absolute one.
-- **Transcript items use `content-visibility: auto`.** Without it every keystroke in the composer
+- **Chromium transcript items use `content-visibility: auto`.** Without it every keystroke in the composer
   paid to paint and hit-test the whole transcript. It contains each item's layout and paint, so a
   fixed overlay inside an item must move to `document.body` (`MessageAttachments` does).
+  Safari uses real item heights: skipped-item placeholders jump while scrolling without effective
+  scroll anchoring, including WebKit builds that parse overflow-anchor. Upward scroll intent unpins
+  before resizing, and upward momentum after touchend takes priority over the bottom threshold.
   Work groups render their steps only once opened, since long threads hold hundreds of them.
 - **The composer's input box and the sidebar are their own compositor layers**
   (`transform: translateZ(0)`), so a keystroke or a sidebar update re-rasters only that layer
   instead of tiles spanning the page. Layers keep subpixel text only if opaque, so the input has
   the composer's background; `will-change: transform` drops subpixel text outright. A promoted
   element is the containing block for fixed descendants. Promote sparingly: each layer costs memory.
-- **Clients get everything by broadcast.** It's fine for one local user. Revisit if remote access
-  or many clients arrive. Keep payloads small: stream deltas, not whole items.
+  The mobile drawer wraps the promoted nav, and sheets sit outside the promoted composer input,
+  so their bounds do not depend on those transforms.
+- **Clients get everything by broadcast.** It's fine for one user across their devices. Revisit
+  if many clients arrive. Keep payloads small: stream deltas, not whole items.
 
 ## Where code lives
 

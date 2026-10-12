@@ -37,7 +37,7 @@
 
 <label class:compact title={catalog?.error ?? (compact ? "Model" : undefined)}>
   {#if !compact}Model{/if}
-  <select {value} onchange={(event) => pickModel(event.currentTarget.value)} disabled={!catalog}>
+  <select aria-label="Model" {value} onchange={(event) => pickModel(event.currentTarget.value)} disabled={!catalog}>
     {#if !catalog}
       <option value="">Loading…</option>
     {:else if !current}
@@ -54,6 +54,7 @@
     {#if !compact}Effort{/if}
     <select
       class="effort"
+      aria-label="Effort"
       value={effort ?? (anyEffort ? "" : current.defaultEffort) ?? ""}
       onchange={(event) => (effort = (event.currentTarget.value || null) as Effort | null)}
     >

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { chipBeside, coverReferences, History, insertBeside, replaceRange, sameChips, type Snapshot } from "../lib/composerModel";
   import { findFileReferences, splitReferences, type FileReference, type ReferenceRoots } from "../lib/fileReferences";
+  import { resizeTextarea } from "../lib/textarea";
 
   // The composer's text box. A textarea can't show file references as chips, so this is a
   // contenteditable whose text stays the source of truth. Plain typing and deleting inside one
@@ -24,6 +25,12 @@
     onpaste: (event: ClipboardEvent) => void;
   } = $props();
 
+  const touch = matchMedia("(pointer: coarse)").matches;
+  let textarea = $state<HTMLTextAreaElement>();
+  $effect(() => {
+    void value;
+    if (textarea) resizeTextarea(textarea);
+  });
   let element = $state<HTMLDivElement>();
   let text = "";
   /** Where the last typed character ended; a reference still being typed there stays plain text. */
@@ -42,6 +49,7 @@
 
   $effect(() => {
     // Drafts change from outside too: switching threads, sending, answering a question.
+    if (touch) return;
     if (value === text || composing) return;
     text = value;
     typingAt = null;
@@ -51,6 +59,7 @@
 
   $effect(() => {
     void roots;
+    if (touch) return;
     if (composing) return;
     render(document.activeElement === element ? (selected()?.[1] ?? null) : null);
   });
@@ -310,16 +319,24 @@
 
   /** The caret's offset in the text, or -1 when a range is selected or the box isn't focused. */
   export function caret(): number {
+    if (touch) return textarea && textarea.selectionStart === textarea.selectionEnd ? textarea.selectionEnd : -1;
     const range = selected();
     return range && range[0] === range[1] ? range[0] : -1;
   }
 
   export function node(): HTMLElement | undefined {
-    return element;
+    return touch ? textarea : element;
   }
 
   /** Replaces the whole text as one undoable step, as the mention picker does. */
   export function setText(next: string, caretAt: number) {
+    if (touch && textarea) {
+      textarea.focus();
+      textarea.value = next;
+      onchange(next);
+      textarea.setSelectionRange(caretAt, caretAt);
+      return;
+    }
     element?.focus();
     typingAt = null;
     apply({ text: next, caret: caretAt }, "replace");
@@ -327,6 +344,11 @@
 </script>
 
 <div class="editor">
+  {#if touch}
+    <textarea bind:this={textarea} class="input touch-input" value={value} {placeholder} aria-label={placeholder} data-composer
+      rows="1" autocapitalize="sentences" spellcheck="true"
+      oninput={() => onchange(textarea?.value ?? "")} {onkeydown} {onpaste}></textarea>
+  {:else}
   {#if !value && !composing}<div class="placeholder">{placeholder}</div>{/if}
   <div
     bind:this={element}
@@ -349,6 +371,7 @@
       readBack();
     }}
   ></div>
+  {/if}
 </div>
 
 <style>
@@ -378,5 +401,13 @@
     color: var(--text-faint);
     font-size: var(--text-md);
     pointer-events: none;
+  }
+  .touch-input {
+    width: 100%;
+    font-size: 16px;
+    padding: 0;
+    border: 0;
+    resize: none;
+    max-height: 24vh;
   }
 </style>

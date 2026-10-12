@@ -35,12 +35,12 @@
   import FilePreview from "./FilePreview.svelte";
   import ItemView from "./ItemView.svelte";
   import MentionPicker from "./MentionPicker.svelte";
-  import ModelPicker from "./ModelPicker.svelte";
+  import ComposerOptions from "./ComposerOptions.svelte";
   import RepoPanel from "./RepoPanel.svelte";
   import VisualizationPanel from "./VisualizationPanel.svelte";
   import WorkGroup from "./WorkGroup.svelte";
 
-  let { id }: { id: string } = $props();
+  let { id, compact = false }: { id: string; compact?: boolean } = $props();
 
   const detail = $derived(app.detail?.thread.id === id ? app.detail : null);
   const thread = $derived(detail?.thread);
@@ -78,6 +78,8 @@
     effort = thread.effort;
     accessMode = thread.accessMode;
   });
+
+  let overview = $state(false);
 
   let editingTitle = $state(false);
   let titleDraft = $state("");
@@ -128,8 +130,13 @@
   // Pin the transcript to the bottom, including when a thread opens, until the user scrolls up.
   // Watching size rather than items also follows growth that isn't a new item: streamed tool
   // output, expanded groups, late layout.
+  // WebKit's parser may report overflow-anchor support even where anchoring is ineffective.
+  const skippedItems = CSS.supports("overflow-anchor", "auto") &&
+    !CSS.supports("-webkit-touch-callout", "none") &&
+    !(/AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|Edg|OPR|Android/.test(navigator.userAgent));
   let pinned = true;
   let lastScrollTop = 0;
+  let touchingTranscript = false;
   $effect(() => {
     const element = transcript;
     const column = element?.firstElementChild;
@@ -137,20 +144,22 @@
     pinned = true;
     lastScrollTop = 0;
     const observer = new ResizeObserver(() => {
-      if (pinned) element.scrollTop = element.scrollHeight;
+      if (pinned && !touchingTranscript) element.scrollTop = element.scrollHeight;
     });
     observer.observe(column);
     observer.observe(element);
     return () => observer.disconnect();
   });
 
-  // Only scrolling up unpins. Scroll events fire a frame late, so judging by distance from the
-  // bottom would unpin whenever a large block (an approval, say) lands right after our own scroll.
+  // Scroll intent unpins before resizing can fight the gesture. Scroll events fire a frame
+  // late, so distance alone would also unpin on a large block landing after our own scroll.
   function onTranscriptScroll() {
     if (!transcript) return;
     const { scrollTop, scrollHeight, clientHeight } = transcript;
-    if (scrollHeight - scrollTop - clientHeight < 80) pinned = true;
-    else if (scrollTop < lastScrollTop) pinned = false;
+    // Upward movement wins even within the bottom threshold, including touch momentum
+    // delivered after touchend. Re-pin only on a downward return to the bottom.
+    if (scrollTop < lastScrollTop) pinned = false;
+    else if (!touchingTranscript && scrollHeight - scrollTop - clientHeight < 80) pinned = true;
     lastScrollTop = scrollTop;
   }
 
@@ -282,7 +291,7 @@
 
   function onKeydown(event: KeyboardEvent) {
     if (mentions?.keydown(event)) return;
-    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !(event.target instanceof HTMLTextAreaElement)) {
       event.preventDefault();
       void (asking ? submitAnswer() : send());
     }
@@ -322,7 +331,7 @@
   <div class="page muted">Loading thread…</div>
 {:else}
   <div class="thread" class:previewing={preview}>
-    <div class="chat">
+    <div class="chat" inert={compact && !!(preview || overview)}>
       <header>
         <span class="dot {thread.status}" title={thread.status}></span>
         {#if editingTitle}
@@ -372,10 +381,14 @@
             <Archive size={16} />
           </button>
         {/if}
+        <button class="overview-button ghost" onclick={() => overview = true}>Overview</button>
         <button class="ghost icon delete" title="Delete thread" onclick={remove}><Trash2 size={16} /></button>
       </header>
-      <div class="transcript" bind:this={transcript} onscroll={onTranscriptScroll}>
-        <div class="column">
+      <div class="transcript" role="region" aria-label="Thread transcript" bind:this={transcript} onscroll={onTranscriptScroll}
+        onwheel={(event) => { if (event.deltaY < 0) pinned = false; }}
+        ontouchstart={() => { touchingTranscript = true; pinned = false; }}
+        ontouchend={() => { touchingTranscript = false; }} ontouchcancel={() => { touchingTranscript = false; }}>
+        <div class="column" class:skipped-items={skippedItems}>
           {#each segments as segment (segment.kind === "item" ? segment.item.id : segment.id)}
             {#if segment.kind === "item"}
               <ItemView item={segment.item} threadId={id} roots={fileRoots} />
@@ -473,26 +486,23 @@
                 ? "Message the agent; it reads this at its next step"
                 : "Message the agent"}
           />
-          <div class="actions">
-            <AttachButton threadId={id} />
-            <ModelPicker provider={thread.provider} bind:model bind:effort compact />
-            <select title="Access, applied from the next message" bind:value={accessMode}>
-              <option value="ask">Ask first</option>
-              <option value="full">Full access</option>
-            </select>
+          <div class="actions" class:answering={!!asking}>
+            <span class="attachment-control"><AttachButton threadId={id} /></span>
+            <ComposerOptions provider={thread.provider} bind:model bind:effort bind:accessMode />
             <span class="spacer"></span>
             {#if thread.workspace}
               <button
-                class="ghost"
+                class="ghost publish"
+                aria-label="Push and open pull requests"
                 onclick={publish}
                 disabled={busy}
                 title="Ask the agent to commit, push and open pull requests"
               >
-                <GitPullRequestArrow size={14} />Push &amp; PR
+                <GitPullRequestArrow size={16} /><span>Push &amp; PR</span>
               </button>
             {/if}
             {#if thread.status === "running"}
-              <button class="icon" title="Stop" onclick={() => rpc.request("threads.interrupt", { threadId: id })}>
+              <button class="icon" aria-label="Stop" title="Stop" onclick={() => rpc.request("threads.interrupt", { threadId: id })}>
                 <Square size={12} fill="currentColor" />
               </button>
             {/if}
@@ -502,7 +512,7 @@
                 {lastStep ? "Submit answer" : "Next"}
               </button>
             {:else if thread.status !== "running" || draft.trim() || attached.ids.length > 0}
-              <button class="primary icon" title="Send (Enter)" onclick={send} disabled={!canSend}>
+              <button class="primary icon" aria-label="Send" title="Send (Enter)" onclick={send} disabled={!canSend}>
                 <ArrowUp size={16} />
               </button>
             {/if}
@@ -510,6 +520,8 @@
         </div>
       </div>
     </div>
+    <div class="side-sheet" class:show={preview || overview}>
+    {#if !preview}<button class="overview-close ghost" onclick={() => overview = false}>Close overview</button>{/if}
     <!-- The preview takes the overview's place while it is open. -->
     {#if preview && "visualization" in preview}
       <VisualizationPanel threadId={id} id={preview.visualization} />
@@ -523,6 +535,7 @@
         pullRequests={app.pullRequests[detail.thread.id] ?? []}
       />
     {/if}
+    </div>
   </div>
 {/if}
 
@@ -600,7 +613,7 @@
    * Long transcripts made every keystroke in the composer pay for painting and hit-testing the
    * whole transcript. Off-screen items skip rendering; each remembers its size once laid out.
    */
-  .column > :global(*) {
+  .column.skipped-items > :global(*) {
     content-visibility: auto;
     contain-intrinsic-size: auto 120px;
   }
@@ -752,18 +765,98 @@
   .actions .icon {
     border-radius: var(--radius-full);
   }
-  /* Matches ModelPicker's compact selects beside it. */
-  .actions select {
-    background: none;
-    border-color: transparent;
-    color: var(--text-secondary);
-    padding: var(--space-1) var(--space-1-5);
+  .attachment-control { display: contents; }
+
+  .side-sheet {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
-  .actions select:hover {
-    background: var(--surface-hover);
-    color: var(--text-primary);
+  .side-sheet > :global(aside) {
+    flex: 1;
+    min-height: 0;
   }
-  .actions select:focus {
-    border-color: transparent;
+  .overview-button, .overview-close {
+    display: none;
+  }
+  @media (max-width: 900px) {
+    .thread, .thread.previewing {
+      grid-template-columns: minmax(0, 1fr);
+      flex: 1;
+      min-height: 0;
+      position: relative;
+    }
+    header {
+      padding: 0 8px;
+      height: auto;
+      min-height: 44px;
+      flex-wrap: wrap;
+      gap: 2px;
+    }
+    header .title {
+      flex: 1;
+    }
+    .chips {
+      order: 2;
+      flex-basis: 100%;
+      padding-bottom: 4px;
+      overflow-x: auto;
+    }
+    .overview-button, .overview-close {
+      display: inline-flex;
+    }
+    .side-sheet {
+      display: none;
+    }
+    .side-sheet.show {
+      display: flex;
+      position: absolute;
+      inset: 0;
+      z-index: 20;
+      background: var(--surface-base);
+    }
+    .side-sheet :global(aside) {
+      width: 100% !important;
+      border-left: 0;
+    }
+    .side-sheet :global(.resize) {
+      display: none;
+    }
+    .side-sheet :global(header) {
+      min-height: 44px;
+    }
+    .side-sheet :global(a.button) {
+      width: 40px;
+      height: 40px;
+    }
+    .transcript {
+      padding: 12px;
+      overscroll-behavior: contain;
+    }
+    .composer-wrap {
+      flex-shrink: 0;
+      padding: 4px 8px 8px;
+      max-height: 75%;
+    }
+    .composer {
+      padding: 8px;
+    }
+    .actions {
+      flex-wrap: nowrap;
+      gap: 4px;
+    }
+    .publish { min-width: 40px; min-height: 40px; padding: 4px; }
+    .publish span { display: none; }
+    .answering .attachment-control, .answering .publish { display: none; }
+    .answering .answer { flex-shrink: 0; }
+    .actions .spacer {
+      display: none;
+    }
+    .question {
+      max-height: 25vh;
+    }
+    .option {
+      min-height: 44px;
+    }
   }
 </style>

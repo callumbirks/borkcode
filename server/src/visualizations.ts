@@ -13,12 +13,14 @@ export const MAX_VISUALIZATION_BYTES = 2 * 1024 * 1024;
  * Visualizations are agent-written HTML with scripts, so they run sandboxed in an opaque origin:
  * they cannot read borkcode's pages, and their requests to `/api` and `/ws` carry `Origin: null`,
  * which is refused. Scripts, styles, images, fonts and fetches may come from any `https:` host,
- * since agents load chart libraries from CDNs; plain `http:` stays closed, so a page cannot reach
- * borkcode or other services on localhost. Tighten here, for example to a list of CDN hosts.
+ * since agents load chart libraries from CDNs; plain `http:` stays closed. Requests to borkcode
+ * outside the asset route are refused by Origin or Sec-Fetch-Site even over HTTPS, including
+ * script/image requests that carry no Origin.
  *
  * A page shown from a file may also load from `assetBase`, its own asset route
- * (`http://<host>/api/threads/<thread>/visualizations/<id>/`). It is named in full, path
- * included, because `'self'` is unreliable for an opaque origin and would open all of `/api`.
+ * (`<scheme>://<host>/api/threads/<thread>/visualizations/<id>/`). It uses HTTPS through an
+ * allowed loopback proxy and HTTP for direct tailnet or local access. The full path scopes the exception; `'self'` is unreliable
+ * for an opaque origin and would open all of `/api`.
  */
 export function visualizationCsp(assetBase: string | null): string {
   const own = assetBase ? ` ${assetBase}` : "";

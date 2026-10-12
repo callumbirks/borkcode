@@ -370,3 +370,12 @@ a.file-link:hover {
   color: var(--status-warning);
   font-size: var(--text-sm);
 }
+
+@media (pointer: coarse), (max-width: 900px) {
+  button, select, summary, a.button { min-height: 40px; }
+  button.icon { min-width: 40px; width: 40px; }
+  input, textarea, select { font-size: 16px; }
+  .page { padding: 16px; overflow-x: hidden; }
+  .row { flex-wrap: wrap; }
+  .file-chip { min-height: 32px; }
+}

@@ -36,12 +36,20 @@
       focused = document.activeElement === element;
       caret = box.caret();
     };
-    const blur = () => (focused = false);
+    // Removing a focused textarea fires blur inside Svelte's route rendering. Defer the
+    // state write until that render finishes, and account for focus moving back meanwhile.
+    const blur = () => queueMicrotask(() => (focused = document.activeElement === element));
     document.addEventListener("selectionchange", sync);
+    element.addEventListener("input", sync);
+    element.addEventListener("select", sync);
+    element.addEventListener("keyup", sync);
     element.addEventListener("focus", sync);
     element.addEventListener("blur", blur);
     return () => {
       document.removeEventListener("selectionchange", sync);
+      element.removeEventListener("input", sync);
+      element.removeEventListener("select", sync);
+      element.removeEventListener("keyup", sync);
       element.removeEventListener("focus", sync);
       element.removeEventListener("blur", blur);
     };
@@ -106,7 +114,7 @@
         role="option"
         aria-selected={index === active}
         tabindex="-1"
-        onmousedown={(event) => event.preventDefault()}
+        onpointerdown={(event) => event.preventDefault()}
         onmousemove={() => (active = index)}
         onclick={() => choose(mention)}
       >
