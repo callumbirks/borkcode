@@ -52,7 +52,8 @@ export function threadMentions(
   return threads
     .filter(t => (mode === "threads" || t.project === project) && t.id !== current && t.archivedAt === null && matchScore(query, t.title) !== null)
     .sort((a, b) => mode === "threads"
-      ? Number(b.project === project) - Number(a.project === project) || b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)
+      ? Number(b.project === project) - Number(a.project === project) ||
+        (query ? matchScore(query, a.title)! - matchScore(query, b.title)! : 0) || b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)
       : matchScore(query, a.title)! - matchScore(query, b.title)! || b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
     .slice(0, mode === "threads" ? MAX_RESULTS : 10)
     .map(t => ({ kind: "thread", threadId: t.id, title: t.title, project: t.project,

@@ -159,8 +159,8 @@ reloads server state while keeping your draft.
 Typing bare `@` shows a **Threads** category above file suggestions. Type a query to match files
 and active threads in the current project; prefixes of “threads” keep the category pinned first.
 Choose **Threads** with Enter, Tab or a click, or type `@thread:` directly, to search active threads
-across all projects. Current-project matches come first, then recent activity; each row shows its
-project and status. Backspace past the colon to return to mixed search, or Escape to close the picker.
+across all projects. Current-project matches come first, then title relevance and recent activity
+(with no query, just recent activity). Each row shows its project and status. Backspace past the colon to return to mixed search, or Escape to close the picker.
 Picking a thread replaces the typed token with `borkcode:thread:<uuid>`: a stable reference that
 Claude leaves intact instead of expanding as an `@path` file. Desktop composers and sent messages show it as a thread chip with its current title;
 hover for project/status and click to open the thread. Phone composers keep the reference as text,

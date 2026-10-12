@@ -137,3 +137,23 @@ test("thread mode searches all projects, ranks local then recent, and omits file
   for (let i = 0; i < 55; i++) seed(`extra-${i}`, "other", i);
   assert.equal((await search.search("current", "", "threads")).length, 50);
 });
+
+
+test("thread queries rank project first, then title relevance and recency; empty queries use recency", async () => {
+  const { threadMentions } = await import("./mentions.ts");
+  const base = { project: "demo", status: "idle", archivedAt: null };
+  const threads = [
+    { ...base, id: "local-weak", title: "n_o_t_e_s", updatedAt: 200 },
+    { ...base, id: "local-prefix", title: "Notes plan", updatedAt: 100 },
+    { ...base, id: "local-exact-old", title: "Notes", updatedAt: 1 },
+    { ...base, id: "local-exact-new", title: "Notes", updatedAt: 5 },
+    { ...base, id: "other-weak", project: "other", title: "n_o_t_e_s", updatedAt: 2000 },
+    { ...base, id: "other-exact", project: "other", title: "Notes", updatedAt: 1000 },
+  ] as import("shared/protocol").Thread[];
+  assert.deepEqual(threadMentions(threads, "demo", "current", "notes", "threads").map(t => t.threadId), [
+    "local-exact-new", "local-exact-old", "local-prefix", "local-weak", "other-exact", "other-weak",
+  ]);
+  assert.deepEqual(threadMentions(threads, "demo", "current", "", "threads").map(t => t.threadId), [
+    "local-weak", "local-prefix", "local-exact-new", "local-exact-old", "other-weak", "other-exact",
+  ]);
+});
