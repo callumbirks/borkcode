@@ -108,12 +108,19 @@ class AppServerConnection {
   readonly #pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
   #nextId = 1;
   #stderr = "";
+  /** Why the process is gone; requests after that fail at once instead of waiting forever. */
+  #exited: string | null = null;
 
   constructor(cwd: string, handlers: ConnectionHandlers) {
     this.#child = spawn(process.env.BORKCODE_CODEX_BIN ?? "codex", ["app-server"], {
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
     });
+    // A broken pipe (EPIPE) is reported on the stream, and an unhandled stream error would take
+    // the whole server down. Killing the child turns it into the exit that fails the session.
+    for (const stream of [this.#child.stdin, this.#child.stdout, this.#child.stderr]) {
+      stream.on("error", () => this.#child.kill());
+    }
     this.#child.stderr.on("data", (chunk: Buffer) => {
       this.#stderr = (this.#stderr + chunk.toString()).slice(-4000);
     });
@@ -139,18 +146,26 @@ class AppServerConnection {
         else pending?.resolve(message.result);
       }
     });
+    // A process can report both "error" and "exit"; the first one wins.
     const onExit = (detail: string) => {
+      if (this.#exited !== null) return;
+      this.#exited = detail;
       for (const pending of this.#pending.values()) pending.reject(new Error(detail));
       this.#pending.clear();
       handlers.exit(detail);
     };
-    this.#child.on("error", (error) => onExit(`Could not start codex: ${error.message}`));
-    this.#child.on("exit", (code) => onExit(`codex app-server exited (${code})\n${this.#stderr}`.trim()));
+    this.#child.on("error", (error) => onExit(`Could not start Codex: ${error.message}`));
+    // Not "close": that waits for the pipes, which a grandchild such as an MCP server may hold open.
+    this.#child.on("exit", (code, signal) => {
+      const status = code === null ? `signal ${signal}` : `code ${code}`;
+      onExit(`Codex exited (${status})\n${this.#stderr}`.trim());
+    });
   }
 
   request<T>(method: string, params: unknown): Promise<T> {
     const id = this.#nextId++;
     return new Promise<T>((resolve, reject) => {
+      if (this.#exited !== null) return reject(new Error(this.#exited));
       this.#pending.set(id, { resolve: resolve as (value: unknown) => void, reject });
       this.#send({ id, method, params });
     });
@@ -165,7 +180,7 @@ class AppServerConnection {
   }
 
   #send(message: unknown): void {
-    if (this.#child.stdin.writable) this.#child.stdin.write(`${JSON.stringify(message)}\n`);
+    if (this.#exited === null && this.#child.stdin.writable) this.#child.stdin.write(`${JSON.stringify(message)}\n`);
   }
 }
 

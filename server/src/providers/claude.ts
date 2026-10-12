@@ -280,6 +280,8 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
 
   let turnActive = false;
   let interruptRequested = false;
+  /** Why the Claude process is gone, so a turn sent afterwards fails instead of waiting forever. */
+  let exited: string | null = null;
   let knownSessionId: string | null = null;
   // Streamed blocks get an item when they start; the complete assistant message that follows
   // fills the oldest open item of the same kind.
@@ -382,10 +384,12 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
   void (async () => {
     try {
       for await (const message of conversation) handle(message);
-      endTurn({ status: "failed", error: "Claude exited unexpectedly" });
+      exited = "Claude exited unexpectedly";
     } catch (error) {
-      endTurn({ status: "failed", error: error instanceof Error ? error.message : String(error) });
+      exited = error instanceof Error ? error.message : String(error);
     } finally {
+      exited ??= "Claude exited unexpectedly";
+      endTurn({ status: "failed", error: exited });
       events.closed();
     }
   })();
@@ -402,6 +406,8 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
         await conversation.setPermissionMode(permissionMode(settings.accessMode));
       }
       current = settings;
+      // The process can die before the first turn, e.g. a missing or broken binary.
+      if (exited !== null) throw new Error(exited);
       turnActive = true;
       turns.push(message);
     },
