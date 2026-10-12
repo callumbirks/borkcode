@@ -37,3 +37,15 @@ export function pullRequestIndex(pullRequests: LinkedPullRequest[]) {
   };
 }
 
+
+// Every way a text can point at PR n: `repo#n` or a `/pull/n` URL.
+const pullRequestNumber = /(?:#|\/pull\/)(\d+)(?!\d)/g;
+
+/**
+ * The PR numbers a text could show as chips. Rendering it against only the PRs with these numbers,
+ * in their original order, gives the same chips as against all of them, so a message only needs
+ * to re-render when one of those changes. Matching by number alone over-includes a little.
+ */
+export function mentionedPullRequestNumbers(text: string): Set<number> {
+  return new Set([...text.matchAll(pullRequestNumber)].map((match) => Number(match[1])));
+}

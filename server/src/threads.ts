@@ -20,7 +20,8 @@ import type {
   ThreadDetail,
 } from "shared/protocol";
 import type { AttachmentStore } from "./attachments.ts";
-import { readHtmlFile, VisualizationStore } from "./visualizations.ts";
+import type { PreviewRoots } from "./threadFiles.ts";
+import { findSource, readHtmlFile, VisualizationStore, type VisualizationSource } from "./visualizations.ts";
 import { toThread, type Database, type InboxMessage, type StoredThread } from "./db.ts";
 import {
   borkcodeMessage,
@@ -513,17 +514,40 @@ export class ThreadService {
     ) {
       throw new ToolError(`This thread has no visualization ${input.id}. Leave out id to show a new one.`);
     }
-    const html = input.html ?? (await readHtmlFile(resolve((await this.location(threadId)).root, input.path!)));
-    const id = await this.#visualizations.save(threadId, html, input.id);
+    let html = input.html;
+    let source: VisualizationSource | null = null;
+    if (input.path !== undefined) {
+      const full = resolve((await this.location(threadId)).root, input.path);
+      html = await readHtmlFile(full);
+      source = await findSource(await this.#visualizationRoots(threadId), full);
+    }
+    const id = await this.#visualizations.save(threadId, html!, input.id, source);
     this.#upsertItem(threadId, { id, kind: "visualization", title, updatedAt: Date.now() });
-    return input.id
+    const shown = input.id
       ? `Updated "${title}" where it is shown in the thread.`
       : `Showing "${title}" in the thread (id ${id}). To change it, call show_html again with this id.`;
+    if (input.path === undefined) return shown;
+    return source
+      ? `${shown} It is served live from the file, so the user sees your edits when they reload it, and relative URLs load files from its folder and below (hidden files excepted).`
+      : `${shown} The file is outside this thread's workspace and project files, so it was copied as it is now and relative URLs in it will not load.`;
+  }
+
+  /** Visualizations from files are served from the thread's workspace or its project files. */
+  async #visualizationRoots(threadId: string): Promise<PreviewRoots> {
+    const { project, root } = await this.location(threadId);
+    return { workspace: root, project: join(project.path, "files"), repos: [] };
   }
 
   /** The page behind a visualization, or null if the thread has no such visualization. */
-  visualizationPage(threadId: string, id: string): Promise<Buffer | null> {
-    return this.#db.getThread(threadId) ? this.#visualizations.page(threadId, id) : Promise.resolve(null);
+  async visualizationPage(threadId: string, id: string): Promise<{ html: Buffer; hasAssets: boolean } | null> {
+    if (!this.#db.getThread(threadId)) return null;
+    return this.#visualizations.page(threadId, id, await this.#visualizationRoots(threadId));
+  }
+
+  /** A file a visualization shown from a file loads by relative URL, or null. */
+  async visualizationAsset(threadId: string, id: string, path: string): Promise<string | null> {
+    if (!this.#db.getThread(threadId)) return null;
+    return this.#visualizations.asset(threadId, id, path, await this.#visualizationRoots(threadId));
   }
 
   async #send(threadId: string, trimmed: string, settings: TurnSettings, attachments: Attachment[]): Promise<void> {

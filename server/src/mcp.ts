@@ -79,8 +79,9 @@ function buildServer({ threads, files }: Services, threadId: string): McpServer 
     {
       description: [
         "Show an HTML page to the user, rendered right in this thread: a chart of data, a diagram, a comparison table, a UI mockup or a small interactive exploration.",
-        "Give the HTML itself, or the path of an HTML file you wrote; a file is copied as it is now, so call again after changing it.",
-        `The page must be self-contained, up to ${MAX_VISUALIZATION_BYTES / 1024 / 1024} MB: inline your data, styles and scripts. Resources from https: URLs load, such as chart libraries from a CDN, but relative URLs, local files and http: URLs do not.`,
+        "Give the HTML itself, or the path of an HTML file you wrote in your workspace or the project files.",
+        "A file is shown live, so the user sees your edits when it reloads, and its relative URLs load the files in its folder and below, such as images, fonts, scripts, CSS and JSON (not hidden files, nor anything above its folder).",
+        `Otherwise the page must be self-contained, up to ${MAX_VISUALIZATION_BYTES / 1024 / 1024} MB. Resources from https: URLs load, such as chart libraries from a CDN, but local files and http: URLs do not.`,
         "It runs sandboxed: scripts work, but forms, popups and navigating away do not.",
         "Pass the id an earlier call returned to replace that visualization instead of adding another.",
       ].join(" "),

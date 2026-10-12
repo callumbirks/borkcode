@@ -1,6 +1,9 @@
-/** Each change of `updatedAt` gives a new URL, so frames showing a replaced page reload it. */
+/**
+ * Each change of `updatedAt` gives a new URL, so frames showing a replaced page reload it. The
+ * trailing slash makes relative URLs in a page shown from a file load the files beside it.
+ */
 export function visualizationUrl(threadId: string, id: string, updatedAt: number): string {
-  return `/api/threads/${encodeURIComponent(threadId)}/visualizations/${encodeURIComponent(id)}?v=${updatedAt}`;
+  return `/api/threads/${encodeURIComponent(threadId)}/visualizations/${encodeURIComponent(id)}/?v=${updatedAt}`;
 }
 
 /** Inline frames start here, and grow or shrink to fit within these bounds. */
