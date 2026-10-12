@@ -8,10 +8,12 @@
 
   let {
     provider = $bindable(), model = $bindable(), effort = $bindable(), accessMode = $bindable(),
-    newThread = false, captain = $bindable(false), isolated = $bindable(true),
+    newThread = false, captain = $bindable(false), isolated = $bindable(true), onpickprovider,
   }: {
     provider: ProviderKind; model: string | null; effort: Effort | null; accessMode: AccessMode;
     newThread?: boolean; captain?: boolean; isolated?: boolean;
+    /** Sets the new provider's model, effort and access; without it they reset to its defaults. */
+    onpickprovider?: (provider: ProviderKind) => void;
   } = $props();
   let dialog: HTMLDialogElement;
   const current = $derived(models[provider]?.list.find((item) => model ? item.id === model : item.isDefault));
@@ -22,8 +24,11 @@
 
   function pickProvider(next: ProviderKind) {
     provider = next;
-    model = null;
-    effort = null;
+    if (onpickprovider) onpickprovider(next);
+    else {
+      model = null;
+      effort = null;
+    }
   }
   function dismissBackdrop(event: MouseEvent) {
     if (event.target !== dialog) return;

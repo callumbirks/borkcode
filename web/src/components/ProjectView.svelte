@@ -3,7 +3,9 @@
   import Plus from "@lucide/svelte/icons/plus";
   import type { AccessMode, Effort, ProviderKind } from "shared/protocol";
   import { providerLabel, relativeTime } from "../lib/display.svelte";
-  import { app, go, loadFiles, rpc } from "../lib/state.svelte";
+  import { untrack } from "svelte";
+  import { app, go, loadFiles, models, rpc } from "../lib/state.svelte";
+  import { parseThreadDefaults, rememberThread, settingsFor, threadDefaultsKey, validChoice } from "../lib/threadDefaults";
   import FileTree from "./FileTree.svelte";
   import ComposerOptions from "./ComposerOptions.svelte";
   import { resizeTextarea } from "../lib/textarea";
@@ -57,14 +59,29 @@
   }
 
   let message = $state("");
-  let provider = $state<ProviderKind>("claude");
-  let model = $state<string | null>(null);
-  let effort = $state<Effort | null>(null);
-  let accessMode = $state<AccessMode>("ask");
+  // Starts from this device's last new thread; role and workspace always start as Thread and Worktree.
+  let saved = parseThreadDefaults(localStorage.getItem(threadDefaultsKey));
+  const initial = settingsFor(saved, saved.provider);
+  let provider = $state<ProviderKind>(saved.provider);
+  let model = $state<string | null>(initial.model);
+  let effort = $state<Effort | null>(initial.effort);
+  let accessMode = $state<AccessMode>(initial.accessMode);
   let isolated = $state(true);
   let captain = $state(false);
   let starting = $state(false);
   let threadError = $state("");
+
+  function pickProvider(next: ProviderKind) {
+    ({ model, effort, accessMode } = settingsFor(saved, next));
+  }
+
+  // A saved model or effort the provider no longer offers quietly becomes its default once the
+  // list arrives. Picks made after that come from the list, so this only runs per provider.
+  $effect(() => {
+    const catalog = models[provider];
+    if (!catalog || catalog.error) return;
+    untrack(() => ({ model, effort } = validChoice({ model, effort }, catalog.list)));
+  });
 
   let textarea = $state<HTMLTextAreaElement>();
   $effect(() => {
@@ -92,6 +109,8 @@
         isolated: isolated || captain,
         captain,
       });
+      saved = rememberThread(saved, provider, { model, effort, accessMode });
+      localStorage.setItem(threadDefaultsKey, JSON.stringify(saved));
       go({ view: "thread", id: thread.id });
     } catch (cause) {
       threadError = (cause as Error).message;
@@ -129,7 +148,7 @@
           required
         ></textarea>
         <div class="actions">
-          <ComposerOptions bind:provider bind:model bind:effort bind:accessMode bind:captain bind:isolated newThread />
+          <ComposerOptions bind:provider bind:model bind:effort bind:accessMode bind:captain bind:isolated newThread onpickprovider={pickProvider} />
           <span class="grow"></span>
           <button
             class="primary icon"
