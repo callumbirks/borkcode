@@ -39,7 +39,7 @@ import {
   userMessage,
 } from "./delegation.ts";
 import { buildInstructions } from "./instructions.ts";
-import { checkModelChoice, childFastMode, childModelChoice, listModels, matchChildModelRule, resolveDefaults, resolveRuleModels } from "./models.ts";
+import { checkModelChoice, childFastMode, childModelChoice, listCommands, listModels, matchChildModelRule, resolveDefaults, resolveRuleModels } from "./models.ts";
 import type { ProjectStore } from "./projects.ts";
 import { ToolError } from "./errors.ts";
 import { git } from "./exec.ts";
@@ -94,6 +94,7 @@ export interface ThreadDeps {
   generateTitle: typeof generateTitle;
   pullRequestStates: typeof fetchPullRequestStates;
   listModels: typeof listModels;
+  listCommands: typeof listCommands;
 }
 
 const realDeps: ThreadDeps = {
@@ -101,6 +102,7 @@ const realDeps: ThreadDeps = {
   generateTitle,
   pullRequestStates: fetchPullRequestStates,
   listModels,
+  listCommands,
 };
 
 /** How often open pull requests are checked for merges and closes. */
@@ -714,6 +716,13 @@ export class ThreadService {
       }
     }
     const limits = (await this.#settings.get().catch(() => DEFAULT_SETTINGS)).delegation;
+    // Only the provider's own commands count, so "/tmp is full" is a message like any other. Without
+    // the list, nothing does.
+    const commands = stored
+      ? new Set((await this.#deps.listCommands(stored.provider).catch(() => [])).map((command) => command.name))
+      : new Set<string>();
+    const isCommand = (message: InboxMessage) =>
+      fromUser(message) && message.attachments.length === 0 && commands.has(commandName(message.text) ?? "");
     // Everything from here to the first await runs at once, so two deliveries cannot claim the
     // same messages or start two turns.
     const thread = this.#db.getThread(threadId);
@@ -1445,9 +1454,4 @@ export class ThreadService {
 /** Typed by the user, as opposed to sent by another thread or by borkcode. */
 function fromUser(message: InboxMessage): boolean {
   return message.fromThreadId === null && message.kind !== "borkcode";
-}
-
-/** The user's message starts with a slash command, which the provider runs if it knows it. */
-function isCommand(message: InboxMessage): boolean {
-  return fromUser(message) && message.attachments.length === 0 && commandName(message.text) !== null;
 }

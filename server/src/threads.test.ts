@@ -127,6 +127,10 @@ const fakeDeps = {
           { id: "haiku", name: "Haiku", isDefault: false, efforts: [], defaultEffort: null, supportsFastMode: false },
         ]
       : [{ id: "gpt-6.1-sol", name: "GPT 6.1 Sol", isDefault: true, efforts: ["low", "high"], defaultEffort: "low", supportsFastMode: false }],
+  listCommands: async () => [
+    { name: "compact", description: "Summarize the conversation", argumentHint: "", firstMessage: false },
+    { name: "usage", description: "Show usage", argumentHint: "", firstMessage: true },
+  ],
 } satisfies ConstructorParameters<typeof ThreadService>[6];
 const db = new Database(":memory:");
 const threads = new ThreadService(db, projects, settings, emit, "http://test/mcp/", attachments, fakeDeps);
@@ -206,6 +210,21 @@ test("a slash command opens a turn of its own, as typed, and is never steered", 
   agent.finish("done");
   assert.equal(await agent.turn(6), "/usage");
   agent.finish("done");
+});
+
+test("a message starting with a /word the provider does not offer is an ordinary message", async () => {
+  const picks = { model: null, effort: null, accessMode: "full" as const, fastMode: false };
+  const { thread, agent } = await startThread("first task");
+  assert.equal(await agent.turn(1), "first task");
+  agent.steerable = true;
+  await threads.send(thread.id, "/tmp is full again", picks);
+  assert.deepEqual(agent.steers, ["/tmp is full again"]);
+  await threads.send(thread.id, "/compact", picks);
+  assert.deepEqual(agent.steers, ["/tmp is full again"]);
+  assert.equal((await threads.get(thread.id)).thread.queued, 1);
+  agent.finish("done");
+  assert.equal(await agent.turn(2), "/compact");
+  agent.finish("Compacted");
 });
 
 test("renaming a thread does not count as activity", async () => {

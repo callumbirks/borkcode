@@ -254,7 +254,7 @@ inventing a fix.
   Commands that drive the TUI, duplicate borkcode's pickers, rewrite the session behind it (`clear`,
   `rename`) or assume the cwd is a repo (`init`, reviews) are left out; each adapter's list says
   why. Providers run a command only when it opens the message, so the composer's `/` menu opens
-  only at the start, and delivery sends a user message starting with `/name` alone, as typed,
+  only at the start, and delivery sends a user message starting with a listed `/name` alone, as typed,
   unsteered and without the server-stopped note (`shared/commands.ts`). `firstMessage` marks those
   the new-thread page may offer.
 - **Compaction is an item, not a notice.** Claude's `compacting` status opens it, `compact_boundary`
