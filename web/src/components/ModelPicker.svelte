@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Effort, ProviderKind } from "shared/protocol";
   import { findModel, resolveDefaults } from "shared/models";
-  import { loadModels, models } from "../lib/state.svelte";
+  import { app, loadModels, models } from "../lib/state.svelte";
 
   let {
     provider,
@@ -19,8 +19,10 @@
     anyEffort?: boolean;
   } = $props();
 
+  // A failed load is retried on the next connection: the new-thread page can render before the
+  // socket is open.
   $effect(() => {
-    void loadModels(provider);
+    if (app.connected) void loadModels(provider);
   });
 
   const catalog = $derived(models[provider]);
