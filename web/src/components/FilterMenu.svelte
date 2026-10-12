@@ -17,9 +17,10 @@
 
   let position = $state({ left: 0, top: 0 });
 
+  // Before closing, since the parent clears the anchor prop when it closes the popover.
   function close() {
-    onclose();
     anchor.focus({ preventScroll: true });
+    onclose();
   }
 
   function setProject(name: string, included: boolean) {
@@ -78,7 +79,7 @@
   {@attach place}
 >
   <label class="option switch">
-    <span class="text">Hide inactive threads<span class="hint">Read, idle and without an open PR</span></span>
+    <span class="text">Hide inactive threads<span class="hint">Read, idle, no open PR</span></span>
     <input
       type="checkbox"
       role="switch"
