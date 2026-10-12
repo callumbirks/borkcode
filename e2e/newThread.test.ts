@@ -151,5 +151,51 @@ for (const engine of engines) {
       await closeOptions(page, engine);
       await close();
     });
+
+    test("New thread buttons focus the composer at the end of the draft; a reload does not", async () => {
+      const { page, close } = await open(browser, engine, server, EXISTING);
+      const composer = page.locator("[data-composer]");
+      const focused = () => composer.evaluate((element) => document.activeElement === element);
+      // Whether the composer had focus by the end of each click's dispatch, i.e. within the tap,
+      // which is when iOS still opens the keyboard for it.
+      await page.evaluate(() => {
+        const w = window as unknown as { focusedInClick: boolean[] };
+        w.focusedInClick = [];
+        addEventListener("click", () => w.focusedInClick.push(document.activeElement?.hasAttribute("data-composer") ?? false));
+      });
+      const inClick = () => page.evaluate(() => (window as unknown as { focusedInClick: boolean[] }).focusedInClick.at(-1));
+      const plus = async () => {
+        if (engine === "webkit") await page.getByRole("button", { name: "Open navigation" }).click();
+        await page.getByTitle("New thread in demo").click();
+      };
+
+      await plus();
+      await page.waitForURL(/#\/project\/demo\/new$/);
+      // Focused by the tap itself, so on a phone the drawer is already gone and iOS may show the keyboard.
+      assert.ok(await focused(), "the composer is focused after +");
+      assert.equal(await inClick(), true, "focused within the tap");
+      if (engine === "webkit") assert.equal(await page.locator(".sidebar.open").count(), 0, "the drawer closed");
+      await page.keyboard.type("Start here");
+
+      await page.evaluate(() => (location.hash = "#/project/demo"));
+      await page.getByRole("button", { name: "New thread", exact: true }).click();
+      assert.ok(await focused(), "the composer is focused after the project page's button");
+      assert.equal(await inClick(), true, "focused within the tap");
+      await page.keyboard.type(", then go on");
+      assert.equal(await savedDraft(page, (text) => !!text?.endsWith("go on")), "Start here, then go on");
+
+      // Only the buttons focus: a reload, or coming back with the back button, leaves focus alone.
+      await page.reload();
+      await composer.waitFor();
+      assert.equal(await focused(), false, "a reload does not focus the composer");
+      await page.goBack();
+      await page.goForward();
+      await composer.waitFor();
+      assert.equal(await focused(), false, "history navigation does not focus the composer");
+
+      await composer.fill("");
+      assert.equal(await savedDraft(page, (text) => text === undefined), undefined);
+      await close();
+    });
   });
 }

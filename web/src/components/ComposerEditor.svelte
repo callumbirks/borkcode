@@ -337,6 +337,17 @@
     return touch ? textarea : element;
   }
 
+  /** Focuses the box with the caret after its text, so typing continues the draft. */
+  export function focusEnd() {
+    if (touch) {
+      textarea?.focus();
+      textarea?.setSelectionRange(value.length, value.length);
+      return;
+    }
+    element?.focus();
+    select(text.length, text.length);
+  }
+
   /** Replaces the whole text as one undoable step, as the mention picker does. */
   export function setText(next: string, caretAt: number) {
     if (touch && textarea) {

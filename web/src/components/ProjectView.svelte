@@ -1,7 +1,7 @@
 <script lang="ts">
   import Plus from "@lucide/svelte/icons/plus";
   import { providerLabel, relativeTime } from "../lib/display.svelte";
-  import { app, go, loadFiles, rpc } from "../lib/state.svelte";
+  import { app, go, loadFiles, rpc, startNewThread } from "../lib/state.svelte";
   import FileTree from "./FileTree.svelte";
   import RepoEditor from "./RepoEditor.svelte";
 
@@ -67,7 +67,7 @@
       <div class="start">
         <button
           class="primary"
-          onclick={() => go({ view: "new", project: name })}
+          onclick={() => startNewThread(name)}
           disabled={project.repos.length === 0}
           title={project.repos.length === 0 ? "Add a repository first" : `Start a thread in ${name}`}
         >

@@ -225,6 +225,9 @@ inventing a fix.
   URL; pages add banners and buttons as snippets. Only `newThread` shows the agent, role and
   workspace pickers. The new-thread `@` picker searches the project's main checkouts
   (`mentions.search` with `project`), since there is no workspace yet.
+  The New thread buttons focus it through `startNewThread`, which sets the route, renders with
+  `flushSync` and focuses inside the click: iOS opens the keyboard only for focus within the tap,
+  and `hashchange` arrives after it. Reloads and history navigation don't focus it.
 - **The composer is a contenteditable whose plain text is the source of truth**
   (`ComposerEditor.svelte`), so file references can show as chips. Plain typing and deleting
   inside one text node is left to the browser and read back from that node; redrawing on every

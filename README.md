@@ -44,7 +44,8 @@ is turned on or its days change. Because it is on by default, the first start wi
 every old inactive thread at once; turn it off under Settings first if you don't want that.
 
 A thread starts from its first message. The **+** beside a project in the sidebar, or **New thread**
-on the project page, opens a new-thread page with the same composer as a thread. Only there it
+on the project page, opens a new-thread page with the same composer as a thread, focused and
+ready to type (on a phone, the keyboard opens too). Only there it
 also picks the agent, the role (Thread or Captain) and the workspace (new worktrees or the main
 checkouts). Role and workspace start as Thread and new worktrees every time; agent, model, effort
 and access start from your last new thread on that device. The unsent message is a draft, kept per

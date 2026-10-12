@@ -10,6 +10,7 @@ import type {
   Thread,
   ThreadDetail,
 } from "shared/protocol";
+import { flushSync } from "svelte";
 import { parseRoute, routeHash, type Route } from "./routes";
 import { RpcClient } from "./rpc";
 
@@ -100,6 +101,29 @@ window.addEventListener("hashchange", () => {
 
 export function go(route: Route): void {
   location.hash = routeHash(route);
+}
+
+/** The new-thread page's composer, while it is shown. */
+let newThreadComposer: { focus: () => void } | null = null;
+
+export function showingNewThreadComposer(composer: { focus: () => void }): () => void {
+  newThreadComposer = composer;
+  return () => {
+    if (newThreadComposer === composer) newThreadComposer = null;
+  };
+}
+
+/**
+ * Opens a project's new-thread page with its composer focused, for the New thread buttons only;
+ * a reload or the back button leaves focus alone. iOS opens the keyboard only for focus within
+ * the tap, and `hashchange` arrives after it, so the page is rendered and focused right here.
+ */
+export function startNewThread(project: string): void {
+  const route: Route = { view: "new", project };
+  nav.route = route;
+  location.hash = routeHash(route);
+  flushSync();
+  newThreadComposer?.focus();
 }
 
 function upsertById<T extends { id: string }>(list: T[], value: T): void {
