@@ -66,7 +66,9 @@ What borkcode has shipped and what may come next. The constraints every change w
 
 ## Next
 
-Nothing queued yet.
+1. **Convert HEIC images to PNG.** Photos from iPhones often arrive as HEIC, which agents' image
+   input doesn't accept, so they currently reach agents as plain files. Convert them to PNG on
+   upload so they're sent as images. First check how t3code handles HEIC and borrow its approach.
 
 ## Not planned yet
 
