@@ -13,7 +13,8 @@ export class LongPress {
 
   constructor(
     onPress: (x: number, y: number) => void,
-    schedule: (run: () => void, delay: number) => unknown = setTimeout,
+    // Wrapped, since browsers refuse a timer function called on anything but the window.
+    schedule: (run: () => void, delay: number) => unknown = (run, delay) => setTimeout(run, delay),
     unschedule: (timer: unknown) => void = (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
   ) {
     this.#onPress = onPress;
