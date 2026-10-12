@@ -41,7 +41,7 @@ const files = new FileStore(projects, (project, list) =>
 void files.watchAll().catch((error: Error) => console.error(`Could not watch project files: ${error.message}`));
 
 // Agents connect from this machine, so a wildcard bind is reached through loopback.
-const mcpHost = config.host === "::1" ? "[::1]" : "127.0.0.1";
+const mcpHost = config.host === "::1" ? "[::1]" : isLoopback(config.host) ? config.host : "127.0.0.1";
 const threads = new ThreadService(
   db,
   projects,
@@ -344,6 +344,7 @@ sockets.on("connection", (ws: WebSocket) => {
 
 if (!isLoopback(config.host) && config.host !== "0.0.0.0" && config.host !== "::") {
   const local = createServer((request, response) => server.emit("request", request, response));
+  local.on("upgrade", (request, socket, head) => server.emit("upgrade", request, socket, head));
   local.listen(config.port, "127.0.0.1");
 }
 

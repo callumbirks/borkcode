@@ -38,8 +38,17 @@ export function isAllowedHost(request: IncomingMessage, config: Pick<Config, "ho
 
 /** Serve preserves Host; never accept forwarded Host as authority. Funnel isn't the access boundary. */
 export function isAllowedRequest(request: IncomingMessage, config: Config): boolean {
-  if (!isAllowedHost(request, config) || !isAllowedOrigin(request) || !isSameSiteFetch(request)) return false;
+  if (!isAllowedHost(request, config) || !isAllowedOrigin(request)) return false;
+  // A user may open the app from a link on another site. Sandboxed frames cannot navigate the
+  // top-level page, and subresources never carry both document destination and user activation.
+  const openApp = request.method === "GET" && !request.url?.startsWith("/api/") &&
+    !request.url?.startsWith("/mcp/") && request.headers["sec-fetch-mode"] === "navigate" &&
+    request.headers["sec-fetch-dest"] === "document" && request.headers["sec-fetch-user"] === "?1";
+  if (!isSameSiteFetch(request) && !openApp) return false;
   if (request.headers["tailscale-funnel-request"] !== undefined) return false;
+  const forwarded = Object.keys(request.headers).some((key) => key.startsWith("x-forwarded-") || key.startsWith("tailscale-") || key === "forwarded");
+  // A proxy request cannot pretend to be localhost to bypass the optional identity check.
+  if (forwarded && hostName(request.headers.host) !== config.tailnetHost) return false;
   if (hostName(request.headers.host) === config.tailnetHost && config.tailnetLogin) {
     return isLoopback(request.socket.remoteAddress) && request.headers["tailscale-user-login"] === config.tailnetLogin;
   }
@@ -50,6 +59,6 @@ export function isAllowedRequest(request: IncomingMessage, config: Config): bool
 export function isLocalMcpRequest(request: IncomingMessage): boolean {
   const name = hostName(request.headers.host);
   return isLoopback(request.socket.remoteAddress) && name !== null && isLoopback(name) &&
-    request.headers.origin === undefined &&
+    request.headers.origin === undefined && request.headers["sec-fetch-site"] === undefined &&
     !Object.keys(request.headers).some((key) => key.startsWith("x-forwarded-") || key.startsWith("tailscale-") || key === "forwarded");
 }

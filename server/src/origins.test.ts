@@ -43,8 +43,12 @@ test("HTTP authority, remote origins, sandbox requests and local MCP are checked
     assert.equal(await status({ host }), 200);
   }
   assert.equal(await status({ host: "rebind.example" }), 403);
-  assert.equal(await status({ host: "localhost", "x-forwarded-host": config.tailnetHost! }), 200);
+  assert.equal(await status({ host: "localhost", "x-forwarded-host": config.tailnetHost! }), 403);
   assert.equal(await status({ host: "evil.test", "x-forwarded-host": config.tailnetHost! }), 403);
+  assert.equal(await status({ host: config.tailnetHost!, "sec-fetch-site": "cross-site",
+    "sec-fetch-mode": "navigate", "sec-fetch-dest": "document", "sec-fetch-user": "?1" }), 200);
+  assert.equal(await status({ host: config.tailnetHost!, "sec-fetch-site": "cross-site",
+    "sec-fetch-mode": "navigate", "sec-fetch-dest": "iframe", "sec-fetch-user": "?1" }), 403);
   const remote = { host: config.tailnetHost!, origin: `https://${config.tailnetHost}` };
   assert.equal(await status(remote), 200);
   assert.equal(await status({ ...remote, origin: "https://evil.test" }), 403);
@@ -53,6 +57,7 @@ test("HTTP authority, remote origins, sandbox requests and local MCP are checked
   assert.equal(await status({ ...remote, "tailscale-funnel-request": "?1" }), 403);
   assert.equal(await status({ host: "localhost" }, "/mcp/token"), 200);
   for (const headers of [remote, { host: "localhost", origin: "http://localhost" },
+    { host: "localhost", "sec-fetch-site": "same-origin" },
     { host: "localhost", "x-forwarded-for": "100.64.0.1" }, { host: "localhost", "tailscale-user-login": "me@example.com" }]) {
     assert.equal(await status(headers, "/mcp/token"), 403);
   }
@@ -64,5 +69,6 @@ test("HTTP authority, remote origins, sandbox requests and local MCP are checked
   assert.equal(await status({ ...remote, "tailscale-user-login": "another@example.com" }), 403);
   assert.equal(await status({ ...remote, "tailscale-user-login": "me@example.com" }), 200);
   assert.equal(await status({ ...remote, "tailscale-user-login": "me@example.com" }, "/", network.address), 403);
+  assert.equal(await status({ host: "localhost", "x-forwarded-for": "100.64.0.1", "tailscale-user-login": "another@example.com" }), 403);
   assert.equal(await status({ host: "localhost" }), 200);
 });
