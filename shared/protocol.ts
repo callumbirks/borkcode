@@ -142,6 +142,8 @@ export interface Thread {
   respondedAt: number | null;
   /** When the user last read the thread. It is unread while `respondedAt` is later. */
   readAt: number | null;
+  /** The user marked the thread unread by hand; reading it clears this. */
+  markedUnread: boolean;
   /** The agent is blocked on the user: an approval or a question is pending. */
   waiting: boolean;
   createdAt: number;
@@ -355,8 +357,11 @@ export interface Requests {
    * Unarchiving restores the subtree and any archived ancestors, so the thread stays nested.
    */
   "threads.archive": { params: { threadId: string; archived: boolean }; result: null };
-  /** Sent once the user has had the thread open and visible for a few seconds. Not activity. */
-  "threads.markRead": { params: { threadId: string }; result: null };
+  /**
+   * Marks the thread read or unread. The client marks it read once the user has had it open and
+   * visible for a few seconds; both are also user actions. Not activity.
+   */
+  "threads.setRead": { params: { threadId: string; read: boolean }; result: null };
   "threads.delete": { params: { threadId: string; force?: boolean }; result: null };
   "threads.repoStatus": { params: { threadId: string }; result: RepoStatus[] };
   /** Every thread's linked pull requests, keyed by thread id. `pullRequests.changed` keeps them current. */

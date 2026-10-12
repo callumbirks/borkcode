@@ -15,7 +15,9 @@
     relativeTime,
     type PullRequestState,
   } from "../lib/display.svelte";
-  import { app, go, nav } from "../lib/state.svelte";
+  import { longPress } from "../lib/longPress";
+  import { app, go, nav, rpc } from "../lib/state.svelte";
+  import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
   import Spinner from "./Spinner.svelte";
 
   // Threads nest under the thread that started them, and every level sorts by recent activity.
@@ -43,6 +45,35 @@
   });
 
   const archivedCount = $derived(app.threads.filter((thread) => thread.archivedAt !== null).length);
+
+  let menu = $state.raw<{ x: number; y: number; items: MenuItem[] } | null>(null);
+
+  const setRead = (threadId: string, read: boolean) => void rpc.request("threads.setRead", { threadId, read }).catch(() => undefined);
+
+  function threadItems(thread: Thread): MenuItem[] {
+    return isUnread(thread)
+      ? [{ label: "Mark as read", run: () => setRead(thread.id, true) }]
+      : [{ label: "Mark as unread", run: () => setRead(thread.id, false) }];
+  }
+
+  function projectItems(threads: { thread: Thread }[]): MenuItem[] {
+    const unread = threads.filter(({ thread }) => isUnread(thread));
+    if (unread.length === 0) return [];
+    return [{ label: "Mark all as read", run: () => unread.forEach(({ thread }) => setRead(thread.id, true)) }];
+  }
+
+  /** Right-click, or the context menu key, which reports no pointer position, so the menu opens under the row. */
+  function openMenu(event: MouseEvent, items: () => MenuItem[]) {
+    event.preventDefault();
+    const fromKeyboard = event.clientX === 0 && event.clientY === 0;
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    showMenu(fromKeyboard ? rect.left : event.clientX, fromKeyboard ? rect.bottom : event.clientY, items);
+  }
+
+  function showMenu(x: number, y: number, items: () => MenuItem[]) {
+    const list = items();
+    menu = list.length > 0 ? { x, y, items: list } : null;
+  }
 
   /** A thread's pull requests counted per state, in a fixed order, leaving out empty states. */
   function prCounts(threadId: string): { state: PullRequestState; count: number }[] {
@@ -76,7 +107,12 @@
       {@const threads = threadsByProject.get(project.name) ?? []}
       <div class="group">
         <div class="group-header" class:active={nav.route.view === "project" && nav.route.name === project.name}>
-          <button class="project ghost" onclick={() => go({ view: "project", name: project.name })}>
+          <button
+            class="project ghost"
+            onclick={() => go({ view: "project", name: project.name })}
+            oncontextmenu={(event) => openMenu(event, () => projectItems(threads))}
+            {@attach longPress((x, y) => showMenu(x, y, () => projectItems(threads)))}
+          >
             <Folder size={14} />
             <span class="truncate">{project.name}</span>
             <span class="count">{threads.length}</span>
@@ -93,14 +129,16 @@
           {@const prs = prCounts(thread.id)}
           {@const open = nav.route.view === "thread" && nav.route.id === thread.id}
           {@const working = thread.status === "running" || thread.status === "preparing"}
-          <!-- The open thread is being read, so it never lights up; it is marked read after a few seconds. -->
-          {@const unread = isUnread(thread) && !working && !open}
+          <!-- The open thread is being read, so it lights up only when marked unread by hand. -->
+          {@const unread = isUnread(thread) && !working && (!open || thread.markedUnread)}
           <button
             class="thread ghost"
             class:unread
             style:padding-left="calc(var(--space-2) + {depth} * var(--space-4))"
             class:active={open}
             onclick={() => go({ view: "thread", id: thread.id })}
+            oncontextmenu={(event) => openMenu(event, () => threadItems(thread))}
+            {@attach longPress((x, y) => showMenu(x, y, () => threadItems(thread)))}
           >
             <span class="dot {thread.status}" title={thread.status}></span>
             <span class="lines">
@@ -150,6 +188,10 @@
     {#if archivedCount > 0}<span class="count">{archivedCount}</span>{/if}
   </button>
 </nav>
+
+{#if menu}
+  <ContextMenu {...menu} onclose={() => (menu = null)} />
+{/if}
 
 <style>
   /* Its own compositor layer, so sidebar updates don't re-raster the page beside it. */
@@ -232,6 +274,12 @@
   .group-header:hover .add,
   .add:focus-visible {
     opacity: 1;
+  }
+  /* A long press opens the row's menu, not the browser's callout or a text selection. */
+  .project,
+  .thread {
+    -webkit-touch-callout: none;
+    user-select: none;
   }
   .thread {
     align-items: flex-start;

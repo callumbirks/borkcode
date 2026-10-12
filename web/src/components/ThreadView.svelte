@@ -7,6 +7,8 @@
   import Crown from "@lucide/svelte/icons/crown";
   import Eye from "@lucide/svelte/icons/eye";
   import Inbox from "@lucide/svelte/icons/inbox";
+  import Mail from "@lucide/svelte/icons/mail";
+  import MailOpen from "@lucide/svelte/icons/mail-open";
   import Folder from "@lucide/svelte/icons/folder";
   import GitBranch from "@lucide/svelte/icons/git-branch";
   import GitPullRequestArrow from "@lucide/svelte/icons/git-pull-request-arrow";
@@ -14,7 +16,7 @@
   import Square from "@lucide/svelte/icons/square";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import { untrack } from "svelte";
-  import type { AccessMode, Effort } from "shared/protocol";
+  import type { AccessMode, Effort, Thread } from "shared/protocol";
   import { isUnread, providerLabel } from "../lib/display.svelte";
   import { composerAttachments } from "../lib/attachments";
   import {
@@ -28,6 +30,7 @@
   import { referenceRoots } from "../lib/fileReferences";
   import { answer, pick } from "../lib/questions";
   import { BottomPin } from "../lib/pin";
+  import { autoReadDue, nextHold, type ReadHold } from "../lib/unread";
   import { segmentItems, type Segment } from "../lib/segments";
   import { app, getDraft, go, openThread, rpc, setDraft } from "../lib/state.svelte";
   import AttachButton from "./AttachButton.svelte";
@@ -114,7 +117,18 @@
 
   // A thread is read once it has been open in a visible tab for a few seconds, so a misclick
   // doesn't count. Switching threads, hiding the tab or a new response starts the wait again.
-  const unreadSince = $derived(thread && isUnread(thread) ? thread.respondedAt : null);
+  // Marking the open thread unread holds this off until another thread is opened or a new
+  // response arrives, so it stays flagged for later.
+  let hold = $state<ReadHold>(null);
+  let seen: Thread | undefined;
+  $effect.pre(() => {
+    const current = thread;
+    const openId = id;
+    untrack(() => (hold = nextHold(hold, openId, seen, current)));
+    seen = current;
+  });
+  const autoRead = $derived(!!thread && autoReadDue(thread, hold));
+  const respondedAt = $derived(thread?.respondedAt);
   let tabVisible = $state(document.visibilityState === "visible");
   $effect(() => {
     const update = () => (tabVisible = document.visibilityState === "visible");
@@ -122,11 +136,16 @@
     return () => document.removeEventListener("visibilitychange", update);
   });
   $effect(() => {
-    if (unreadSince === null || !tabVisible) return;
+    void respondedAt;
+    if (!autoRead || !tabVisible) return;
     const threadId = id;
-    const timer = setTimeout(() => rpc.request("threads.markRead", { threadId }).catch(() => undefined), 3000);
+    const timer = setTimeout(() => setRead(threadId, true), 3000);
     return () => clearTimeout(timer);
   });
+
+  function setRead(threadId: string, read: boolean) {
+    void rpc.request("threads.setRead", { threadId, read }).catch((cause: Error) => (error = cause.message));
+  }
 
   // Pin the transcript to the bottom, including when a thread opens, until the user scrolls up.
   // Watching size rather than items also follows growth that isn't a new item: streamed tool
@@ -354,6 +373,15 @@
             <GitBranch size={12} />{thread.branch ?? "main checkout"}
           </span>
         </div>
+        {#if isUnread(thread)}
+          <button class="ghost icon read" title="Mark as read" aria-label="Mark as read" onclick={() => setRead(id, true)}>
+            <MailOpen size={16} />
+          </button>
+        {:else}
+          <button class="ghost icon read" title="Mark as unread" aria-label="Mark as unread" onclick={() => setRead(id, false)}>
+            <Mail size={16} />
+          </button>
+        {/if}
         {#if thread.archivedAt}
           <button class="ghost icon archive" title="Unarchive thread" onclick={() => setArchived(false)}>
             <ArchiveRestore size={16} />
@@ -575,8 +603,11 @@
     color: var(--text-primary);
     text-decoration: none;
   }
-  .archive {
+  .read {
     margin-left: auto;
+    flex-shrink: 0;
+  }
+  .archive {
     flex-shrink: 0;
   }
   .delete {

@@ -11,7 +11,7 @@ import Plug from "@lucide/svelte/icons/plug";
 import Search from "@lucide/svelte/icons/search";
 import SquareTerminal from "@lucide/svelte/icons/square-terminal";
 import Wrench from "@lucide/svelte/icons/wrench";
-import type { ProviderKind, Thread } from "shared/protocol";
+import type { ProviderKind } from "shared/protocol";
 
 /** Ticks once a minute so relative times stay current without repainting every frame. */
 export const clock = $state({ now: Date.now() });
@@ -28,10 +28,7 @@ export function relativeTime(timestamp: number): string {
   return `${Math.floor(days / 7)}w`;
 }
 
-/** A turn ended with something for the user since they last read the thread. */
-export function isUnread(thread: Thread): boolean {
-  return thread.respondedAt !== null && thread.respondedAt > (thread.readAt ?? 0);
-}
+export { isUnread } from "./unread.ts";
 
 export const providerLabel: Record<ProviderKind, string> = { claude: "Claude", codex: "Codex" };
 
