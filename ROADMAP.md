@@ -63,3 +63,6 @@ Not prioritized yet. The order below is a suggestion.
 
 - Checkpoints/restore.
 - Other providers.
+- Hardware budgets and a run queue. Heavy commands such as builds and test servers take memory
+  from a machine-wide budget and wait in a queue when it's full, so parallel threads don't run the
+  machine out of memory. Ideas: `ideas/machine-resources.md` in the shared project files.
