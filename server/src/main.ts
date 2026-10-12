@@ -11,12 +11,12 @@ import type {
   ServerMessage,
 } from "shared/protocol";
 import { AttachmentError, AttachmentStore, MAX_ATTACHMENT_BYTES } from "./attachments.ts";
-import { loadConfig } from "./config.ts";
+import { isLoopback, loadConfig } from "./config.ts";
 import { Database } from "./db.ts";
 import { FileStore } from "./files.ts";
 import { handleMcpRequest } from "./mcp.ts";
 import { MentionSearch } from "./mentions.ts";
-import { isAllowedOrigin, isSameSiteFetch } from "./origins.ts";
+import { isAllowedOrigin, isSameSiteFetch, isAllowedRequest, isLocalMcpRequest } from "./origins.ts";
 import { listModels } from "./models.ts";
 import { ProjectStore } from "./projects.ts";
 import { SettingsStore } from "./settings.ts";
@@ -41,7 +41,7 @@ const files = new FileStore(projects, (project, list) =>
 void files.watchAll().catch((error: Error) => console.error(`Could not watch project files: ${error.message}`));
 
 // Agents connect from this machine, so a wildcard bind is reached through loopback.
-const mcpHost = config.host === "0.0.0.0" || config.host === "::" ? "127.0.0.1" : config.host;
+const mcpHost = config.host === "::1" ? "[::1]" : "127.0.0.1";
 const threads = new ThreadService(
   db,
   projects,
@@ -252,9 +252,10 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 const server = createServer(async (request, response) => {
+  if (!isAllowedRequest(request, config)) return replyError(response, 403, "Forbidden");
   const mcpToken = /^\/mcp\/([\w-]+)$/.exec(request.url ?? "")?.[1];
   if (mcpToken) {
-    if (!isAllowedOrigin(request)) {
+    if (!isLocalMcpRequest(request)) {
       response.writeHead(403).end();
       return;
     }
@@ -314,7 +315,7 @@ const server = createServer(async (request, response) => {
 
 const sockets = new WebSocketServer({ noServer: true });
 server.on("upgrade", (request, socket, head) => {
-  if (request.url !== "/ws" || !isAllowedOrigin(request)) {
+  if (request.url !== "/ws" || !isAllowedRequest(request, config)) {
     socket.destroy();
     return;
   }
@@ -340,6 +341,11 @@ sockets.on("connection", (ws: WebSocket) => {
     ws.send(JSON.stringify(reply));
   });
 });
+
+if (!isLoopback(config.host) && config.host !== "0.0.0.0" && config.host !== "::") {
+  const local = createServer((request, response) => server.emit("request", request, response));
+  local.listen(config.port, "127.0.0.1");
+}
 
 server.listen(config.port, config.host, () => {
   console.log(`borkcode listening on http://${config.host}:${config.port} (home: ${config.home})`);

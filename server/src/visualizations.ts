@@ -11,8 +11,8 @@ export const MAX_VISUALIZATION_BYTES = 2 * 1024 * 1024;
  * Visualizations are agent-written HTML with scripts, so they run sandboxed in an opaque origin:
  * they cannot read borkcode's pages, and their requests to `/api` and `/ws` carry `Origin: null`,
  * which is refused. Scripts, styles, images, fonts and fetches may come from any `https:` host,
- * since agents load chart libraries from CDNs; plain `http:` stays closed, so a page cannot reach
- * borkcode or other services on localhost. Tighten here, for example to a list of CDN hosts.
+ * since agents load chart libraries from CDNs; plain `http:` stays closed. HTTPS borkcode requests are refused globally by Origin and
+ * Sec-Fetch-Site, including script/image requests that carry no Origin. Tighten here, for example to a list of CDN hosts.
  */
 export const VISUALIZATION_CSP = [
   "sandbox allow-scripts",
