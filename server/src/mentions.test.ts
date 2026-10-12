@@ -69,14 +69,14 @@ test("search lists repo files, skipping ignored ones, and project files by absol
   const search = new MentionSearch(files, async () => ({ project, root }));
 
   assert.deepEqual(
-    (await search.search("t1", "server")).filter(m => m.kind === "file").map((mention) => [mention.repo, mention.path, mention.reference]),
+    (await search.search({ threadId: "t1" }, "server")).filter(m => m.kind === "file").map((mention) => [mention.repo, mention.path, mention.reference]),
     [
       [null, "specs/server.md", `@${join(project.path, "files", "specs", "server.md")}`],
       ["app", "src/server.ts", "@app/src/server.ts"],
     ],
   );
   assert.deepEqual(
-    (await search.search("t1", "draft")).map((mention) => mention.reference),
+    (await search.search({ threadId: "t1" }, "draft")).map((mention) => mention.reference),
     ["@app/src/draft.ts"],
   );
 });
@@ -95,10 +95,10 @@ test("thread title matching excludes current, archived and other-project threads
   const files = new FileStore(new ProjectStore(join(scratch, "picker-home")), () => {});
   for (let i = 0; i < 55; i++) await files.write("demo", `s${i}.md`, "", null);
   const search = new MentionSearch(files, async () => ({ project, root: project.path }), () => list);
-  const matches = await search.search("current", "");
+  const matches = await search.search({ threadId: "current" }, "");
   assert.equal(matches.length, 50);
   assert.ok(matches.every(m => m.kind === "file"));
-  assert.equal((await search.search("current", "serv"))[0].kind, "thread");
+  assert.equal((await search.search({ threadId: "current" }, "serv"))[0].kind, "thread");
   assert.ok(matches.some(m => m.kind === "file"));
 });
 
@@ -124,18 +124,18 @@ test("thread mode searches all projects, ranks local then recent, and omits file
   seed("other-new", "other", 200);
   seed("archived", "other", 300, 1);
   const search = new MentionSearch(files, async () => ({ project, root: project.path }), () => db.listThreads().map(t => toThread(t, false)));
-  const all = await search.search("current", "notes", "threads");
+  const all = await search.search({ threadId: "current" }, "notes", "threads");
   assert.deepEqual(all.map(t => t.kind === "thread" && [t.threadId, t.project, t.status]), [
     ["local-new", "demo", "idle"], ["local-old", "demo", "idle"],
     ["other-new", "other", "idle"], ["other-old", "other", "idle"],
   ]);
-  assert.deepEqual(await search.search("current", "missing", "threads"), []);
-  const mixed = await search.search("current", "notes");
+  assert.deepEqual(await search.search({ threadId: "current" }, "missing", "threads"), []);
+  const mixed = await search.search({ threadId: "current" }, "notes");
   assert.deepEqual(mixed.filter(t => t.kind === "thread").map(t => t.threadId).sort(), ["local-new", "local-old"]);
   assert.ok(mixed.some(t => t.kind === "file"));
-  assert.ok((await search.search("current", "")).every(t => t.kind === "file"));
+  assert.ok((await search.search({ threadId: "current" }, "")).every(t => t.kind === "file"));
   for (let i = 0; i < 55; i++) seed(`extra-${i}`, "other", i);
-  assert.equal((await search.search("current", "", "threads")).length, 50);
+  assert.equal((await search.search({ threadId: "current" }, "", "threads")).length, 50);
 });
 
 

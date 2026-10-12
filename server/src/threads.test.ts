@@ -684,6 +684,37 @@ test("attachments go with a message to the agent, steered or queued across a res
   assert.ok(!existsSync(attachments.dir(thread.id)));
 });
 
+test("a new thread takes its draft's uploads, sends the named ones with its first message, and refuses another draft's", async () => {
+  const draftId = randomUUID();
+  const other = randomUUID();
+  const shot = await attachments.saveDraft(draftId, "shot.png", "image/png", Readable.from([PNG]));
+  const unsent = await attachments.saveDraft(draftId, "removed.txt", "text/plain", Readable.from([Buffer.from("x")]));
+  const elsewhere = await attachments.saveDraft(other, "other.txt", "text/plain", Readable.from([Buffer.from("y")]));
+  const params = { ...SETTINGS_NOW, project: "demo", text: "look at this", provider: "claude" as const, isolated: true, captain: false };
+  const before = threads.list().length;
+
+  assert.throws(() => threads.create({ ...params, draftId, attachments: [shot.id, elsewhere.id] }), /attach the file again/);
+  assert.throws(() => threads.create({ ...params, attachments: [shot.id] }), /attach the file again/);
+  assert.throws(() => threads.create({ ...params, draftId: "../drafts", attachments: [] }), /Unknown draft/);
+  assert.equal(threads.list().length, before);
+
+  const thread = await threads.create({ ...params, draftId, attachments: [shot.id] });
+  const agent = await agentOf(thread.id);
+  assert.equal(await agent.turn(1), "look at this");
+  assert.deepEqual(agent.attachments[0], [{ ...shot, path: attachments.path(thread.id, shot) }]);
+  assert.deepEqual(await readFile(agent.attachments[0]![0]!.path), PNG);
+  assert.deepEqual((await userItems(thread.id)).map((item) => item.attachments?.map((each) => each.id)), [[shot.id]]);
+  // The whole draft moved, so it is served from the thread and deleted with it.
+  assert.equal(threads.attachmentFile(thread.id, unsent.id)?.name, "removed.txt");
+  assert.throws(() => attachments.resolveDraft(draftId, [shot.id]), /attach the file again/);
+  assert.equal(threads.attachmentFile(thread.id, elsewhere.id), null);
+  assert.deepEqual(attachments.resolveDraft(other, [elsewhere.id]), [elsewhere]);
+
+  agent.finish("done");
+  await threads.delete(thread.id, false);
+  assert.ok(!existsSync(attachments.dir(thread.id)));
+});
+
 const SETTINGS_NOW = { model: null, effort: null, accessMode: "full" as const };
 
 function notices(items: Item[]): string[] {

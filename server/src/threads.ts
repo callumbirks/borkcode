@@ -196,22 +196,35 @@ export class ThreadService {
     return this.#db.listThreads().map((thread) => this.#toThread(thread));
   }
 
-  /** Starts the thread on its first message. The title is generated in the background. */
-  create(params: Requests["threads.create"]["params"]): Promise<Thread> {
-    return this.#start({ ...params, parentId: null, startBranch: null, watched: false });
+  /**
+   * Starts the thread on its first message. The title is generated in the background. Files the
+   * composer uploaded to its draft become the thread's, and those named go with the message.
+   */
+  create({ draftId, attachments = [], ...params }: Requests["threads.create"]["params"]): Promise<Thread> {
+    if (attachments.length > 0 && !draftId) throw new Error("An attachment is missing; attach the file again");
+    return this.#start({
+      ...params,
+      parentId: null,
+      startBranch: null,
+      watched: false,
+      draft: draftId ? { id: draftId, attachments: this.#attachments.resolveDraft(draftId, attachments) } : null,
+    });
   }
 
   async #start(
-    params: Requests["threads.create"]["params"] & {
+    params: Omit<Requests["threads.create"]["params"], "draftId" | "attachments"> & {
       parentId: string | null;
       startBranch: string | null;
       watched: boolean;
+      draft?: { id: string; attachments: Attachment[] } | null;
     },
   ): Promise<Thread> {
     const project = await this.#projects.get(params.project);
     const text = params.text.trim();
     if (!text) throw new Error("Write the first message for the agent");
     const id = randomUUID();
+    // Before the thread exists, so it never shows without the files its message names.
+    if (params.draft) await this.#attachments.adoptDraft(params.draft.id, id);
     // A provisional workspace name until the title is generated. Nothing is on disk before then,
     // so renaming is free, and a restart in between leaves a usable name.
     const workspace = params.isolated ? workspaceSlug("", id) : null;
@@ -258,6 +271,7 @@ export class ThreadService {
       fromThreadId: params.parentId,
       kind: params.parentId && !params.watched ? "handoff" : "message",
       text,
+      attachments: params.draft?.attachments,
     });
     void this.#deliver(id);
     return this.#toThread(thread);
