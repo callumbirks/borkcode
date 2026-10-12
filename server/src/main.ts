@@ -1,5 +1,5 @@
 import { createReadStream, existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -16,13 +16,13 @@ import { Database } from "./db.ts";
 import { FileStore } from "./files.ts";
 import { handleMcpRequest } from "./mcp.ts";
 import { MentionSearch } from "./mentions.ts";
-import { isAllowedOrigin, isSameSiteFetch } from "./origins.ts";
+import { assetBase, isAllowedOrigin, isAssetRequest, isSameSiteFetch } from "./origins.ts";
 import { listModels } from "./models.ts";
 import { ProjectStore } from "./projects.ts";
 import { SettingsStore } from "./settings.ts";
 import { locateAll, PreviewError, readPreview, type PreviewRoots } from "./threadFiles.ts";
 import { ThreadService } from "./threads.ts";
-import { VISUALIZATION_HEADERS } from "./visualizations.ts";
+import { assetType, visualizationHeaders } from "./visualizations.ts";
 
 const config = loadConfig();
 const db = new Database(join(config.home, "state.sqlite"));
@@ -196,18 +196,42 @@ async function handleAttachments(
   createReadStream(file.path).pipe(response);
 }
 
-/** `GET /api/threads/<id>/visualizations/<id>` serves a page the agent showed, sandboxed. */
+/**
+ * `GET /api/threads/<id>/visualizations/<id>/` serves a page the agent showed, sandboxed, to
+ * borkcode's own pages. Anything below it is a file the page loads by relative URL, if it was
+ * shown from a file; those requests come from the sandboxed page itself (see `isAssetRequest`).
+ */
 async function handleVisualization(
   request: IncomingMessage,
   response: ServerResponse,
   threadId: string,
   visualizationId: string,
+  assetPath: string,
 ): Promise<void> {
-  if (!isAllowedOrigin(request) || !isSameSiteFetch(request)) return replyError(response, 403, "Forbidden");
   if (request.method !== "GET") return replyError(response, 405, "Method not allowed");
+  const base = assetBase(request, threadId, visualizationId);
+  if (assetPath) {
+    if (!isAssetRequest(request)) return replyError(response, 403, "Forbidden");
+    const file = await threads.visualizationAsset(threadId, visualizationId, decodeURIComponent(assetPath));
+    if (!file) return replyError(response, 404, "Not found");
+    response.writeHead(200, {
+      ...visualizationHeaders(assetType(file), base),
+      "content-length": (await stat(file)).size,
+      // Fonts and fetches from the page are CORS requests from its opaque origin.
+      "access-control-allow-origin": "null",
+    });
+    createReadStream(file).pipe(response);
+    return;
+  }
+  if (!isAllowedOrigin(request) || !isSameSiteFetch(request)) return replyError(response, 403, "Forbidden");
   const page = await threads.visualizationPage(threadId, visualizationId);
   if (!page) return replyError(response, 404, "Not found");
-  response.writeHead(200, { ...VISUALIZATION_HEADERS, "content-length": page.length }).end(page);
+  response
+    .writeHead(200, {
+      ...visualizationHeaders("text/html; charset=utf-8", page.hasAssets ? base : null),
+      "content-length": page.html.length,
+    })
+    .end(page.html);
 }
 
 /** `GET /api/threads/<id>/files?root=&path=` serves a file or folder listing for the preview panel. */
@@ -277,9 +301,10 @@ const server = createServer(async (request, response) => {
     });
     return;
   }
-  const visualizationRoute = /^\/api\/threads\/([\w-]+)\/visualizations\/([\w-]+)$/.exec(pathname);
+  const visualizationRoute = /^\/api\/threads\/([\w-]+)\/visualizations\/([\w-]+)(?:\/(.*))?$/.exec(pathname);
   if (visualizationRoute) {
-    await handleVisualization(request, response, visualizationRoute[1]!, visualizationRoute[2]!).catch((error: Error) => {
+    const [, threadId, visualizationId, assetPath] = visualizationRoute;
+    await handleVisualization(request, response, threadId!, visualizationId!, assetPath ?? "").catch((error: Error) => {
       if (response.headersSent) return response.destroy();
       replyError(response, 500, error.message);
     });

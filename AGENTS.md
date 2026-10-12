@@ -149,8 +149,19 @@ inventing a fix.
   `Content-Security-Policy: sandbox allow-scripts` (never `allow-same-origin`) and frames use
   `sandbox="allow-scripts"`, so its requests carry `Origin: null`, which `isAllowedOrigin` refuses.
   Resources load from `https:` only (CDNs), never `http:`, so it cannot reach localhost; the policy
-  is `VISUALIZATION_CSP` in `visualizations.ts`. A served page gets a script appended that posts
+  is `visualizationCsp` in `visualizations.ts`. A served page gets a script appended that posts
   its content height; the card accepts only a clamped number from its own frame.
+- **A visualization shown from a file is served live and loads the files beside it.** When the
+  file is in the thread's workspace or project files, `<id>.json` records its root and path; the
+  page is read from there on each load (the copy stands in if it goes away) and served at
+  `.../visualizations/<id>/`, so relative URLs hit `.../visualizations/<id>/<path>`. That route
+  serves files in the page's folder and below through `resolveIn`, never hidden files, with
+  `nosniff`, the sandbox CSP (so HTML or SVG opened from it stays sandboxed) and
+  `Access-Control-Allow-Origin: null` for fonts and fetches. It is the one route that accepts
+  the sandbox's `Origin: null` and cross-site requests (`isAssetRequest`); the UUIDs in its URL
+  are the capability. The page's CSP names that exact URL prefix as a source, since `'self'` is
+  unreliable for an opaque origin and would open all of `/api`. Any request gate in front of all
+  routes must let `isAssetRequest` through.
 - **The composer is a contenteditable whose plain text is the source of truth**
   (`ComposerEditor.svelte`), so file references can show as chips. Plain typing and deleting
   inside one text node is left to the browser and read back from that node; redrawing on every
