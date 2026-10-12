@@ -57,7 +57,10 @@ alone, since it is named from its text.
 A small model, chosen under Settings (Codex `gpt-6-luna`
 at low effort by default), names it, and the workspace and branch are named after that title.
 Renaming a thread later changes only its displayed title. Model and effort can be switched
-between turns from the composer.
+between turns from the composer. They are always a named model and effort: Claude's "Default
+(recommended)" entry is not offered, and the model it stands for is preselected instead, at high
+effort (Claude doesn't report its own default effort). Threads and settings saved on the old
+defaults show, and run on, that model and effort until you change them.
 
 Type `@` in the composer to reference a file from any of the project's repos or its shared project
 files. On the new-thread page, before the thread has a workspace, repo files come from the main

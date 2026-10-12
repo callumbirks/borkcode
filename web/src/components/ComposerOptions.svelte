@@ -3,6 +3,7 @@
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import type { AccessMode, Effort, ProviderKind } from "shared/protocol";
+  import { findModel } from "shared/models";
   import { models } from "../lib/state.svelte";
   import ModelPicker from "./ModelPicker.svelte";
 
@@ -16,7 +17,7 @@
     onpickprovider?: (provider: ProviderKind) => void;
   } = $props();
   let dialog: HTMLDialogElement;
-  const current = $derived(models[provider]?.list.find((item) => model ? item.id === model : item.isDefault));
+  const current = $derived(findModel(models[provider]?.list ?? [], model));
   const name = $derived(current?.name.replace(/\s*\(.*\)$/, "") || model || (provider === "claude" ? "Claude" : "Codex"));
   const level = $derived(effort ?? current?.defaultEffort);
   const summary = $derived((newThread ? `${provider === "claude" ? "Claude" : "Codex"} · ` : "") + name +
@@ -67,7 +68,7 @@
   {#if newThread}{@render threadOptions()}{/if}
 </div>
 <div class="phone-options">
-  <button type="button" class="ghost summary" aria-label={`Model and access: ${name}, ${level ?? "default effort"}, ${accessMode === "full" ? "full access" : "ask first"}`} aria-haspopup="dialog" onclick={() => dialog.showModal()}>
+  <button type="button" class="ghost summary" aria-label={`Model and access: ${name}, ${level ? `${level} effort, ` : ""}${accessMode === "full" ? "full access" : "ask first"}`} aria-haspopup="dialog" onclick={() => dialog.showModal()}>
     {#if accessMode === "full"}<ShieldCheck size={16} />{:else}<Shield size={16} />{/if}
     <span>{summary}</span><ChevronDown size={14} />
   </button>

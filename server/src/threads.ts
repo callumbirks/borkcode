@@ -37,7 +37,7 @@ import {
   userMessage,
 } from "./delegation.ts";
 import { buildInstructions } from "./instructions.ts";
-import { checkModelChoice, childModelChoice, listModels, matchChildModelRule, resolveDefaults } from "./models.ts";
+import { checkModelChoice, childModelChoice, listModels, matchChildModelRule, resolveDefaults, resolveRuleModels } from "./models.ts";
 import type { ProjectStore } from "./projects.ts";
 import { ToolError } from "./errors.ts";
 import { git } from "./exec.ts";
@@ -60,6 +60,7 @@ import { startClaudeSession } from "./providers/claude.ts";
 import { startCodexSession } from "./providers/codex.ts";
 import {
   truncate,
+  type ModelSettings,
   type ProviderSession,
   type SessionOptions,
   type TurnAttachment,
@@ -296,23 +297,20 @@ export class ThreadService {
     const parent = this.#require(parentId);
     const message = request.message.trim();
     if (!message) throw new ToolError("The new thread needs a first message.");
-    const parentChoice = { provider: parent.provider, model: parent.model, effort: parent.effort };
+    const parentList = await this.#deps.listModels(parent.provider).catch(() => null);
+    const parentChoice = resolveDefaults({ provider: parent.provider, model: parent.model, effort: parent.effort }, parentList);
     const rules = (await this.#settings.get().catch(() => DEFAULT_SETTINGS)).childModelRules;
-    const rule =
-      rules.length > 0
-        ? matchChildModelRule(
-            rules,
-            resolveDefaults(parentChoice, await this.#deps.listModels(parent.provider).catch(() => null)),
-          )
-        : undefined;
+    const rule = matchChildModelRule(resolveRuleModels(rules, parent.provider, parentList), parentChoice);
     const { provider, ...unchecked } = childModelChoice(rule?.use ?? parentChoice, request);
-    const choice = await checkModelChoice(
+    const checked = await checkModelChoice(
       provider,
       unchecked.model,
       unchecked.effort,
       request.effort !== undefined,
       this.#deps.listModels,
     );
+    // Stored by name, so the child shows and keeps the model it started on.
+    const choice = resolveDefaults({ provider, ...checked }, await this.#deps.listModels(provider).catch(() => null));
 
     let startBranch: string | null = null;
     if (request.startFrom === "this_branch") {
@@ -808,6 +806,16 @@ export class ThreadService {
     );
   }
 
+  /**
+   * The model and effort a thread runs on, by name, as its picker shows them: threads saved on the
+   * provider's defaults (null) get the default model and its default effort.
+   */
+  async #modelSettings(thread: StoredThread): Promise<ModelSettings> {
+    const list = await this.#deps.listModels(thread.provider).catch(() => null);
+    const { model, effort } = resolveDefaults({ provider: thread.provider, model: thread.model, effort: thread.effort }, list);
+    return { model, effort };
+  }
+
   /** `serverStopped` means the text carries the note about a cut-off turn, cleared once the agent has it. */
   async #runTurn(threadId: string, text: string, attachments: TurnAttachment[], serverStopped: boolean): Promise<void> {
     const live = this.#liveThread(threadId);
@@ -818,11 +826,7 @@ export class ThreadService {
       if (thread.workspace) await this.#addMissingRepos(thread);
       live.session ??= this.#openSession(thread);
       const session = await live.session;
-      await session.sendTurn(
-        text,
-        { model: thread.model, effort: thread.effort, accessMode: thread.accessMode },
-        attachments,
-      );
+      await session.sendTurn(text, { ...(await this.#modelSettings(thread)), accessMode: thread.accessMode }, attachments);
       if (serverStopped) this.#db.setServerStopped(threadId, false);
     } catch (error) {
       const session = live.session;
@@ -1127,8 +1131,7 @@ export class ThreadService {
         brief: thread.parentId && existsSync(brief) ? brief : null,
       }),
       accessMode: thread.accessMode,
-      model: thread.model,
-      effort: thread.effort,
+      ...(await this.#modelSettings(thread)),
       mcpUrl: `${this.#mcpBaseUrl}${mcpToken}`,
       resumeId: thread.providerSessionId,
       events: {

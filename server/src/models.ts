@@ -1,3 +1,4 @@
+import { findModel, resolveDefaults } from "shared/models";
 import type { ChildModelRule, Effort, ModelChoice, ModelOption, ProviderKind } from "shared/protocol";
 import { ToolError } from "./errors.ts";
 import { generateClaudeText, listClaudeModels } from "./providers/claude.ts";
@@ -42,7 +43,7 @@ export async function checkModelChoice(
   if (model === null && effort === null) return { model, effort };
   const list = await lister(provider).catch(() => null);
   if (!list) return { model, effort };
-  const chosen = model === null ? list.find((option) => option.isDefault) : list.find((option) => option.id === model);
+  const chosen = findModel(list, model);
   if (!chosen) {
     if (model === null) return { model, effort };
     throw new ToolError(`${provider} has no model "${model}". Available: ${list.map((option) => option.id).join(", ")}.`);
@@ -56,14 +57,19 @@ export async function checkModelChoice(
   return { model, effort };
 }
 
-/** Names the model and effort a null choice stands for, so rules can match a parent on defaults. */
-export function resolveDefaults(choice: ModelChoice, list: ModelOption[] | null): ModelChoice {
-  const option = list?.find((entry) => (choice.model === null ? entry.isDefault : entry.id === choice.model));
-  return {
-    provider: choice.provider,
-    model: choice.model ?? option?.id ?? null,
-    effort: choice.effort ?? option?.defaultEffort ?? null,
-  };
+export { resolveDefaults };
+
+/**
+ * Names the listed model each rule's parent model stands for, so a rule saved on Claude's old
+ * "default" pseudo-model still matches a parent on the default model.
+ */
+export function resolveRuleModels(rules: ChildModelRule[], provider: ProviderKind, list: ModelOption[] | null): ChildModelRule[] {
+  if (!list) return rules;
+  return rules.map((rule) =>
+    rule.when.provider === provider
+      ? { ...rule, when: { ...rule.when, model: findModel(list, rule.when.model)?.id ?? rule.when.model } }
+      : rule,
+  );
 }
 
 export function matchChildModelRule(rules: ChildModelRule[], parent: ModelChoice): ChildModelRule | undefined {
@@ -97,5 +103,6 @@ export async function generateText(
   choice: ModelChoice,
   request: Omit<TextRequest, "model" | "effort">,
 ): Promise<string> {
-  return generators[choice.provider]({ ...request, model: choice.model, effort: choice.effort });
+  const { model, effort } = resolveDefaults(choice, await listModels(choice.provider).catch(() => null));
+  return generators[choice.provider]({ ...request, model, effort });
 }

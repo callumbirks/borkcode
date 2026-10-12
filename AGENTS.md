@@ -78,7 +78,12 @@ inventing a fix.
   threads wait for the title so their branch name means something; renaming later changes only
   the displayed title.
 - **Model lists come from the CLIs** (Claude `supportedModels()`, Codex `model/list`), never a
-  hardcoded list. A null model or effort means the provider's default.
+  hardcoded list. Choices are always concrete: Claude's "default" pseudo-model is left out of its
+  list and the model it resolves to is marked default instead, at high effort since Claude doesn't
+  report default efforts. A null model or effort (or Claude's old "default"), still in older threads
+  and settings, is resolved with `shared/models.ts` rather than migrated: pickers show and write
+  back the concrete choice, and the server resolves it before starting sessions, turns and titles
+  and before storing a child's model, so what runs is what the picker showed.
 - **Setup commands run once per new worktree,** sequentially in repo order, with
   `BORKCODE_MAIN_REPO`, `BORKCODE_WORKSPACE` and `BORKCODE_PROJECT` set.
 - **The agent's workspace orientation is injected** through each provider's system-instruction

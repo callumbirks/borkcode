@@ -4,7 +4,7 @@ import type { ModelOption } from "shared/protocol";
 import { parseThreadDefaults, rememberThread, settingsFor, validChoice } from "./threadDefaults.ts";
 
 const list: ModelOption[] = [
-  { id: "default", name: "Default", isDefault: true, efforts: ["low", "medium", "high"], defaultEffort: "high" },
+  { id: "sonnet", name: "Sonnet", isDefault: true, efforts: ["low", "medium", "high"], defaultEffort: "high" },
   { id: "opus", name: "Opus", isDefault: false, efforts: ["low", "medium", "high", "max"], defaultEffort: "high" },
   { id: "haiku", name: "Haiku", isDefault: false, efforts: [], defaultEffort: null },
 ];
@@ -47,14 +47,19 @@ test("malformed storage falls back field by field", () => {
   assert.deepEqual(defaults.providers, { claude: { model: null, effort: null, accessMode: "ask" } });
 });
 
-test("a model the provider no longer lists falls back to the default, with an effort it supports", () => {
+test("a saved choice is named concretely: a model the provider no longer lists becomes its default", () => {
   assert.deepEqual(validChoice({ model: "opus", effort: "max" }, list), { model: "opus", effort: "max" });
-  assert.deepEqual(validChoice({ model: "retired", effort: "medium" }, list), { model: null, effort: "medium" });
-  assert.deepEqual(validChoice({ model: "retired", effort: "max" }, list), { model: null, effort: null });
+  assert.deepEqual(validChoice({ model: "retired", effort: "medium" }, list), { model: "sonnet", effort: "medium" });
+  assert.deepEqual(validChoice({ model: "retired", effort: "max" }, list), { model: "sonnet", effort: "high" });
+});
+
+test("defaults saved as null, or as Claude's old \"default\", show as the default model and its effort", () => {
+  assert.deepEqual(validChoice({ model: null, effort: null }, list), { model: "sonnet", effort: "high" });
+  assert.deepEqual(validChoice({ model: "default", effort: "low" }, list), { model: "sonnet", effort: "low" });
 });
 
 test("an effort the model doesn't support falls back to its default", () => {
-  assert.deepEqual(validChoice({ model: null, effort: "max" }, list), { model: null, effort: null });
+  assert.deepEqual(validChoice({ model: null, effort: "max" }, list), { model: "sonnet", effort: "high" });
   assert.deepEqual(validChoice({ model: "haiku", effort: "low" }, list), { model: "haiku", effort: null });
 });
 

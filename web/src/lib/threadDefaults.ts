@@ -1,3 +1,4 @@
+import { resolveDefaults } from "shared/models";
 import type { AccessMode, Effort, ModelOption, ProviderKind } from "shared/protocol";
 
 /**
@@ -53,18 +54,17 @@ export function settingsFor(defaults: ThreadDefaults, provider: ProviderKind): P
 }
 
 /**
- * Drops a saved model the provider no longer lists, and an effort the model doesn't support, back
- * to the provider's default. An unavailable list leaves the choice alone, like the server does.
+ * Names the saved choice concretely: a model the provider no longer lists becomes its default, an
+ * effort the model lacks its default effort. An unavailable list leaves the choice alone, like the
+ * server does.
  */
 export function validChoice(
   choice: { model: string | null; effort: Effort | null },
   list: ModelOption[] | null,
 ): { model: string | null; effort: Effort | null } {
   if (!list || list.length === 0) return choice;
-  const model = choice.model !== null && list.some((option) => option.id === choice.model) ? choice.model : null;
-  const chosen = list.find((option) => (model === null ? option.isDefault : option.id === model));
-  const effort = choice.effort !== null && chosen?.efforts.includes(choice.effort) ? choice.effort : null;
-  return { model, effort };
+  const listed = choice.model !== null && list.some((option) => option.id === choice.model);
+  return resolveDefaults({ model: listed ? choice.model : null, effort: choice.effort }, list);
 }
 
 /** Records the settings a thread was just created with as the provider's and device's defaults. */

@@ -194,6 +194,19 @@ test("a changed access mode is saved and applies to the next turn", async () => 
   agent.finish("done");
 });
 
+test("a thread saved on the provider's defaults runs on them by name, and keeps null until changed", async () => {
+  const { thread, agent } = await startThread("defaults");
+  await agent.turn(1);
+  assert.deepEqual(agent.settings[0], { model: "opus-5-5", effort: "xhigh", accessMode: "full" });
+  assert.equal((await threads.get(thread.id)).thread.model, null);
+  agent.finish("ok");
+  await threads.send(thread.id, "less effort", { model: "opus-5-5", effort: "medium", accessMode: "full" });
+  await agent.turn(2);
+  assert.deepEqual(agent.settings[1], { model: "opus-5-5", effort: "medium", accessMode: "full" });
+  assert.equal((await threads.get(thread.id)).thread.effort, "medium");
+  agent.finish("done");
+});
+
 test("a watched child reports every turn to its parent, including turns the user started", async () => {
   const { thread: parent, agent: parentAgent } = await startThread("coordinate");
   await parentAgent.turn(1);
@@ -294,7 +307,8 @@ test("child model rules pick a child's model from its parent's, under the agent'
     settings.path,
     JSON.stringify({
       childModelRules: [
-        { when: { provider: "claude", model: "opus-5-5" }, use: { provider: "codex", model: "gpt-6.1-sol", effort: "high" } },
+        // Saved when Claude listed its default as "default", which now names the default model.
+        { when: { provider: "claude", model: "default" }, use: { provider: "codex", model: "gpt-6.1-sol", effort: "high" } },
       ],
     }),
   );
@@ -314,10 +328,11 @@ test("child model rules pick a child's model from its parent's, under the agent'
     assert.match(reply, /with codex gpt-6\.1-sol at high effort, picked by the user's child model rules/);
     assert.deepEqual(choices(), ["codex gpt-6.1-sol high"]);
 
-    // An explicit effort keeps the rule's model; another provider starts from that provider's defaults.
+    // An explicit effort keeps the rule's model; another provider starts from that provider's
+    // defaults, stored by name.
     await threads.startThread(parent.id, { message: "low effort", watch: false, startFrom: "base", effort: "low" });
     await threads.startThread(parent.id, { message: "on claude", watch: false, startFrom: "base", provider: "claude" });
-    assert.deepEqual(choices(), ["claude null null", "codex gpt-6.1-sol high", "codex gpt-6.1-sol low"]);
+    assert.deepEqual(choices(), ["claude opus-5-5 xhigh", "codex gpt-6.1-sol high", "codex gpt-6.1-sol low"]);
   } finally {
     await rm(settings.path, { force: true });
   }

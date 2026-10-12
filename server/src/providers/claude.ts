@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import {
   query,
+  type ModelInfo,
   type PermissionMode,
   type SDKMessage,
   type SDKUserMessage,
@@ -76,6 +77,29 @@ const noTurns: AsyncIterable<SDKUserMessage> = {
   [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }),
 };
 
+/**
+ * Claude lists its default as a pseudo-model, "Default (recommended)", which borkcode leaves out so
+ * a concrete model is always chosen. The model it resolves to is marked default instead, preferring
+ * its alias (e.g. "opus") over a pinned id. Claude doesn't report default efforts, so borkcode uses
+ * high, the API's default, where the model offers it.
+ */
+export function claudeModelOptions(models: ModelInfo[]): ModelOption[] {
+  const fallback = models.find((model) => model.value === "default")?.resolvedModel;
+  const listed = models.filter((model) => model.value !== "default");
+  const candidates = listed.filter((model) => fallback !== undefined && model.resolvedModel === fallback);
+  const preferred = candidates.find((model) => model.value !== model.resolvedModel) ?? candidates[0];
+  return listed.map((model) => {
+    const efforts = (model.supportsEffort && model.supportedEffortLevels) || [];
+    return {
+      id: model.value,
+      name: model.displayName,
+      isDefault: model === preferred,
+      efforts,
+      defaultEffort: efforts.includes("high") ? "high" : (efforts.at(-1) ?? null),
+    };
+  });
+}
+
 export async function listClaudeModels(): Promise<ModelOption[]> {
   const claudeBinary = findClaudeBinary();
   const conversation = query({
@@ -87,14 +111,7 @@ export async function listClaudeModels(): Promise<ModelOption[]> {
     },
   });
   try {
-    const models = await conversation.supportedModels();
-    return models.map((model) => ({
-      id: model.value,
-      name: model.displayName,
-      isDefault: model.value === "default",
-      efforts: (model.supportsEffort && model.supportedEffortLevels) || [],
-      defaultEffort: null,
-    }));
+    return claudeModelOptions(await conversation.supportedModels());
   } finally {
     conversation.close();
   }
