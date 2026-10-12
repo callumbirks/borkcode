@@ -43,7 +43,7 @@ files. Suggestions narrow as you type; arrow keys move, Enter or Tab inserts, Es
 files are inserted as `@<repo>/<path>`, relative to the agent's working directory, and project
 files by their absolute path. Claude reads referenced files into the message itself; Codex sees
 the path and opens the file when it needs it. References show as chips with the file name, in the composer and in
-messages; hover one for its path. Backspace after a chip removes the whole reference.
+messages; hover one for its path, or tap it on a phone. Backspace after a chip removes the whole reference.
 
 Paste, drag in or attach (the paperclip) PNG, JPEG, GIF or WebP images, up to 20 MB each, to send
 them with a message; a message can be just images. They upload as soon as you add them, and Send
@@ -119,4 +119,54 @@ pnpm test
 pnpm typecheck
 ```
 
-The server binds to 127.0.0.1 and only accepts same-origin WebSocket connections.
+The server binds to 127.0.0.1 by default and only accepts expected Host headers and same-origin
+browser requests. State and files stay on the server; drafts are separate in each browser.
+
+### Remote access over Tailscale
+
+Use [Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve) to put HTTPS in
+front of the built app. Both devices need Tailscale connected to the same tailnet; enable MagicDNS
+and HTTPS certificates in the tailnet if Serve asks. The tailnet's access rules decide who can
+reach the app. Anyone allowed to reach it can use your projects and agents.
+
+On the main machine, build and start borkcode with its full Tailscale hostname allowlisted:
+
+```sh
+pnpm build
+TAILNET_HOST="$(tailscale status --json | node -e 'let s=""; process.stdin.on("data", d => s += d); process.stdin.on("end", () => console.log(JSON.parse(s).Self.DNSName.replace(/\.$/, "")))')"
+BORKCODE_TAILNET_HOST="$TAILNET_HOST" HOST=127.0.0.1 pnpm start
+```
+
+In another terminal on that machine:
+
+```sh
+tailscale serve --bg http://127.0.0.1:4800
+tailscale serve status
+```
+
+Open the HTTPS URL printed by Serve, `https://<machine>.<tailnet>.ts.net/`, on your phone or other
+computer. Keep borkcode running on the main machine. If you change `PORT`, change Serve's target
+port too. Use the built app for remote access; `pnpm dev` serves the UI separately through Vite.
+To remove this Serve endpoint, run `tailscale serve --https=443 off`.
+
+HTTPS gives the browser a secure context for clipboard actions and image uploads. Serve preserves
+Host and handles WebSocket upgrades; borkcode never trusts a forwarded Host. The listener stays
+on localhost, so it adds no LAN exposure. Serve proxy requests cannot reach the agents' `/mcp/`
+endpoint. Use Serve, whose boundary is the tailnet; borkcode refuses Funnel requests.
+
+Optionally add `BORKCODE_TAILNET_LOGIN=you@example.com` when starting borkcode to require that
+exact `Tailscale-User-Login` on proxy requests. This trusts only the local Serve proxy and requires
+a loopback listener. Tagged devices have no user identity header and will be refused in this mode.
+Localhost remains available to you and your agents.
+
+A phone has a menu drawer and full-screen overview, file and visualization panels. Tap outside
+the drawer or use its close button. The composer follows the visible viewport above the keyboard.
+Touch devices use a native textarea for predictive text, autocorrect and composition, with `@`
+file picking and image paste/attachment support; references become chips in sent messages. Enter
+adds a newline there; tap Send. Returning to the app or regaining the network reconnects and
+reloads server state while keeping your draft.
+
+For an intentional direct network bind, set `BORKCODE_ALLOW_NETWORK_BIND=true` alongside `HOST`.
+A specific IP is accepted as a Host; wildcard binds still accept only localhost and the configured
+tailnet hostname. Binding `0.0.0.0` exposes all IPv4 interfaces, including the LAN. Plain HTTP on a
+Tailscale IP lacks a secure browser context, so use Serve for the complete remote experience.

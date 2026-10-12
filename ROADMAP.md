@@ -1,7 +1,7 @@
 # Roadmap
 
 What borkcode has shipped and what may come next. The constraints every change works within
-(providers, local only, keeping scope small) live in the Scope section of `AGENTS.md`.
+(providers, local or tailnet access, keeping scope small) live in the Scope section of `AGENTS.md`.
 
 ## Done
 
@@ -44,19 +44,21 @@ What borkcode has shipped and what may come next. The constraints every change w
     file) as a card in the thread, sandboxed in an opaque origin, which opens larger in the
     preview panel or in a new tab. Showing it again by id replaces it.
 
+15. **Remote and mobile over Tailscale.** Explicit HTTPS access through Tailscale Serve while the
+    server stays on localhost, with a Host allowlist and a local-only agent MCP endpoint. Phones
+    get a navigation drawer, full-screen panels, touch targets and a native keyboard composer;
+    uploads, previews and visualizations use the same server routes. Reconnect on returning from
+    the background or regaining the network.
+
 ## Next
 
 Not prioritized yet. The order below is a suggestion.
 
-1. **Remote and mobile over Tailscale.** Use borkcode from another device on the same tailnet while
-   the server runs on the main machine. The tailnet is the access boundary, so the server only
-   needs to listen beyond localhost (it already reads `HOST`). The web client needs a layout
-   that works on a phone, and file previews must keep working.
-2. **Mark as read or unread.** Actions to mark a thread read or unread by hand, building on the
+1. **Mark as read or unread.** Actions to mark a thread read or unread by hand, building on the
    automatic unread indicator.
-3. **`@` thread references.** `@` also suggests other threads in the project that aren't
+2. **`@` thread references.** `@` also suggests other threads in the project that aren't
    archived, so one thread can read through another's transcript. Builds on `@` file references.
-4. **File uploads.** Attach any file to a message, not just images, from any device viewing
+3. **File uploads.** Attach any file to a message, not just images, from any device viewing
    borkcode, including remote ones. Builds on the attachments behind images in the prompt, and
    comes after remote and mobile access.
 

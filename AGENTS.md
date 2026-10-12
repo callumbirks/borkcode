@@ -12,8 +12,8 @@ Build the smallest thing that makes the intended behavior obvious. Fight scope c
 add machinery because it looks architecturally impressive.
 
 - **Providers:** Claude and Codex only.
-- **Local only for now.** Remote access may come later, so the server owns all state and the
-  client only renders it. Keep that split; it is what makes remote cheap later.
+- **Local or tailnet access.** The server owns all state and the client only renders it. Keep
+  that split; remote clients use the same protocol and HTTP file routes.
 - **Roadmap:** what's done, next and not planned is in `ROADMAP.md`.
 
 This started as a fork of t3code, which is kept at `~/projects/apps/borkcode` as a read-only
@@ -34,6 +34,25 @@ inventing a fix.
 - **provider:** Claude or Codex, behind an adapter in `server/src/providers/`.
 
 ## Design decisions
+
+- **Remote access uses Tailscale Serve over HTTPS,** explicitly enabled by
+  `BORKCODE_TAILNET_HOST`, with a loopback listener still the default. Serve supplies the tailnet
+  access boundary and secure browser context; no app accounts or browser-side filesystem state.
+  Non-loopback binds require `BORKCODE_ALLOW_NETWORK_BIND=true`, including direct Tailscale IP
+  binds: they lack HTTPS and wildcard binds also expose the LAN. Optional `BORKCODE_TAILNET_LOGIN`
+  trusts Serve's identity header only with a loopback listener. Funnel is refused.
+- **Every HTTP request and WebSocket upgrade checks Host, Origin and Sec-Fetch-Site.** Only
+  localhost, loopback, the explicitly bound IP and configured tailnet hostname are accepted;
+  forwarded Host is never authority. Serve preserves Host. Proxy requests claiming localhost
+  are refused, so they cannot bypass identity filtering. `/mcp/` requires a direct loopback peer,
+  loopback Host, no browser fetch metadata, no Origin and no proxy headers: Serve's loopback connection is not an agent.
+  HTTPS sandbox subresources may carry no Origin, so the fetch-site guard covers static files
+  too, not just API routes. User-activated top-level links may open the static app from another
+  site; cross-site frames and resources remain refused.
+- **Small screens use a navigation drawer and full-screen side panels.** The app follows
+  `visualViewport` for keyboards and safe-area insets. Coarse-pointer composers use a native
+  textarea, retaining `@` picking and drafts, with chips in sent messages; desktop keeps the
+  contenteditable. Returning to the foreground replaces stale sockets and refreshes server state.
 
 - **Every workspace contains every repo,** named exactly like in `repos/`. Projects depend on
   sibling paths such as `../vessel`; never make repo membership per-thread.
@@ -148,7 +167,8 @@ inventing a fix.
   `{ id, title, updatedAt }`. `GET /api/threads/<id>/visualizations/<id>` serves it with
   `Content-Security-Policy: sandbox allow-scripts` (never `allow-same-origin`) and frames use
   `sandbox="allow-scripts"`, so its requests carry `Origin: null`, which `isAllowedOrigin` refuses.
-  Resources load from `https:` only (CDNs), never `http:`, so it cannot reach localhost; the policy
+  Resources load from `https:` only (CDNs), never `http:`. Opaque-origin requests to borkcode
+  are refused by Origin or Sec-Fetch-Site even when borkcode is served over HTTPS; the policy
   is `VISUALIZATION_CSP` in `visualizations.ts`. A served page gets a script appended that posts
   its content height; the card accepts only a clamped number from its own frame.
 - **The composer is a contenteditable whose plain text is the source of truth**
@@ -161,8 +181,8 @@ inventing a fix.
 - **Transcript items use `content-visibility: auto`.** Without it every keystroke in the composer
   paid to paint and hit-test the whole transcript. It contains each item's layout and paint, so a
   fixed overlay inside an item must move to `document.body` (`MessageAttachments` does).
-- **Clients get everything by broadcast.** It's fine for one local user. Revisit if remote access
-  or many clients arrive. Keep payloads small: stream deltas, not whole items.
+- **Clients get everything by broadcast.** It's fine for one user across their devices. Revisit
+  if many clients arrive. Keep payloads small: stream deltas, not whole items.
 
 ## Where code lives
 
