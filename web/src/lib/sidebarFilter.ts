@@ -1,6 +1,8 @@
+import { isActive } from "shared/activity";
 import type { LinkedPullRequest, Thread } from "shared/protocol";
-import { pullRequestState } from "./pullRequests.ts";
-import { isUnread } from "./unread.ts";
+
+// Shared with the server, whose automatic archiving uses the same idea of inactive.
+export { isActive };
 
 /**
  * The sidebar's thread filter, kept per device. Excluded rather than included projects are
@@ -30,17 +32,6 @@ export function parseFilter(stored: string | null): SidebarFilter {
 }
 
 type FilterThread = Pick<Thread, "id" | "parentId" | "project" | "status" | "waiting" | "respondedAt" | "readAt" | "markedUnread">;
-
-/** Working, waiting on the user, unread, or with an open pull request. */
-export function isActive(thread: FilterThread, pullRequests: LinkedPullRequest[] | undefined): boolean {
-  return (
-    thread.status === "running" ||
-    thread.status === "preparing" ||
-    thread.waiting ||
-    isUnread(thread) ||
-    (pullRequests ?? []).some((pr) => pullRequestState(pr) === "open")
-  );
-}
 
 /**
  * The threads the sidebar lists, in their given order, and how many each shown project hides.

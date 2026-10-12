@@ -1,11 +1,9 @@
+import { isUnread } from "shared/activity";
 import type { Thread } from "shared/protocol";
 
 type ReadState = Pick<Thread, "id" | "respondedAt" | "readAt" | "markedUnread">;
 
-/** A turn ended with something for the user since they last read the thread, or they marked it unread. */
-export function isUnread(thread: Omit<ReadState, "id">): boolean {
-  return thread.markedUnread || (thread.respondedAt !== null && thread.respondedAt > (thread.readAt ?? 0));
-}
+export { isUnread };
 
 /**
  * Keeps the open thread from being read automatically right after the user marked it unread.
