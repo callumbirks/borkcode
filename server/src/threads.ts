@@ -38,7 +38,7 @@ import {
   userMessage,
 } from "./delegation.ts";
 import { buildInstructions } from "./instructions.ts";
-import { checkModelChoice, childModelChoice, listModels, matchChildModelRule, resolveDefaults, resolveRuleModels } from "./models.ts";
+import { checkModelChoice, childFastMode, childModelChoice, listModels, matchChildModelRule, resolveDefaults, resolveRuleModels } from "./models.ts";
 import type { ProjectStore } from "./projects.ts";
 import { ToolError } from "./errors.ts";
 import { git } from "./exec.ts";
@@ -314,9 +314,8 @@ export class ThreadService {
     // Stored by name, so the child shows and keeps the model it started on.
     const list = await this.#deps.listModels(provider).catch(() => null);
     const choice = resolveDefaults({ provider, ...checked }, list);
-    // Fast mode carries over unless the child's model doesn't offer it, e.g. by a rule's choice.
     const option = list && findModel(list, choice.model);
-    const fastMode = parent.fastMode && (option ? option.supportsFastMode : !list);
+    const fastMode = childFastMode(rule?.use.fastMode, parent.fastMode, list ? (option?.supportsFastMode ?? false) : null);
 
     let startBranch: string | null = null;
     if (request.startFrom === "this_branch") {

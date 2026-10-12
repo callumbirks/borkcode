@@ -263,6 +263,42 @@ test("children inherit fast mode unless their model lacks it", async () => {
   }
 });
 
+test("a child model rule turns fast mode on or off whatever the parent has", async () => {
+  await writeFile(
+    settings.path,
+    JSON.stringify({
+      childModelRules: [
+        { when: { provider: "claude", model: "opus-5-5", effort: "xhigh" }, use: { provider: "claude", model: "opus-5-5", effort: "medium", fastMode: "on" } },
+        { when: { provider: "claude", model: "opus-5-5", effort: "medium" }, use: { provider: "claude", model: "opus-5-5", effort: "medium", fastMode: "off" } },
+        { when: { provider: "claude", model: "haiku", effort: null }, use: { provider: "claude", model: "haiku", effort: null, fastMode: "on" } },
+      ],
+    }),
+  );
+  try {
+    const { thread: parent, agent } = await startThread("rule speeds");
+    await agent.turn(1);
+    agent.finish("ok");
+    const child = (message: string) => threads.list().find((each) => each.parentId === parent.id && each.title.includes(message));
+    // A standard-speed parent at xhigh: the rule turns it on.
+    await threads.startThread(parent.id, { message: "rule on", watch: false, startFrom: "base" });
+    assert.equal(child("rule on")?.fastMode, true);
+    // A fast parent at medium: the rule turns it off.
+    await threads.send(parent.id, "fast medium", { model: "opus-5-5", effort: "medium", accessMode: "full", fastMode: true });
+    await agent.turn(2);
+    agent.finish("ok");
+    await threads.startThread(parent.id, { message: "rule off", watch: false, startFrom: "base" });
+    assert.equal(child("rule off")?.fastMode, false);
+    // On, but Haiku has no fast mode.
+    await threads.send(parent.id, "on haiku", { model: "haiku", effort: null, accessMode: "full", fastMode: true });
+    await agent.turn(3);
+    agent.finish("ok");
+    await threads.startThread(parent.id, { message: "rule haiku", watch: false, startFrom: "base" });
+    assert.equal(child("rule haiku")?.fastMode, false);
+  } finally {
+    await rm(settings.path, { force: true });
+  }
+});
+
 test("a watched child reports every turn to its parent, including turns the user started", async () => {
   const { thread: parent, agent: parentAgent } = await startThread("coordinate");
   await parentAgent.turn(1);

@@ -3,6 +3,8 @@
 // which persist and fit on one line on a 360px phone. Claude's model list is stubbed from a real
 // `supportedModels()` sample through the server's own filter; Codex is the fake CLI.
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 import type { Browser, Locator, Page } from "playwright";
 import { claudeModelOptions } from "../server/src/providers/claude.ts";
@@ -93,6 +95,17 @@ for (const engine of engines) {
       assert.equal(await selected(rule.locator(".row").first(), "Effort"), "Any effort");
       assert.equal(await selected(rule.locator(".row").nth(1), "Model"), "Fake");
       assert.equal(await selected(rule.locator(".row").nth(1), "Effort"), "high");
+      // A rule from before fast mode inherits it; On is saved to settings.json and shown again.
+      const fast = rule.locator(".row").nth(1).getByLabel("Fast mode");
+      assert.equal(await fast.inputValue(), "inherit");
+      await fast.selectOption("on");
+      await page.locator("form", { hasText: "Add rule" }).getByRole("button", { name: "Save" }).click();
+      await page.locator("form", { hasText: "Add rule" }).getByText("Saved").waitFor();
+      const stored = JSON.parse(await readFile(join(server.home, "settings.json"), "utf8"));
+      assert.equal(stored.childModelRules[0].use.fastMode, "on");
+      await page.reload();
+      await fast.waitFor();
+      assert.equal(await fast.inputValue(), "on");
       assert.deepEqual((await optionTexts(page)).filter((text) => /default/i.test(text)), []);
       await close();
     });

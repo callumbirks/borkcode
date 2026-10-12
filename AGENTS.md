@@ -85,7 +85,8 @@ inventing a fix.
   back the concrete choice, and the server resolves it before starting sessions, turns and titles
   and before storing a child's model, so what runs is what the picker showed.
 - **Fast mode is a per-thread flag,** like access mode: saved with the next message and the
-  new-thread preferences, inherited by children. It is sent only where the model list says the
+  new-thread preferences, inherited by children unless the matching child model rule's `use`
+  sets it `on` or `off` (missing means inherit, as for rules saved before; `childFastMode`). It is sent only where the model list says the
   model offers it (`supportsFastMode`), because asking Claude for fast mode on another model makes
   it switch models. Claude takes it as the `fastMode` flag setting (the `settings` option, then
   `applyFlagSettings`); the SDK serves it only when that flag layer asks. Codex takes it as

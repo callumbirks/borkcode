@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ChildModelRule, ModelOption } from "shared/protocol";
-import { childModelChoice, matchChildModelRule, resolveDefaults, resolveRuleModels } from "./models.ts";
+import { childFastMode, childModelChoice, matchChildModelRule, resolveDefaults, resolveRuleModels } from "./models.ts";
 import { claudeFastMode, claudeModelOptions } from "./providers/claude.ts";
 
 const rules: ChildModelRule[] = [
@@ -113,4 +113,19 @@ test("a rule saved on Claude's old default model matches a parent on the default
 test("Claude's fast mode is its fastMode flag setting, set off explicitly too", () => {
   assert.deepEqual(claudeFastMode(true), { fastMode: true });
   assert.deepEqual(claudeFastMode(false), { fastMode: false });
+});
+
+test("a rule's fast mode decides a child's, else the parent's, never on a model without it", () => {
+  for (const parent of [false, true]) {
+    assert.equal(childFastMode("on", parent, true), true);
+    assert.equal(childFastMode("off", parent, true), false);
+    assert.equal(childFastMode("inherit", parent, true), parent);
+    // Rules saved before they could set fast mode inherit.
+    assert.equal(childFastMode(undefined, parent, true), parent);
+    assert.equal(childFastMode("on", parent, false), false);
+    assert.equal(childFastMode(undefined, parent, false), false);
+  }
+  // With no model list, the provider decides.
+  assert.equal(childFastMode("on", false, null), true);
+  assert.equal(childFastMode(undefined, true, null), true);
 });

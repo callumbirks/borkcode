@@ -65,7 +65,8 @@ defaults show, and run on, that model and effort until you change them.
 Fast mode (the lightning button, off by default) asks for faster output from the same model at a
 higher price: Claude Code's `/fast`, or Codex's Fast ("priority") service tier. It shows only for
 models that offer it, applies from the next turn, and is remembered per provider for new threads
-on that device. Threads started by an agent keep their parent's fast mode unless their model lacks it.
+on that device. Threads started by an agent keep their parent's fast mode unless a child model rule
+turns it on or off, and never get it on a model that lacks it.
 
 Type `@` in the composer to reference a file from any of the project's repos or its shared project
 files. On the new-thread page, before the thread has a workspace, repo files come from the main
@@ -121,6 +122,7 @@ commits. Handed-off threads nest under the thread that started them, and that th
 them, their pull requests and their latest replies. The new thread copies its parent's model
 unless a rule under Settings picks another, such as Opus children at medium effort for an Opus
 parent at xhigh. Rules match the parent's model, optionally its effort, and the first match wins.
+A rule can also turn the child's fast mode on or off; by default (Inherit) it copies the parent's.
 
 A thread can also delegate and keep track: the threads it watches send each turn's final reply
 back to it, and it answers their questions with a message of its own. Start a thread as a

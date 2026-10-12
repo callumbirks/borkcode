@@ -1,5 +1,5 @@
 import { findModel, resolveDefaults } from "shared/models";
-import type { ChildModelRule, Effort, ModelChoice, ModelOption, ProviderKind } from "shared/protocol";
+import type { ChildFastMode, ChildModelRule, Effort, ModelChoice, ModelOption, ProviderKind } from "shared/protocol";
 import { ToolError } from "./errors.ts";
 import { generateClaudeText, listClaudeModels } from "./providers/claude.ts";
 import { generateCodexText, listCodexModels } from "./providers/codex.ts";
@@ -70,6 +70,15 @@ export function resolveRuleModels(rules: ChildModelRule[], provider: ProviderKin
       ? { ...rule, when: { ...rule.when, model: findModel(list, rule.when.model)?.id ?? rule.when.model } }
       : rule,
   );
+}
+
+/**
+ * A new child's fast mode: the rule's on or off, else its parent's, and never on a model without
+ * it. `supported` is null when the child's model list is unavailable, leaving that to the provider.
+ */
+export function childFastMode(setting: ChildFastMode | undefined, parentFastMode: boolean, supported: boolean | null): boolean {
+  const wanted = setting === "on" || (setting !== "off" && parentFastMode);
+  return wanted && supported !== false;
 }
 
 export function matchChildModelRule(rules: ChildModelRule[], parent: ModelChoice): ChildModelRule | undefined {

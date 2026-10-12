@@ -65,8 +65,12 @@ export interface NetworkState {
  */
 export interface ChildModelRule {
   when: { provider: ProviderKind; model: string; effort: Effort | null };
-  use: ModelChoice;
+  /** Missing fast mode means inherit, as rules did before they could set it. */
+  use: ModelChoice & { fastMode?: ChildFastMode };
 }
+
+/** A child's fast mode: its parent's, or on or off whatever the parent has; only where its model offers it. */
+export type ChildFastMode = "inherit" | "on" | "off";
 
 /**
  * Stops threads from waking each other forever. Messages between threads that would exceed a
