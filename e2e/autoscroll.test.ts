@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import type { Browser, Page } from "playwright";
-import { launch, open, startServer, type Engine, type Item, type Server, type Session } from "./harness.ts";
+import { launch, missingWebKitLibraries, open, startServer, type Engine, type Item, type Server, type Session } from "./harness.ts";
 
 const LONG = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";
@@ -170,8 +170,12 @@ async function sendMessage(page: Page, engine: Engine, text: string) {
   }
 }
 
-for (const engine of (process.env.E2E_BROWSERS ?? "chromium,webkit").split(",") as Engine[]) {
-  describe(`auto-scroll (${engine})`, () => {
+const engines = (process.env.E2E_BROWSERS ?? "chromium,webkit").split(",") as Engine[];
+const webkitMissing = engines.includes("webkit") ? await missingWebKitLibraries() : null;
+if (webkitMissing) console.warn(webkitMissing);
+
+for (const engine of engines) {
+  describe(`auto-scroll (${engine})`, { skip: (engine === "webkit" && webkitMissing) || false }, () => {
     let server: Server;
     let browser: Browser;
     const sessions: Session[] = [];
