@@ -390,8 +390,10 @@ export class Database {
   listPullRequestLinks(state?: string): { threadId: string; pr: LinkedPullRequest }[] {
     return this.#db
       .prepare(
-        `SELECT thread_id AS threadId, repo, number, url, state, title, head_oid AS headOid FROM pull_requests
-         WHERE ? IS NULL OR state = ? ORDER BY linked_at, rowid`,
+        `SELECT thread_id AS threadId, repo, number, url, state, pull_requests.title, head_oid AS headOid FROM pull_requests
+         JOIN threads ON threads.id = thread_id
+         WHERE ? IS NULL OR state = ?
+         ORDER BY max(threads.updated_at, coalesce(threads.read_at, 0)) DESC, linked_at, pull_requests.rowid`,
       )
       .all(state ?? null, state ?? null)
       .map((row) => {

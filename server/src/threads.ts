@@ -102,8 +102,10 @@ const realDeps: ThreadDeps = {
 
 /** How often open pull requests are checked for merges and closes. */
 const PULL_REQUEST_POLL_MS = 60_000;
-/** Coming back to borkcode checks pull requests, unless a check ran this recently. */
-const RETURN_REFRESH_MS = 15_000;
+/** Only other return checks throttle coming back from GitHub; a poll may predate the merge. */
+const RETURN_REFRESH_MS = 5_000;
+const PULL_REQUEST_BATCH_SIZE = 25;
+const PULL_REQUEST_BATCH_CONCURRENCY = 3;
 /** In the transcript where a turn ended because the server stopped, unlike the user's "Interrupted". */
 const SERVER_STOPPED_NOTICE = "Stopped: borkcode server shut down";
 
@@ -160,7 +162,8 @@ export class ThreadService {
   /** Automatic wake-ups per thread tree (keyed by its root) since the user last messaged it. */
   readonly #familyWakes = new Map<string, number>();
   #pullRequestPoll: NodeJS.Timeout | null = null;
-  #lastPullRequestCheck = 0;
+  #lastReturnPullRequestCheck = -Infinity;
+  #openPullRequestRefresh: Promise<void> | null = null;
   /** The server is shutting down, so no new turns start. */
   #stopping = false;
 
@@ -1312,9 +1315,12 @@ export class ThreadService {
   }
 
   /** One poll: every open pull request of every thread. */
-  async refreshOpenPullRequests(): Promise<void> {
-    this.#lastPullRequestCheck = Date.now();
-    await this.#refreshLinks(this.#db.listPullRequestLinks("OPEN"));
+  refreshOpenPullRequests(): Promise<void> {
+    if (this.#openPullRequestRefresh) return this.#openPullRequestRefresh;
+    this.#openPullRequestRefresh = this.#refreshLinks(this.#db.listPullRequestLinks("OPEN")).finally(() => {
+      this.#openPullRequestRefresh = null;
+    });
+    return this.#openPullRequestRefresh;
   }
 
   /**
@@ -1322,7 +1328,8 @@ export class ThreadService {
    * the client, so switching tabs quickly or having several clients does not spam gh.
    */
   async refreshPullRequestsOnReturn(): Promise<void> {
-    if (Date.now() - this.#lastPullRequestCheck < RETURN_REFRESH_MS) return;
+    if (Date.now() - this.#lastReturnPullRequestCheck < RETURN_REFRESH_MS) return;
+    this.#lastReturnPullRequestCheck = Date.now();
     await this.refreshOpenPullRequests();
   }
 
@@ -1339,16 +1346,35 @@ export class ThreadService {
   }
 
   async #refreshLinks(links: { threadId: string; pr: LinkedPullRequest }[]): Promise<void> {
-    if (links.length === 0) return;
-    const states = await this.#deps.pullRequestStates([...new Set(links.map((link) => link.pr.url))]).catch(
-      () => new Map<string, PullRequestState>(),
-    );
-    const updated = new Map<string, LinkedPullRequest[]>();
-    for (const { threadId, pr } of links) {
-      const state = states.get(pr.url);
-      if (state) updated.set(threadId, [...(updated.get(threadId) ?? []), { ...pr, ...state }]);
+    const urls = [...new Set(links.map((link) => link.pr.url))];
+    const byUrl = new Map<string, typeof links>();
+    for (const link of links) {
+      const linked = byUrl.get(link.pr.url) ?? [];
+      linked.push(link);
+      byUrl.set(link.pr.url, linked);
     }
-    for (const [threadId, pullRequests] of updated) this.#linkPullRequests(threadId, pullRequests);
+    let next = 0;
+    const workers = Math.min(PULL_REQUEST_BATCH_CONCURRENCY, Math.ceil(urls.length / PULL_REQUEST_BATCH_SIZE));
+    await Promise.all(
+      Array.from({ length: workers }, async () => {
+        while (next < urls.length) {
+          const batch = urls.slice(next, next + PULL_REQUEST_BATCH_SIZE);
+          next += PULL_REQUEST_BATCH_SIZE;
+          const states = await this.#deps.pullRequestStates(batch).catch(() => new Map<string, PullRequestState>());
+          const updated = new Map<string, LinkedPullRequest[]>();
+          for (const url of batch) {
+            const state = states.get(url);
+            if (!state) continue;
+            for (const { threadId, pr } of byUrl.get(url)!) {
+              const pullRequests = updated.get(threadId) ?? [];
+              pullRequests.push({ ...pr, ...state });
+              updated.set(threadId, pullRequests);
+            }
+          }
+          for (const [threadId, pullRequests] of updated) this.#linkPullRequests(threadId, pullRequests);
+        }
+      }),
+    );
   }
 
   /** Declines approvals and drops questions, once nobody can act on them: the turn stopped or ended. */

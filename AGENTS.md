@@ -161,8 +161,10 @@ inventing a fix.
 - **PRs are linked to threads in SQLite.** The tool links what it opens, and repo status links any
   PR found on the thread's branch, so PRs opened by other means show up too.
 - **Open PRs are polled, not hooked.** Webhooks need a public endpoint, so the server asks `gh`
-  (one GraphQL query per repo) every minute while any linked PR is open, and also before a turn
-  starts, when a thread is opened, and when the user returns to the tab (at most every 15s). A
+  (GraphQL batches of at most 25 PRs per repo, at most 3 commands in flight) every minute while
+  any linked PR is open, and also before a turn starts, when a thread is opened, and when the
+  user returns to the tab (return checks have their own 5s throttle). Reconnecting reloads cached
+  state before checking GitHub so snapshots cannot overwrite change events. A
   linked PR becoming merged or closed wakes the thread that owns it through its inbox (kind
   `borkcode`, labelled as not from the user), which counts as an automatic wake for the
   delegation limits. Parents hear through a watched child's report, not
