@@ -119,7 +119,20 @@ pnpm dev          # server on :4800 with Vite on :5173; open http://localhost:51
 pnpm build && pnpm start   # serves the built UI from http://localhost:4800
 pnpm test
 pnpm typecheck
+pnpm test:e2e     # browser tests, see below
 ```
+
+### Browser tests
+
+`pnpm test:e2e` builds the UI and runs `e2e/*.test.ts` in headless Chromium (desktop) and WebKit
+(an iPhone-sized touch profile, with the keyboard simulated). Each run starts a server on a
+temporary home with seeded threads; Codex is a fake script, so no provider is called. Install the
+browsers once with `pnpm exec playwright install chromium webkit`. Pick one with
+`E2E_BROWSERS=chromium` or `webkit`.
+
+Playwright's WebKit is built for Ubuntu. On other distributions, such as Fedora, extract Ubuntu
+24.04's `libicu74` and `libjpeg-turbo8` packages and point `BORKCODE_E2E_WEBKIT_LIBS` at the folder
+holding their `.so` files (`usr/lib/x86_64-linux-gnu`).
 
 The server binds to 127.0.0.1 by default and only accepts expected Host headers and same-origin
 browser requests. State and files stay on the server; drafts are separate in each browser.
