@@ -52,8 +52,13 @@ export function forgetMissing(threadId: string): void {
   }
 }
 
-/** The file each thread's preview panel shows. Per browser tab: it's a view, not thread state. */
-export const previews = $state<Record<string, PreviewTarget>>({});
+/** A visualization opened in the panel; its title and page come from its transcript item. */
+export interface VisualizationTarget {
+  visualization: string;
+}
+
+/** What each thread's preview panel shows. Per browser tab: it's a view, not thread state. */
+export const previews = $state<Record<string, PreviewTarget | VisualizationTarget>>({});
 
 const widthKey = "borkcode.previewWidth";
 export const previewLayout = $state({ width: Number(localStorage.getItem(widthKey)) || 560 });
@@ -61,6 +66,23 @@ export const previewLayout = $state({ width: Number(localStorage.getItem(widthKe
 export function setPreviewWidth(width: number): void {
   previewLayout.width = Math.round(Math.min(Math.max(width, 320), window.innerWidth - 400));
   localStorage.setItem(widthKey, String(previewLayout.width));
+}
+
+/** Drags the panel's left edge; for its resize handle's pointerdown. */
+export function startResize(event: PointerEvent): void {
+  const handle = event.currentTarget as HTMLElement;
+  const right = handle.parentElement!.getBoundingClientRect().right;
+  handle.setPointerCapture(event.pointerId);
+  const move = (moved: PointerEvent) => setPreviewWidth(right - moved.clientX);
+  handle.addEventListener("pointermove", move);
+  handle.addEventListener("lostpointercapture", () => handle.removeEventListener("pointermove", move), { once: true });
+}
+
+/** Closes the panel on Escape, unless the key was for a field. */
+export function closeOnEscape(threadId: string, event: KeyboardEvent): void {
+  if (event.key !== "Escape" || event.defaultPrevented) return;
+  if ((event.target as HTMLElement | null)?.closest("input, textarea, select, [contenteditable]")) return;
+  delete previews[threadId];
 }
 
 /** Opens the preview for a click on a rendered file link, unless the user asked for a new tab. */

@@ -36,6 +36,7 @@
   import MentionPicker from "./MentionPicker.svelte";
   import ModelPicker from "./ModelPicker.svelte";
   import RepoPanel from "./RepoPanel.svelte";
+  import VisualizationPanel from "./VisualizationPanel.svelte";
   import WorkGroup from "./WorkGroup.svelte";
 
   let { id }: { id: string } = $props();
@@ -515,7 +516,9 @@
       </div>
     </div>
     <!-- The preview takes the overview's place while it is open. -->
-    {#if preview}
+    {#if preview && "visualization" in preview}
+      <VisualizationPanel threadId={id} id={preview.visualization} />
+    {:else if preview}
       <FilePreview threadId={id} target={preview} />
     {:else}
       <RepoPanel

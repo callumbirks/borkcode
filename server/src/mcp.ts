@@ -5,6 +5,7 @@ import { z } from "zod";
 import { ToolError } from "./errors.ts";
 import type { FileStore } from "./files.ts";
 import type { ThreadService } from "./threads.ts";
+import { MAX_VISUALIZATION_BYTES } from "./visualizations.ts";
 
 interface Services {
   threads: ThreadService;
@@ -71,6 +72,26 @@ function buildServer({ threads, files }: Services, threadId: string): McpServer 
         const file = await files.write(project, path, content);
         return `Wrote ${file.path} (${file.size} bytes).`;
       }),
+  );
+
+  server.registerTool(
+    "show_html",
+    {
+      description: [
+        "Show an HTML page to the user, rendered right in this thread: a chart of data, a diagram, a comparison table, a UI mockup or a small interactive exploration.",
+        "Give the HTML itself, or the path of an HTML file you wrote; a file is copied as it is now, so call again after changing it.",
+        `The page must be self-contained, up to ${MAX_VISUALIZATION_BYTES / 1024 / 1024} MB: inline your data, styles and scripts. Resources from https: URLs load, such as chart libraries from a CDN, but relative URLs, local files and http: URLs do not.`,
+        "It runs sandboxed: scripts work, but forms, popups and navigating away do not.",
+        "Pass the id an earlier call returned to replace that visualization instead of adding another.",
+      ].join(" "),
+      inputSchema: {
+        title: z.string().describe("A short title shown above it"),
+        html: z.string().optional().describe("The complete HTML document; give this or path"),
+        path: z.string().optional().describe("An HTML file to show, absolute or relative to your working directory; give this or html"),
+        id: z.string().optional().describe("The id of a visualization shown earlier in this thread, to replace it"),
+      },
+    },
+    ({ title, html, path, id }) => toolResult(() => threads.showHtml(threadId, { title, html, path, id })),
   );
 
   server.registerTool(

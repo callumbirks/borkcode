@@ -59,6 +59,12 @@ images fitted to the panel, folders as a list. Drag its left edge to resize it; 
 it. Ctrl- or Cmd-click opens the file in a new tab instead. When the agent views an image, its tool
 call shows a thumbnail that opens in the same panel.
 
+Agents can show you HTML they write, such as a chart, diagram, comparison table or mockup, with
+borkcode's `show_html` tool. It renders in the transcript as a card that fits its content; open it
+larger in the side panel or in a new tab from the card's buttons. The page runs sandboxed: its
+scripts work and it can load libraries from `https:` CDNs, but it cannot reach borkcode, your
+session or anything on `http:`, and it cannot submit forms, open popups or navigate away.
+
 In "ask" mode, Claude automatically approves ordinary edits and common filesystem commands
 inside the workspace and shared project files. Edits outside those directories, protected files,
 and other shell commands may still need approval. "Full" mode bypasses normal permission prompts.

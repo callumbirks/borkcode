@@ -15,6 +15,7 @@ import type { PullRequestState } from "./pullRequests.ts";
 import type { ProviderSession, SessionEvents, TurnAttachment, TurnSettings } from "./providers/types.ts";
 import { SettingsStore } from "./settings.ts";
 import { ThreadService } from "./threads.ts";
+import { MAX_VISUALIZATION_BYTES } from "./visualizations.ts";
 
 /** A scripted agent: records what it is sent and ends turns when the test says so. */
 class FakeAgent implements ProviderSession {
@@ -788,4 +789,45 @@ test("a new thread stopped while its workspace is being created gets its first m
   // No agent turn had started, so there is no server note.
   assert.deepEqual(notices(detail.items), []);
   agent.finish("hello");
+});
+
+test("show_html stores the page beside the attachments, records only its id and title, and can replace it", async () => {
+  const { thread, agent } = await startThread("chart it");
+  await agent.turn(1);
+  const shown = await threads.showHtml(thread.id, { title: " Sales ", html: "<p>v1</p>" });
+  const id = /id ([0-9a-f-]{36})/.exec(shown)?.[1];
+  assert.ok(id, shown);
+  const item = (await threads.get(thread.id)).items.find((candidate) => candidate.id === id);
+  assert.deepEqual(item && { ...item, updatedAt: 0 }, { id, kind: "visualization", title: "Sales", updatedAt: 0 });
+  assert.equal(await readFile(join(attachments.dir(thread.id), "visualizations", `${id}.html`), "utf8"), "<p>v1</p>");
+  assert.match(String(await threads.visualizationPage(thread.id, id)), /^<p>v1<\/p>\n<script>/);
+
+  const { workspacePath } = await threads.get(thread.id);
+  await writeFile(join(workspacePath, ".scratch", "chart.html"), "<p>v2</p>");
+  assert.match(await threads.showHtml(thread.id, { title: "Sales by month", path: ".scratch/chart.html", id }), /^Updated/);
+  const visualizations = (await threads.get(thread.id)).items.filter((candidate) => candidate.kind === "visualization");
+  assert.deepEqual(visualizations.map((candidate) => [candidate.id, candidate.kind === "visualization" && candidate.title]), [
+    [id, "Sales by month"],
+  ]);
+  assert.match(String(await threads.visualizationPage(thread.id, id)), /^<p>v2<\/p>/);
+
+  // Only this thread's own visualizations can be replaced or served.
+  const other = await startThread("elsewhere");
+  await other.agent.turn(1);
+  await assert.rejects(threads.showHtml(other.thread.id, { title: "x", html: "<p/>", id }), /no visualization/);
+  assert.equal(await threads.visualizationPage(other.thread.id, id), null);
+  const notVisualization = (await userItems(thread.id))[0]!.id;
+  await assert.rejects(threads.showHtml(thread.id, { title: "x", html: "<p/>", id: notVisualization }), /no visualization/);
+
+  await assert.rejects(threads.showHtml(thread.id, { title: "x", html: "x".repeat(MAX_VISUALIZATION_BYTES + 1) }), /at most 2 MB/);
+  await assert.rejects(threads.showHtml(thread.id, { title: "x", html: "" }), /empty/);
+  await assert.rejects(threads.showHtml(thread.id, { title: "x" }), /either html or path/);
+  await assert.rejects(threads.showHtml(thread.id, { title: "x", html: "<p/>", path: "a.html" }), /either html or path/);
+  await assert.rejects(threads.showHtml(thread.id, { title: "x", path: "missing.html" }), /no file/);
+  await assert.rejects(threads.showHtml(thread.id, { title: " ", html: "<p/>" }), /title/);
+
+  agent.finish("done");
+  other.agent.finish("done");
+  await threads.delete(thread.id, true);
+  assert.ok(!existsSync(attachments.dir(thread.id)));
 });
