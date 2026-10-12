@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { chipBeside, coverReferences, History, replaceRange, type Snapshot } from "../lib/composerModel";
+  import { chipBeside, coverReferences, History, insertBeside, replaceRange, type Snapshot } from "../lib/composerModel";
   import { findFileReferences, splitReferences, type ReferenceRoots } from "../lib/fileReferences";
 
   // The composer's text box. A textarea can't show file references as chips, so this is a
@@ -156,7 +156,7 @@
   }
 
   function apply(next: Snapshot, kind: string) {
-    history.record(here(), kind, Date.now());
+    history.record(here(), next, kind, Date.now());
     commit(next);
   }
 
@@ -184,8 +184,9 @@
           : (event.data ?? event.dataTransfer?.getData("text/plain") ?? "");
       [start, end] = coverReferences(start, end, refs);
       const typed = type === "insertText" && insert.length === 1;
-      typingAt = typed ? start + 1 : null;
-      apply(replaceRange(text, start, end, insert), typed ? "typing" : type);
+      const next = insertBeside(text, start, end, insert, refs);
+      typingAt = typed ? next.caret : null;
+      apply(next, typed ? "typing" : type);
     } else if (type.startsWith("delete") && type !== "deleteByDrag") {
       const current = selected();
       const collapsed = current && current[0] === current[1];
@@ -232,7 +233,7 @@
   }
 
   function onCompositionStart() {
-    history.record(here(), "compose", Date.now());
+    history.record(here(), here(), "compose", Date.now());
     composing = true;
   }
 

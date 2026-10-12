@@ -10,6 +10,25 @@ export function replaceRange(text: string, start: number, end: number, insert: s
   return { text: text.slice(0, start) + insert + text.slice(end), caret: start + insert.length };
 }
 
+/**
+ * Inserts text, keeping it off any chip it lands against: text glued to the end of a reference
+ * would extend its path, and text glued to its start would break the `@` boundary. A space keeps
+ * them apart; punctuation may still follow a reference, as the parser leaves it out.
+ */
+export function insertBeside(
+  text: string,
+  start: number,
+  end: number,
+  insert: string,
+  references: FileReference[],
+): Snapshot {
+  const after = insert !== "" && !/^[\s.,;:!?)\]]/.test(insert) && references.some((each) => each.end === start);
+  const before = insert !== "" && !/\s$/.test(insert) && references.some((each) => each.start === end);
+  const padded = (after ? " " : "") + insert + (before ? " " : "");
+  const next = replaceRange(text, start, end, padded);
+  return before ? { ...next, caret: next.caret - 1 } : next;
+}
+
 /** Chips are atomic: a range that cuts into one grows to cover it. */
 export function coverReferences(start: number, end: number, references: FileReference[]): [number, number] {
   for (const reference of references) {
@@ -39,14 +58,21 @@ export class History {
   #redo: Snapshot[] = [];
   #lastKind: string | null = null;
   #lastAt = 0;
+  #lastAfter: Snapshot | null = null;
 
-  /** Call before an edit with the state it changes. Runs of typing collapse into one step. */
-  record(before: Snapshot, kind: string, now: number): void {
-    const coalesce = kind === "typing" && this.#lastKind === "typing" && now - this.#lastAt < COALESCE_MS;
+  /**
+   * Call with the state an edit changes and the state it leaves. Typing that carries on where the
+   * last keystroke left off collapses into one step.
+   */
+  record(before: Snapshot, after: Snapshot, kind: string, now: number): void {
+    const last = this.#lastAfter;
+    const continues = last !== null && last.text === before.text && last.caret === before.caret;
+    const coalesce = kind === "typing" && this.#lastKind === "typing" && continues && now - this.#lastAt < COALESCE_MS;
     if (!coalesce) this.#undo.push(before);
     this.#redo = [];
     this.#lastKind = kind;
     this.#lastAt = now;
+    this.#lastAfter = after;
   }
 
   undo(current: Snapshot): Snapshot | null {
