@@ -232,7 +232,8 @@
           <span class="text">
             Archive inactive threads automatically
             <span class="muted">
-              Inactive as the sidebar's filter means it: read, idle, no open PR. A thread is archived
+              Inactive as the sidebar's filter means it: read, idle, no open PR, and not a captain. Captains
+              are only archived by hand. A thread is archived
               once nothing has happened in it and it has not been read for this many days, together
               with its child threads, which must be inactive too. Sending an archived thread a message
               brings it back.

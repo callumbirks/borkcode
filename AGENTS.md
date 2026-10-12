@@ -124,7 +124,9 @@ inventing a fix.
   an archived thread's PR states still update, but it is not woken and the news is not kept.
 - **Inactive threads archive themselves** (`autoArchive`, on at 7 days by default). "Inactive" is
   `isActive` in `shared/activity.ts`, the same predicate as the sidebar's filter, so the two can't
-  drift. Last activity is `max(updatedAt, readAt)`: a PR merge or close wakes its thread, so it
+  drift. Captains always count as active there, so the sidebar always lists them, they are only
+  archived by hand, and so is any thread above one; their inactive children still go on their own.
+  Last activity is `max(updatedAt, readAt)`: a PR merge or close wakes its thread, so it
   moves `updatedAt` without a timestamp of its own. Only the topmost thread whose whole unarchived
   subtree qualifies is archived (`threadsToArchive`, pure and clock-free), each with an info
   notice. It runs at start, hourly (unref'd) and when the setting is turned on or its days change.

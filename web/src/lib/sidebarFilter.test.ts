@@ -5,10 +5,11 @@ import { defaultFilter, filterThreads, isActive, isDefaultFilter, parseFilter } 
 
 type Status = "idle" | "running" | "preparing" | "error";
 
-const thread = (id: string, fields: { parentId?: string; project?: string; status?: Status; waiting?: boolean; unread?: boolean; markedUnread?: boolean } = {}) => ({
+const thread = (id: string, fields: { parentId?: string; project?: string; captain?: boolean; status?: Status; waiting?: boolean; unread?: boolean; markedUnread?: boolean } = {}) => ({
   id,
   parentId: fields.parentId ?? null,
   project: fields.project ?? "alpha",
+  captain: fields.captain ?? false,
   status: fields.status ?? "idle",
   waiting: fields.waiting ?? false,
   respondedAt: fields.unread ? 200 : 100,
@@ -30,6 +31,15 @@ test("a thread is active while working, waiting, unread or with an open pull req
   assert.equal(isActive(thread("a", { markedUnread: true }), undefined), true);
   assert.equal(isActive(thread("a"), [pr("OPEN")]), true);
   assert.equal(isActive(thread("a"), [pr("MERGED"), pr("CLOSED")]), false);
+});
+
+test("a captain is always active, so it stays listed while idle and read, unless its project is excluded", () => {
+  assert.equal(isActive(thread("captain", { captain: true }), undefined), true);
+  assert.equal(isActive(thread("captain", { captain: true, status: "error" }), [pr("MERGED")]), true);
+  const threads = [thread("captain", { captain: true }), thread("done", { parentId: "captain" }), thread("other", { project: "beta", captain: true })];
+  const result = filterThreads(threads, { filter: { ...defaultFilter, excludedProjects: ["beta"] }, pullRequests: {} });
+  assert.deepEqual(shownIds(result), ["captain"]);
+  assert.deepEqual([...result.hidden], [["alpha", 1]]);
 });
 
 test("hiding inactive threads lists the active ones in order and counts the rest per project", () => {

@@ -923,7 +923,7 @@ test("automatic archiving tucks away inactive subtrees with a notice, and does n
   );
   const day = 24 * 60 * 60 * 1000;
   const now = Date.now() + 30 * day;
-  const seed = (id: string, parentId: string | null, status: "idle" | "running" = "idle") =>
+  const seed = (id: string, parentId: string | null, status: "idle" | "running" = "idle", captain = false) =>
     archiveDb.insertThread({
       id,
       project: "demo",
@@ -938,7 +938,7 @@ test("automatic archiving tucks away inactive subtrees with a notice, and does n
       providerSessionId: null,
       startBranch: null,
       parentId,
-      captain: false,
+      captain,
       watched: false,
       paused: false,
       queued: 0,
@@ -954,6 +954,8 @@ test("automatic archiving tucks away inactive subtrees with a notice, and does n
   seed("done", "captain");
   seed("lonely", null);
   seed("finished", "lonely");
+  seed("coordinator", null, "idle", true);
+  seed("handed off", "coordinator");
   const archived = () => service.list().filter((thread) => thread.archivedAt !== null).map((thread) => thread.id).sort();
   const notices = async (id: string) =>
     (await service.get(id)).items.flatMap((item) => (item.kind === "notice" ? [item.text] : []));
@@ -969,10 +971,11 @@ test("automatic archiving tucks away inactive subtrees with a notice, and does n
   await archiveSettings.update({ ...DEFAULT_SETTINGS, autoArchive: { enabled: true, days: 7 } });
   const before = service.list().map((thread) => thread.updatedAt);
   await service.autoArchive(now);
-  assert.deepEqual(archived(), ["done", "finished", "lonely"]);
+  assert.deepEqual(archived(), ["done", "finished", "handed off", "lonely"]);
   assert.deepEqual(await notices("lonely"), ["Archived automatically after 7 days inactive"]);
   assert.deepEqual(await notices("finished"), ["Archived automatically after 7 days inactive"]);
   assert.deepEqual(await notices("captain"), []);
+  assert.deepEqual(await notices("coordinator"), []);
   assert.ok(events.some((event) => event.type === "thread.updated" && event.thread.id === "lonely" && event.thread.archivedAt !== null));
   // Archiving is not activity.
   assert.deepEqual(service.list().map((thread) => thread.updatedAt), before);

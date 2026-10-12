@@ -7,7 +7,7 @@ export const AUTO_ARCHIVE_INTERVAL_MS = 60 * 60 * 1000;
 
 type ArchiveThread = Pick<
   Thread,
-  "id" | "parentId" | "archivedAt" | "status" | "waiting" | "respondedAt" | "readAt" | "markedUnread" | "updatedAt"
+  "id" | "parentId" | "archivedAt" | "captain" | "status" | "waiting" | "respondedAt" | "readAt" | "markedUnread" | "updatedAt"
 >;
 
 /**

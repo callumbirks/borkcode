@@ -7,13 +7,14 @@ import { autoArchiveChanged, threadsToArchive } from "./autoArchive.ts";
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = 100 * DAY;
 
-type Fields = Partial<Pick<Thread, "parentId" | "archivedAt" | "status" | "waiting" | "respondedAt" | "readAt" | "markedUnread" | "updatedAt">>;
+type Fields = Partial<Pick<Thread, "captain" | "parentId" | "archivedAt" | "status" | "waiting" | "respondedAt" | "readAt" | "markedUnread" | "updatedAt">>;
 
 /** Last active ten days ago and read since, unless the fields say otherwise. */
 const thread = (id: string, fields: Fields = {}) => ({
   id,
   project: "demo",
   parentId: null,
+  captain: false,
   archivedAt: null,
   status: "idle" as Thread["status"],
   waiting: false,
@@ -73,6 +74,18 @@ test("a parent goes only with its whole subtree, and an inactive child can go wi
   assert.deepEqual(archive(threads), ["done", "lonely", "stale"]);
 });
 
+test("a captain is never archived automatically, nor anything above it, but its inactive children are", () => {
+  const threads = [
+    thread("captain", { captain: true, updatedAt: NOW - 90 * DAY, readAt: NOW - 90 * DAY }),
+    thread("done", { parentId: "captain" }),
+    thread("worker", { parentId: "captain", updatedAt: NOW - DAY }),
+    thread("lead"),
+    thread("sub-captain", { parentId: "lead", captain: true }),
+    thread("helper", { parentId: "sub-captain" }),
+  ];
+  assert.deepEqual(archive(threads), ["done", "helper"]);
+});
+
 test("the server's inactive threads are exactly the ones the sidebar hides", () => {
   const threads = [
     thread("running", { status: "running" }),
@@ -83,6 +96,7 @@ test("the server's inactive threads are exactly the ones the sidebar hides", () 
     thread("merged pr"),
     thread("idle"),
     thread("failed", { status: "error" }),
+    thread("captain", { captain: true }),
   ];
   const pullRequests = { "open pr": [pr("OPEN")], "merged pr": [pr("MERGED")] };
   const { shown } = filterThreads(threads, { filter: defaultFilter, pullRequests });

@@ -14,11 +14,17 @@ export function isUnread(thread: Pick<Thread, "respondedAt" | "readAt" | "marked
   return thread.markedUnread || (thread.respondedAt !== null && thread.respondedAt > (thread.readAt ?? 0));
 }
 
-export type ActivityThread = Pick<Thread, "status" | "waiting" | "respondedAt" | "readAt" | "markedUnread">;
+export type ActivityThread = Pick<Thread, "captain" | "status" | "waiting" | "respondedAt" | "readAt" | "markedUnread">;
 
-/** Working, waiting on the user, unread, or with an open pull request. */
+/**
+ * A captain, working, waiting on the user, unread, or with an open pull request. Captains are
+ * long-lived coordinators, so they never count as inactive: the sidebar always lists them and
+ * they are only archived by hand. A parent of one is never archived automatically either, since
+ * archiving takes the subtree along.
+ */
 export function isActive(thread: ActivityThread, pullRequests: Pick<LinkedPullRequest, "state">[] | undefined): boolean {
   return (
+    thread.captain ||
     thread.status === "running" ||
     thread.status === "preparing" ||
     thread.waiting ||

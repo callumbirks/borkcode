@@ -31,7 +31,7 @@ export function parseFilter(stored: string | null): SidebarFilter {
   }
 }
 
-type FilterThread = Pick<Thread, "id" | "parentId" | "project" | "status" | "waiting" | "respondedAt" | "readAt" | "markedUnread">;
+type FilterThread = Pick<Thread, "id" | "parentId" | "project" | "captain" | "status" | "waiting" | "respondedAt" | "readAt" | "markedUnread">;
 
 /**
  * The threads the sidebar lists, in their given order, and how many each shown project hides.
