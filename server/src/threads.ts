@@ -717,18 +717,22 @@ export class ThreadService {
     }
     const limits = (await this.#settings.get().catch(() => DEFAULT_SETTINGS)).delegation;
     // Only the provider's own commands count, so "/tmp is full" is a message like any other. Without
-    // the list, nothing does.
-    const commands = stored
+    // the list, nothing does. Listing Claude's may start its CLI, so only when a message could be one.
+    const mayBeCommand = (message: InboxMessage) =>
+      fromUser(message) && message.attachments.length === 0 && commandName(message.text) !== null;
+    const listed = !!stored && this.#db.listInbox(threadId).some(mayBeCommand);
+    const commands = listed
       ? new Set((await this.#deps.listCommands(stored.provider).catch(() => [])).map((command) => command.name))
       : new Set<string>();
-    const isCommand = (message: InboxMessage) =>
-      fromUser(message) && message.attachments.length === 0 && commands.has(commandName(message.text) ?? "");
+    const isCommand = (message: InboxMessage) => mayBeCommand(message) && commands.has(commandName(message.text)!);
     // Everything from here to the first await runs at once, so two deliveries cannot claim the
     // same messages or start two turns.
     const thread = this.#db.getThread(threadId);
     const live = this.#liveThread(threadId);
     const waitingMessages = this.#db.listInbox(threadId);
     if (!thread || waitingMessages.length === 0 || live.steering || this.#stopping) return;
+    // A possible command arrived while settings were read: start over so it is checked.
+    if (!listed && waitingMessages.some(mayBeCommand)) return void this.#deliver(threadId);
     // A provider command runs only as a message of its own, so it opens a turn alone and is never
     // steered; what waits behind it goes in the next turn.
     const firstCommand = waitingMessages.findIndex(isCommand);
