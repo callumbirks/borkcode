@@ -10,7 +10,7 @@
   import { tick } from "svelte";
   import type { FileTarget } from "shared/protocol";
   import { fileUrl, formatLines, targetLabel, type PreviewTarget } from "../lib/fileLinks";
-  import { previewLayout, previews, setPreviewWidth } from "../lib/filePreview.svelte";
+  import { closeOnEscape, previewLayout, previews, startResize } from "../lib/filePreview.svelte";
   import { renderMarkdown } from "../lib/markdown";
   import { app } from "../lib/state.svelte";
 
@@ -128,27 +128,12 @@
     open(segments.join("/"));
   }
 
-  function onWindowKeydown(event: KeyboardEvent) {
-    if (event.key !== "Escape" || event.defaultPrevented) return;
-    if ((event.target as HTMLElement | null)?.closest("input, textarea, select, [contenteditable]")) return;
-    close();
-  }
-
-  function startResize(event: PointerEvent) {
-    const handle = event.currentTarget as HTMLElement;
-    const right = handle.parentElement!.getBoundingClientRect().right;
-    handle.setPointerCapture(event.pointerId);
-    const move = (moved: PointerEvent) => setPreviewWidth(right - moved.clientX);
-    handle.addEventListener("pointermove", move);
-    handle.addEventListener("lostpointercapture", () => handle.removeEventListener("pointermove", move), { once: true });
-  }
-
   function formatSize(bytes: number): string {
     return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB`;
   }
 </script>
 
-<svelte:window onkeydown={onWindowKeydown} />
+<svelte:window onkeydown={(event) => closeOnEscape(threadId, event)} />
 
 <aside class="preview" style:width="{previewLayout.width}px">
   <!-- svelte-ignore a11y_no_static_element_interactions: a pointer-only convenience; the width is also kept between visits -->
