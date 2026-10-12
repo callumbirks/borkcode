@@ -29,6 +29,7 @@ import {
   pullRequestNews,
   report,
   SERVER_STOPPED_NOTE,
+  serverStoppedReport,
   userMessage,
 } from "./delegation.ts";
 import { buildInstructions } from "./instructions.ts";
@@ -174,7 +175,10 @@ export class ThreadService {
     this.#mcpBaseUrl = mcpBaseUrl;
     this.#attachments = attachments;
     this.#deps = deps;
-    for (const threadId of this.#db.endStaleTurns()) this.#notice(threadId, "info", SERVER_STOPPED_NOTICE);
+    const stale = this.#db.endStaleTurns();
+    for (const threadId of stale.stopped) this.#cutOff(threadId);
+    // Their first message is still queued; delivering it waits for the workspace.
+    for (const threadId of stale.preparing) this.#resumePreparing(threadId);
     this.#pollPullRequests();
   }
 
@@ -529,12 +533,40 @@ export class ThreadService {
         for (const item of live.streaming.values()) this.#db.upsertItem(threadId, item);
         live.streaming.clear();
         this.#db.setServerStopped(threadId, true);
-        this.#notice(threadId, "info", SERVER_STOPPED_NOTICE);
         this.#setStatus(threadId, "idle");
+        this.#cutOff(threadId);
       }
       if (live.session) sessions.push(live.session);
     }
     await Promise.all(sessions.map((session) => session.then((open) => open.close(), () => undefined)));
+  }
+
+  /**
+   * Records a turn the server cut off. Its turn never ends, so a watched child's parent is told
+   * here; at shutdown the report waits in the inbox until the restart delivers it.
+   */
+  #cutOff(threadId: string): void {
+    this.#notice(threadId, "info", SERVER_STOPPED_NOTICE);
+    const child = this.#db.getThread(threadId);
+    if (!child?.watched || !child.parentId || !this.#db.getThread(child.parentId)) return;
+    this.#db.enqueue({ threadId: child.parentId, fromThreadId: child.id, kind: "report", text: serverStoppedReport(child) });
+    this.#emitThread(child.parentId);
+  }
+
+  /**
+   * Prepares the workspace of a thread the server stopped while it was being created. Worktrees
+   * already made are kept, and the provisional name stays, since naming had not finished.
+   */
+  #resumePreparing(threadId: string): void {
+    const thread = this.#require(threadId);
+    // A handoff's brief is its first message, from its parent.
+    const brief = thread.parentId
+      ? (this.#db.listInbox(threadId).find((message) => message.fromThreadId === thread.parentId)?.text ?? null)
+      : null;
+    const live = this.#liveThread(threadId);
+    live.preparing = this.#prepare(threadId, brief).finally(() => {
+      live.preparing = null;
+    });
   }
 
   /** Delivers messages that were waiting when the server last stopped. */
@@ -551,6 +583,9 @@ export class ThreadService {
     // Called on every tool call, so skip reading settings when nothing is waiting.
     if (this.#stopping || this.#db.listInbox(threadId).length === 0) return;
     const waiting = this.#liveThread(threadId);
+    // A new thread's first message stays queued until its workspace exists, so a restart in
+    // between cannot lose it.
+    if (waiting.preparing) await waiting.preparing;
     if (waiting.refreshing) return;
     const stored = this.#db.getThread(threadId);
     if (!waiting.active && stored) {
@@ -669,7 +704,6 @@ export class ThreadService {
   /** `serverStopped` means the text carries the note about a cut-off turn, cleared once the agent has it. */
   async #runTurn(threadId: string, text: string, attachments: TurnAttachment[], serverStopped: boolean): Promise<void> {
     const live = this.#liveThread(threadId);
-    await live.preparing;
     if (!this.#db.getThread(threadId)) return;
     const thread = this.#update(threadId, { status: "running" });
     try {

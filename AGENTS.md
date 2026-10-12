@@ -102,6 +102,10 @@ inventing a fix.
   SIGINT/SIGTERM/SIGHUP for running turns, and at startup for threads still marked running after a
   kill or crash. The transcript gets "Stopped: borkcode server shut down", and the next turn,
   whoever starts it, opens with a borkcode note saying so; the flag clears once the agent has it.
+  A cut-off watched child also queues a report to its parent, delivered after the restart; the
+  child itself waits for a message rather than resuming. A new thread's first message stays in
+  the inbox until its workspace is ready, so a thread stopped while `preparing` finishes its
+  workspace at startup and then takes the message (with no server note, as no turn had started).
 - **A watched child reports every turn that isn't stopped,** including turns the user started, to
   its parent. `watch: true` on `start_thread`, or any message from the parent, makes it watched.
   Captains are a role chosen at creation, with their own instructions and their own worktree.

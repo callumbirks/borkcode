@@ -188,14 +188,17 @@ export class Database {
   /**
    * A server restart ends every provider process, so nothing can still be running. A turn still
    * marked running was cut off by the server going away, e.g. killed or crashed, so it is flagged
-   * for the agent's next turn. Returns those threads.
+   * for the agent's next turn. Returns those threads as `stopped`, and the threads whose workspace
+   * was still being prepared, which stay `preparing` for the caller to finish.
    */
-  endStaleTurns(): string[] {
-    const rows = this.#db
-      .prepare(`UPDATE threads SET server_stopped = 1 WHERE status = 'running' RETURNING id`)
+  endStaleTurns(): { stopped: string[]; preparing: string[] } {
+    const stopped = this.#db
+      .prepare(`UPDATE threads SET server_stopped = 1, status = 'idle' WHERE status = 'running' RETURNING id`)
       .all() as unknown as { id: string }[];
-    this.#db.prepare(`UPDATE threads SET status = 'idle' WHERE status IN ('running', 'preparing')`).run();
-    return rows.map((row) => row.id);
+    const preparing = this.#db.prepare(`SELECT id FROM threads WHERE status = 'preparing'`).all() as unknown as {
+      id: string;
+    }[];
+    return { stopped: stopped.map((row) => row.id), preparing: preparing.map((row) => row.id) };
   }
 
   /** The thread's last turn was cut off by the server stopping, and its agent has not been told yet. */

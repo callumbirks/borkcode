@@ -59,6 +59,14 @@ export function report(
   ].join("\n");
 }
 
+/** A watched child's report when the server stopped mid-turn, sent instead of the turn's own, which never ends. */
+export function serverStoppedReport(child: { id: string; title: string }): string {
+  return [
+    `Report from thread "${child.title}" (id ${child.id}), which you started. Its turn was cut off because the borkcode server stopped.`,
+    "It hasn't resumed; send it a message (send_to_thread) to continue.",
+  ].join(" ");
+}
+
 /** Several waiting messages become one turn, so the agent sees everything that arrived. */
 export function combine(texts: string[]): string {
   return texts.length === 1 ? texts[0]! : texts.join("\n\n---\n\n");
