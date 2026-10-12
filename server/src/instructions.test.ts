@@ -111,3 +111,12 @@ test("working files go to the thread's scratch folder, not the project files", (
   assert.match(text, /use your scratch folder, \/ws\/\.scratch\. It is outside every repository/);
   assert.match(text, /never working files/);
 });
+
+test("every thread restates open decisions in full", () => {
+  const captain = buildInstructions(project, { ...thread("borkcode/fix-login-t1"), captain: true }, "/ws", DEFAULT_SETTINGS, context);
+  const regular = buildInstructions(project, thread(null), "/ws", DEFAULT_SETTINGS, context);
+  for (const text of [captain, regular]) {
+    assert.match(text, /state it in full each time you mention it: what needs deciding, the options and your recommendation/);
+    assert.match(text, /"Waiting on you" list/);
+  }
+});
