@@ -50,6 +50,15 @@ them with a message; a message can be just images. They upload as soon as you ad
 waits until they have. The agent sees each image and is also told where it is saved, so it can use
 the file itself. Click an image in the transcript to see it full size.
 
+File paths in the transcript are links when they name a file in the thread's workspace or project
+files: paths in the agent's messages (in code or plain text, absolute or relative to the workspace
+or a repo, with an optional `:line` or `:start-end`), file chips, and the files of read, edit and
+write tool calls. Clicking one opens it in a panel on the right, in place of the overview: text
+with line numbers and the given lines highlighted, markdown rendered (with a source toggle),
+images fitted to the panel, folders as a list. Drag its left edge to resize it; Escape or × closes
+it. Ctrl- or Cmd-click opens the file in a new tab instead. When the agent views an image, its tool
+call shows a thumbnail that opens in the same panel.
+
 In "ask" mode, Claude automatically approves ordinary edits and common filesystem commands
 inside the workspace and shared project files. Edits outside those directories, protected files,
 and other shell commands may still need approval. "Full" mode bypasses normal permission prompts.

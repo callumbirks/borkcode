@@ -9,6 +9,8 @@
   import { mount, unmount } from "svelte";
   import type { Item } from "shared/protocol";
   import { providerLabel, pullRequestIcon, toolIcon, toolLabel } from "../lib/display.svelte";
+  import { fileUrl, labelTarget, targetLabel, toolPaths } from "../lib/fileLinks";
+  import { linker, openFileLink } from "../lib/filePreview.svelte";
   import { findFileReferences, referenceRoots, splitReferences } from "../lib/fileReferences";
   import { renderMarkdown } from "../lib/markdown";
   import { app, go } from "../lib/state.svelte";
@@ -28,6 +30,18 @@
       app.projects.find((project) => project.name === app.detail?.thread.project),
       app.detail?.workspacePath,
     ),
+  );
+
+  const threadId = $derived(app.detail?.thread.id ?? "");
+  const links = $derived(threadId ? linker(threadId) : null);
+  /** The files a tool call works on that exist in this thread, as preview links. */
+  const toolFiles = $derived(
+    item.kind === "tool" && links
+      ? (item.image ? [item.image] : toolPaths(item.name, item.summary)).flatMap((path) => {
+          const target = links.find(path);
+          return target ? [target] : [];
+        })
+      : [],
   );
 
   /** Lines a message from another thread shows while collapsed; keep in step with `.clip`. */
@@ -64,7 +78,7 @@
    */
   function markdown(text: string) {
     return (node: HTMLElement) => {
-      const html = renderMarkdown(text, Object.values(app.pullRequests).flat(), fileRoots);
+      const html = renderMarkdown(text, Object.values(app.pullRequests).flat(), fileRoots, links);
       node.innerHTML = DOMPurify.sanitize(html, { ADD_ATTR: ["target"] });
       const icons = [...node.querySelectorAll<HTMLElement>("[data-pr-state]")].map((target) => {
         const state = target.dataset.prState;
@@ -77,7 +91,7 @@
 </script>
 
 <!-- On one line: the message keeps its whitespace, so none may sneak in around the parts. -->
-{#snippet withChips(text: string)}{#each splitReferences(text, fileRoots ? findFileReferences(text, fileRoots) : []) as part, index (index)}{#if part.reference}<span class="file-chip" title={part.reference.label}>{part.reference.name}</span>{:else}{part.text}{/if}{/each}{/snippet}
+{#snippet withChips(text: string)}{#each splitReferences(text, fileRoots ? findFileReferences(text, fileRoots) : []) as part, index (index)}{#if part.reference}{@const target = labelTarget(part.reference.label)}<a class="file-chip" href={fileUrl(threadId, target)} data-file-root={target.root} data-file-path={target.path} title={part.reference.label}>{part.reference.name}</a>{:else}{part.text}{/if}{/each}{/snippet}
 
 {#if item.kind === "user" && item.fromThreadId}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex: it is focusable only while it is a button -->
@@ -88,7 +102,10 @@
     role={collapsible ? "button" : undefined}
     tabindex={collapsible ? 0 : undefined}
     aria-expanded={collapsible ? expanded : undefined}
-    onclick={toggle}
+    onclick={(event) => {
+      openFileLink(threadId, event);
+      toggle(event);
+    }}
     onkeydown={toggleByKey}
   >
     <div class="from">
@@ -110,7 +127,8 @@
     </div>
   {/if}
   {#if item.text || !item.attachments?.length}
-    <div class="user">
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions: the links inside are focusable -->
+    <div class="user" onclick={(event) => openFileLink(threadId, event)}>
       {#if item.fromBorkcode}<div class="from"><CornerDownRight size={12} />From borkcode</div>{/if}
       {#if item.steered}<div class="from">Read while working</div>{/if}
       {@render withChips(item.text)}
@@ -130,7 +148,8 @@
   {/if}
 {:else if item.kind === "assistant"}
   {#if item.text}
-    <div class="assistant" {@attach markdown(item.text)}></div>
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions: the links inside are focusable -->
+    <div class="assistant" onclick={(event) => openFileLink(threadId, event)} {@attach markdown(item.text)}></div>
   {/if}
 {:else if item.kind === "reasoning"}
   {#if item.text}
@@ -139,18 +158,42 @@
         <Brain size={14} />
         <span class="name">Thinking</span>
       </summary>
-      <div class="body reasoning" {@attach markdown(item.text)}></div>
+      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions: the links inside are focusable -->
+      <div class="body reasoning" onclick={(event) => openFileLink(threadId, event)} {@attach markdown(item.text)}></div>
     </details>
   {/if}
 {:else if item.kind === "tool"}
   {@const Icon = toolIcon(item.name)}
   <details class="step {item.status}">
-    <summary class:static={!item.output}>
+    <summary class:static={!item.output && !item.image}>
       <Icon size={14} />
       <span class="name">{toolLabel(item.name)}</span>
-      <code class="summary truncate">{item.summary}</code>
+      {#if toolFiles.length > 0}
+        <code class="summary truncate">
+          {#each toolFiles as target, index (target.path)}{#if index > 0}{", "}{/if}<a class="file-link" href={fileUrl(threadId, target)} data-file-root={target.root} data-file-path={target.path} title={targetLabel(target)} onclick={(event) => openFileLink(threadId, event)}>{targetLabel(target)}</a>{/each}
+        </code>
+      {:else}
+        <code class="summary truncate">{item.summary}</code>
+      {/if}
       {#if item.status === "failed"}<span class="failed-label">failed</span>{/if}
     </summary>
+    {#if item.image}
+      {@const target = toolFiles[0]}
+      {#if target}
+        <a
+          class="thumbnail"
+          href={fileUrl(threadId, target)}
+          data-file-root={target.root}
+          data-file-path={target.path}
+          title="Open {targetLabel(target)}"
+          onclick={(event) => openFileLink(threadId, event)}
+        >
+          <img src={fileUrl(threadId, target)} alt={targetLabel(target)} loading="lazy" />
+        </a>
+      {:else}
+        <p class="body faint">The image is outside this thread's workspace, so it can't be shown here.</p>
+      {/if}
+    {/if}
     {#if item.output}<pre class="body">{item.output}</pre>{/if}
   </details>
 {:else if item.kind === "question"}
@@ -308,6 +351,26 @@
     background: var(--surface-raised);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
+  }
+  .thumbnail {
+    display: inline-block;
+    margin: var(--space-1) 0 var(--space-2) var(--space-6);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    line-height: 0;
+  }
+  .thumbnail:hover {
+    border-color: var(--border-strong);
+  }
+  .thumbnail img {
+    max-width: 240px;
+    max-height: 160px;
+    object-fit: contain;
+    background: var(--surface-raised);
+  }
+  .faint {
+    color: var(--text-faint);
   }
   pre.body {
     max-height: 320px;

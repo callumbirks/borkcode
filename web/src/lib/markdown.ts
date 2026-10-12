@@ -1,5 +1,14 @@
 import { Marked, type TokenizerAndRendererExtension } from "marked";
 import type { LinkedPullRequest } from "shared/protocol";
+import {
+  codePath,
+  findBarePaths,
+  formatLines,
+  labelTarget,
+  targetLabel,
+  type FileLinker,
+  type LineRange,
+} from "./fileLinks.ts";
 import { findFileReferences, type FileReference, type ReferenceRoots } from "./fileReferences.ts";
 import { parsePullRequestUrl, pullRequestIndex, pullRequestRef, pullRequestState } from "./pullRequests.ts";
 
@@ -20,13 +29,33 @@ function chip(href: string, state: string, label: string) {
 }
 
 /**
+ * A link that opens the preview panel; ItemView handles the click. The href is the file itself,
+ * for opening it in a new tab.
+ */
+export function fileLink(
+  links: FileLinker,
+  target: { root: "workspace" | "project"; path: string },
+  lines: LineRange | null,
+  inner: string,
+  className = "file-link",
+) {
+  return (
+    `<a class="${className}" href="${escape(links.href(target))}" data-file-root="${target.root}" ` +
+    `data-file-path="${escape(target.path)}"${lines ? ` data-file-lines="${lines.start}-${lines.end}"` : ""} ` +
+    `title="${escape(targetLabel(target) + formatLines(lines))}">${inner}</a>`
+  );
+}
+
+/**
  * Markdown to HTML, with GitHub PR URLs and known `repo#n` references as state chips, and file
- * references into the thread's project as file chips. The output is not sanitized.
+ * references into the thread's project as file chips. With a linker, chips and the paths it finds
+ * in code spans and prose link to the preview. The output is not sanitized.
  */
 export function renderMarkdown(
   text: string,
   pullRequests: LinkedPullRequest[],
   roots: ReferenceRoots | null = null,
+  links: FileLinker | null = null,
 ): string {
   const index = pullRequestIndex(pullRequests);
 
@@ -43,7 +72,30 @@ export function renderMarkdown(
     },
     renderer(token) {
       const reference: FileReference = token.reference;
+      if (links) return fileLink(links, labelTarget(reference.label), null, escape(reference.name), "file-chip");
       return `<span class="file-chip" title="${escape(reference.label)}">${escape(reference.name)}</span>`;
+    },
+  };
+
+  const findPath = (src: string) =>
+    findBarePaths(src)
+      .map((found) => ({ ...found, target: links?.find(found.path) }))
+      .find((found) => found.target);
+
+  const filePathExtension: TokenizerAndRendererExtension = {
+    name: "filePath",
+    level: "inline",
+    start(src) {
+      return links ? findPath(src)?.start : undefined;
+    },
+    tokenizer(src) {
+      if (!links || this.lexer.state.inLink) return;
+      const found = findPath(src);
+      if (found?.start === 0) return { type: "filePath", raw: src.slice(0, found.end), found };
+    },
+    renderer(token) {
+      const { target, lines } = token.found;
+      return fileLink(links!, target, lines, escape(token.raw));
     },
   };
 
@@ -67,9 +119,20 @@ export function renderMarkdown(
     },
   };
 
+  // Code spans inside link text stay plain, since links can't nest.
+  const inLinks = new WeakSet<object>();
   const marked = new Marked({
-    extensions: [pullRequestRefExtension, fileReferenceExtension],
+    walkTokens(token) {
+      if (token.type === "link") for (const child of token.tokens ?? []) inLinks.add(child);
+    },
+    extensions: [pullRequestRefExtension, fileReferenceExtension, filePathExtension],
     renderer: {
+      codespan(token) {
+        const found = links && codePath(token.text);
+        const target = found && links.find(found.path);
+        if (!target || inLinks.has(token)) return false;
+        return fileLink(links!, target, found.lines, `<code>${escape(token.text)}</code>`);
+      },
       link(token) {
         const parsed = parsePullRequestUrl(token.href);
         if (!parsed) return false;

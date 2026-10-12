@@ -134,6 +134,15 @@ inventing a fix.
   accepted for now (not SVG, which could run script from our origin). Adapters send images
   natively (Claude base64 blocks, Codex `localImage` paths) and name every attachment's path in
   the text, which is how other file types will reach agents; the folder is a writable root.
+- **The browser reads thread files over HTTP, never by local path,** so previews work from a
+  remote browser too. `GET /api/threads/<id>/files?root=workspace|project&path=<rel>` serves a
+  file or folder listing from the thread's workspace or its project files, same-origin only like
+  attachments. Paths resolve with `realpath` and must stay inside the root (no `..`, symlink
+  escapes or `.git`). Text is cut at 1 MB, known image types are served as images, and everything
+  goes out with `nosniff` and a sandbox CSP; SVG and HTML are plain text. Transcripts only link
+  paths the server confirms exist (`threads.locateFiles`, batched as messages render), trying
+  absolute, workspace-relative, repo-relative and project-file forms, so ordinary words never
+  link. Images an agent viewed are recorded as a path on the tool item, not as bytes.
 - **The composer is a controlled contenteditable** (`ComposerEditor.svelte`), so file references
   can show as chips while the draft stays plain text. Every edit is taken from `beforeinput`,
   applied to the text and redrawn, with the composer's own undo stack; only IME composition edits
@@ -148,7 +157,8 @@ inventing a fix.
 - `server/src/workspaces.ts`, `projects.ts`: git worktrees and project folders.
 - `server/src/threads.ts`: thread lifecycle, live session state, approvals.
 - `server/src/mcp.ts`: the agent-facing MCP tools. `pullRequests.ts` pushes and opens PRs;
-  `files.ts` serves and watches shared project files.
+  `files.ts` serves and watches shared project files; `threadFiles.ts` finds and reads thread
+  files for the preview panel.
 - `server/src/providers/`: one adapter per provider, normalizing to `Item`s via `SessionEvents`.
   Provider quirks stay inside the adapter; `threads.ts` and the UI stay provider-agnostic.
 - `server/src/main.ts`: the HTTP/WebSocket transport. Keep handlers thin: decode, call one

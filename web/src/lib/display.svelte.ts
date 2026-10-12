@@ -5,6 +5,7 @@ import GitMerge from "@lucide/svelte/icons/git-merge";
 import GitPullRequest from "@lucide/svelte/icons/git-pull-request";
 import GitPullRequestClosed from "@lucide/svelte/icons/git-pull-request-closed";
 import Globe from "@lucide/svelte/icons/globe";
+import ImageIcon from "@lucide/svelte/icons/image";
 import ListTodo from "@lucide/svelte/icons/list-todo";
 import Plug from "@lucide/svelte/icons/plug";
 import Search from "@lucide/svelte/icons/search";
@@ -43,6 +44,7 @@ export function toolIcon(name: string) {
   const key = name.toLowerCase();
   if (key === "bash" || key === "shell") return SquareTerminal;
   if (key === "read") return FileText;
+  if (key === "view image") return ImageIcon;
   if (key === "edit" || key === "write" || key === "multiedit" || key === "notebookedit") return FilePen;
   if (key === "grep" || key === "glob") return Search;
   if (key.startsWith("web")) return Globe;

@@ -62,6 +62,7 @@ type CodexItem =
       status: ItemStatus;
     }
   | { type: "webSearch"; id: string; query?: string }
+  | { type: "imageView"; id: string; path: string }
   | { type: string; id?: string };
 
 interface CodexTurn {
@@ -289,7 +290,7 @@ function mcpResultText(result: { content: unknown[] } | null): string | null {
     .join("\n");
 }
 
-function toItem(item: CodexItem): Item | null {
+export function toItem(item: CodexItem): Item | null {
   switch (item.type) {
     case "agentMessage": {
       const message = item as Extract<CodexItem, { type: "agentMessage" }>;
@@ -342,6 +343,10 @@ function toItem(item: CodexItem): Item | null {
         output: null,
         status: "done",
       };
+    }
+    case "imageView": {
+      const view = item as Extract<CodexItem, { type: "imageView" }>;
+      return { id: view.id, kind: "tool", name: "view image", summary: view.path, output: null, status: "done", image: view.path };
     }
     default:
       return null;

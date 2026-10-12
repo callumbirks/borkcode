@@ -320,6 +320,27 @@ label {
   cursor: default;
 }
 
+/* In messages, chips and paths that name a file of the thread open it in the preview panel. */
+a.file-chip {
+  cursor: pointer;
+}
+
+a.file-chip:hover {
+  text-decoration: none;
+  border-color: var(--accent-hover);
+}
+
+a.file-link {
+  color: inherit;
+  text-decoration: underline dotted var(--text-faint);
+  text-underline-offset: 3px;
+}
+
+a.file-link:hover {
+  color: var(--accent-hover);
+  text-decoration-color: currentColor;
+}
+
 .pr-open {
   color: var(--pr-open);
 }
