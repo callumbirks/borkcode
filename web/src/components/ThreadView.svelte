@@ -817,46 +817,15 @@
       width: 40px;
       height: 40px;
     }
-    /*
-     * The composer takes what it needs and the transcript keeps a strip; when the text outgrows
-     * that, the composer shrinks and its text box scrolls inside, so the controls row stays
-     * above the keyboard. vh-based caps can't do this on iOS, where vh ignores the keyboard.
-     */
     .transcript {
       padding: 12px;
       overscroll-behavior: contain;
-      min-height: 64px;
     }
     .composer-wrap {
-      flex: 0 1 auto;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
       padding: 4px 8px 8px;
     }
-    .composer-wrap > * {
-      flex-shrink: 0;
-      width: 100%;
-    }
-    .composer-wrap > .question {
-      flex-shrink: 1;
-      min-height: 44px;
-    }
     .composer {
-      flex-shrink: 1;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
       padding: 8px;
-    }
-    .composer > :global(*) {
-      flex-shrink: 0;
-    }
-    .composer > :global(.editor) {
-      flex-shrink: 1;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
     }
     :global(html[data-keyboard]) .chips {
       display: none;
@@ -877,6 +846,57 @@
     }
     .option {
       min-height: 44px;
+    }
+  }
+  @media (max-width: 900px), (pointer: coarse) {
+    /*
+     * The composer takes what it needs and the transcript keeps a strip; when the text outgrows
+     * that, the composer shrinks and its text box scrolls inside, so the controls row stays
+     * above the keyboard. vh-based caps can't do this on iOS, where vh ignores the keyboard.
+     */
+    .transcript {
+      min-height: 48px;
+    }
+    /* Typing in landscape: the composer and a strip of transcript need all the height there is. */
+    :global(html[data-short-viewport]) header {
+      display: none;
+    }
+    .composer-wrap {
+      flex: 0 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    :global(html[data-keyboard]) .composer-wrap {
+      padding-bottom: 8px;
+    }
+    .composer-wrap > * {
+      flex-shrink: 0;
+      width: 100%;
+    }
+    .composer-wrap > .question {
+      flex-shrink: 1;
+      min-height: 44px;
+    }
+    .composer {
+      flex-shrink: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .composer > :global(*) {
+      flex-shrink: 0;
+    }
+    .composer > :global(.strip) {
+      flex-shrink: 1;
+      min-height: 0;
+      overflow-y: auto;
+    }
+    .composer > :global(.editor) {
+      flex-shrink: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
     }
   }
 </style>

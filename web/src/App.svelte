@@ -26,6 +26,8 @@
     const viewport = window.visualViewport;
     const track = viewportTracker();
     const root = document.documentElement;
+    // Resizing a desktop window is not a keyboard.
+    const touch = matchMedia("(pointer: coarse)");
     const update = () => {
       const layout = track({
         height: viewport?.height ?? window.innerHeight,
@@ -37,7 +39,8 @@
       root.style.setProperty("--viewport-height", `${layout.height}px`);
       root.style.setProperty("--viewport-top", `${layout.top}px`);
       root.style.setProperty("--viewport-bottom", `${layout.bottom}px`);
-      root.toggleAttribute("data-keyboard", layout.keyboard);
+      root.toggleAttribute("data-keyboard", layout.keyboard && touch.matches);
+      root.toggleAttribute("data-short-viewport", layout.short && touch.matches);
     };
     update();
     viewport?.addEventListener("resize", update);
@@ -134,18 +137,29 @@
     overflow-wrap: anywhere;
     font-size: var(--text-xs);
   }
-  @media (max-width: 900px) {
+  /* Touch devices of any width get on-screen keyboards, and a landscape phone can be wider than 900px. */
+  @media (max-width: 900px), (pointer: coarse) {
     .layout {
       position: fixed;
       top: var(--viewport-top, 0px);
       width: 100%;
       height: var(--viewport-height, 100dvh);
-      grid-template-columns: minmax(0, 1fr);
       padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     }
     /* The keyboard covers the home indicator, so its inset would only leave a gap above the keys. */
     :global(html[data-keyboard]) .layout {
       padding-bottom: 0;
+    }
+    :global(html[data-keyboard]) main {
+      margin-bottom: 0;
+    }
+    :global(html[data-short-viewport]) .mobile-bar {
+      display: none;
+    }
+  }
+  @media (max-width: 900px) {
+    .layout {
+      grid-template-columns: minmax(0, 1fr);
     }
     main {
       margin: 0;

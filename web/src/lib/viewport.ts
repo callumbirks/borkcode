@@ -16,10 +16,14 @@ export type ViewportLayout = {
   /** Distance from the visible bottom to the layout viewport's bottom, for bottom-anchored sheets. */
   bottom: number;
   keyboard: boolean;
+  /** The keyboard leaves too little height for the headers as well as the composer and transcript. */
+  short: boolean;
 };
 
 /** More than any toolbar collapse, less than any on-screen keyboard. */
 const KEYBOARD_MIN = 150;
+/** A landscape phone, or a small one in portrait, with the keyboard up. */
+const SHORT_MAX = 380;
 
 /**
  * iOS never resizes the layout viewport for the keyboard (`interactive-widget` is ignored), so
@@ -37,11 +41,13 @@ export function viewportTracker() {
       tallest = visible;
     }
     tallest = Math.max(tallest, visible);
+    const keyboard = tallest - visible > KEYBOARD_MIN;
     return {
       height: sample.height,
       top: sample.top,
       bottom: Math.max(0, sample.layoutHeight - sample.top - sample.height),
-      keyboard: tallest - visible > KEYBOARD_MIN,
+      keyboard,
+      short: keyboard && sample.height < SHORT_MAX,
     };
   };
 }
