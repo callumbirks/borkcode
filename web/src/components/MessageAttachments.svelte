@@ -10,6 +10,15 @@
   function onKeydown(event: KeyboardEvent) {
     if (open && event.key === "Escape") open = null;
   }
+
+  /**
+   * Transcript items contain their layout and paint (see ThreadView), which would trap a fixed
+   * overlay inside its message, so it lives in the body while open.
+   */
+  function toBody(node: HTMLElement) {
+    document.body.append(node);
+    return () => node.remove();
+  }
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -24,7 +33,7 @@
 
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions: Escape closes it too -->
-  <div class="overlay" onclick={() => (open = null)}>
+  <div class="overlay" onclick={() => (open = null)} {@attach toBody}>
     <img src={attachmentUrl(threadId, open.id)} alt={open.name} />
     <a
       class="new-tab"

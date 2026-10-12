@@ -251,6 +251,8 @@
   }
   .collapsible:focus-visible {
     outline: 2px solid var(--focus-ring);
+    /* Inside, since transcript items clip their paint. */
+    outline-offset: -2px;
   }
   .collapsed .clip {
     max-height: 5lh;

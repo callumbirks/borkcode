@@ -143,11 +143,16 @@ inventing a fix.
   paths the server confirms exist (`threads.locateFiles`, batched as messages render), trying
   absolute, workspace-relative, repo-relative and project-file forms, so ordinary words never
   link. Images an agent viewed are recorded as a path on the tool item, not as bytes.
-- **The composer is a controlled contenteditable** (`ComposerEditor.svelte`), so file references
-  can show as chips while the draft stays plain text. Every edit is taken from `beforeinput`,
-  applied to the text and redrawn, with the composer's own undo stack; only IME composition edits
-  the DOM, which is read back when it ends. Chips show the file name and a relative path on hover,
+- **The composer is a contenteditable whose plain text is the source of truth**
+  (`ComposerEditor.svelte`), so file references can show as chips. Plain typing and deleting
+  inside one text node is left to the browser and read back from that node; redrawing on every
+  key made typing lag. Edits touching a chip, newlines, paste and undo go through `beforeinput`,
+  are applied to the text and redrawn, with the composer's own undo stack. IME composition edits
+  the DOM and is read back when it ends. Chips show the file name and a relative path on hover,
   never an absolute one.
+- **Transcript items use `content-visibility: auto`.** Without it every keystroke in the composer
+  paid to paint and hit-test the whole transcript. It contains each item's layout and paint, so a
+  fixed overlay inside an item must move to `document.body` (`MessageAttachments` does).
 - **Clients get everything by broadcast.** It's fine for one local user. Revisit if remote access
   or many clients arrive. Keep payloads small: stream deltas, not whole items.
 
