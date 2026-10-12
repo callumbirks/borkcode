@@ -74,6 +74,15 @@ test("captains may start threads unprompted; other threads only when asked", () 
   assert.match(regular, /Only start threads when asked/);
 });
 
+test("captains know their threads publish their own work", () => {
+  const captain = buildInstructions(project, { ...thread("borkcode/fix-login-t1"), captain: true }, "/ws", DEFAULT_SETTINGS, context);
+  assert.match(captain, /Your threads commit, push and open their own pull requests with open_pull_requests/);
+  assert.match(captain, /Do not tell them otherwise in a brief unless the user asked for that/);
+  assert.match(captain, /This covers your own branch only; your threads publish theirs/);
+  const regular = buildInstructions(project, thread("borkcode/fix-login-t1"), "/ws", DEFAULT_SETTINGS, context);
+  assert.doesNotMatch(regular, /your threads publish theirs/);
+});
+
 test("a child thread learns that its replies reach its parent", () => {
   const child = buildInstructions(project, thread("borkcode/fix-login-t1"), "/ws", DEFAULT_SETTINGS, {
     ...context,

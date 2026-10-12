@@ -161,6 +161,8 @@ inventing a fix.
 - **A watched child reports every turn that isn't stopped,** including turns the user started, to
   its parent. `watch: true` on `start_thread`, or any message from the parent, makes it watched.
   Captains are a role chosen at creation, with their own instructions and their own worktree.
+  A captain's children push and open their own PRs when done; captains are told not to brief
+  otherwise unless the user asked, and "do not push unless asked" covers only their own branch.
 - **Threads are unread when a turn ended with something for the user since they last read it.**
   The server stores `respondedAt` and `readAt`; the client sends `threads.setRead` after the
   thread has been open in a visible tab for 3 seconds. Stopped turns don't count, and neither does
