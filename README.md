@@ -130,9 +130,22 @@ temporary home with seeded threads; Codex is a fake script, so no provider is ca
 browsers once with `pnpm exec playwright install chromium webkit`. Pick one with
 `E2E_BROWSERS=chromium` or `webkit`.
 
-Playwright's WebKit is built for Ubuntu. On other distributions, such as Fedora, extract Ubuntu
-24.04's `libicu74` and `libjpeg-turbo8` packages and point `BORKCODE_E2E_WEBKIT_LIBS` at the folder
-holding their `.so` files (`usr/lib/x86_64-linux-gnu`).
+Playwright's WebKit is built for Ubuntu. On other distributions, such as Fedora, it needs Ubuntu
+24.04's ICU 74 and libjpeg 8 in a folder of their own: `~/.cache/borkcode/e2e-webkit-libs` by
+default, or wherever `BORKCODE_E2E_WEBKIT_LIBS` points. Without them the WebKit tests are skipped
+with a message, and Chromium still runs. To fill the folder:
+
+```sh
+mkdir -p /tmp/webkit-debs && cd /tmp/webkit-debs
+curl -LO http://archive.ubuntu.com/ubuntu/pool/main/i/icu/libicu74_74.2-1ubuntu3_amd64.deb
+curl -LO http://archive.ubuntu.com/ubuntu/pool/main/libj/libjpeg-turbo/libjpeg-turbo8_2.1.5-2ubuntu2_amd64.deb
+for deb in *.deb; do ar x "$deb" data.tar.zst && tar --zstd -xf data.tar.zst && rm data.tar.zst; done
+mkdir -p ~/.cache/borkcode/e2e-webkit-libs
+cp -a usr/lib/x86_64-linux-gnu/. ~/.cache/borkcode/e2e-webkit-libs/
+```
+
+If a newer Playwright's WebKit asks for another library, the skip message names it; add its
+Ubuntu 24.04 package the same way.
 
 The server binds to 127.0.0.1 by default and only accepts expected Host headers and same-origin
 browser requests. State and files stay on the server; drafts are separate in each browser.

@@ -2,9 +2,10 @@
 // No provider is ever called: Codex is `fake-codex.mjs`, and Claude, gh and tailscale fail at once.
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { existsSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { deflateSync, crc32 } from "node:zlib";
 import { chromium, devices, webkit, type Browser, type BrowserContextOptions, type Page, type WebSocketRoute } from "playwright";
@@ -87,12 +88,20 @@ function tallPng(width: number, height: number): Buffer {
 export type Engine = "chromium" | "webkit";
 
 /**
- * Playwright's WebKit is built for Ubuntu. Elsewhere (e.g. Fedora) point
- * BORKCODE_E2E_WEBKIT_LIBS at a folder holding Ubuntu 24.04's libicu74 and libjpeg-turbo8
- * libraries; MiniBrowser is then started with them on its library path.
+ * Playwright's WebKit is built for Ubuntu. Elsewhere (e.g. Fedora) it needs Ubuntu 24.04's
+ * libicu74 and libjpeg-turbo8 libraries in a folder of their own, by default
+ * ~/.cache/borkcode/e2e-webkit-libs or else BORKCODE_E2E_WEBKIT_LIBS (see the README).
+ * MiniBrowser is then started with them on its library path.
  */
+export const WEBKIT_LIBS_DEFAULT = join(homedir(), ".cache", "borkcode", "e2e-webkit-libs");
+
+function webkitLibs(): string | undefined {
+  if (process.env.BORKCODE_E2E_WEBKIT_LIBS) return resolve(process.env.BORKCODE_E2E_WEBKIT_LIBS);
+  return existsSync(WEBKIT_LIBS_DEFAULT) ? WEBKIT_LIBS_DEFAULT : undefined;
+}
+
 async function webkitExecutable(): Promise<string | undefined> {
-  const extra = process.env.BORKCODE_E2E_WEBKIT_LIBS;
+  const extra = webkitLibs();
   if (!extra) return undefined;
   process.env.PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "1";
   const bundle = join(resolve(webkit.executablePath(), ".."), "minibrowser-wpe");
@@ -103,7 +112,7 @@ async function webkitExecutable(): Promise<string | undefined> {
 export WEBKIT_EXEC_PATH="${bundle}/bin"
 export WEBKIT_INJECTED_BUNDLE_PATH="${bundle}/lib"
 export WEBKIT_INSPECTOR_RESOURCES_PATH="${bundle}/share"
-export LD_LIBRARY_PATH="${bundle}/lib:${bundle}/sys/lib:${resolve(extra)}"
+export LD_LIBRARY_PATH="${bundle}/lib:${bundle}/sys/lib:${extra}"
 exec "${bundle}/bin/MiniBrowser" "$@"
 `,
   );
@@ -116,6 +125,23 @@ export async function launch(engine: Engine): Promise<Browser> {
   if (engine === "chromium") return chromium.launch({ ignoreDefaultArgs: ["--hide-scrollbars"] });
   const executablePath = await webkitExecutable();
   return webkit.launch(executablePath ? { executablePath } : {});
+}
+
+/**
+ * Why WebKit can't run here, if it is for want of system libraries, so its tests skip with a
+ * way to fix it rather than failing the run. Playwright refuses up front when it finds the host
+ * missing them, or MiniBrowser exits failing to load one; any other launch error is thrown.
+ */
+export async function missingWebKitLibraries(): Promise<string | null> {
+  try {
+    await (await launch("webkit")).close();
+    return null;
+  } catch (error) {
+    const message = String(error);
+    if (!/Host system is missing dependencies|error while loading shared libraries/.test(message)) throw error;
+    const library = /error while loading shared libraries: (\S+?):/.exec(message)?.[1];
+    return `WebKit is missing system libraries${library ? ` (${library})` : ""}. Put Ubuntu 24.04's libicu74 and libjpeg-turbo8 libraries in ${webkitLibs() ?? WEBKIT_LIBS_DEFAULT}, or point BORKCODE_E2E_WEBKIT_LIBS at them; see "Browser tests" in the README.`;
+  }
 }
 
 /** Desktop Chromium, or an iPhone-sized touch WebKit (Playwright's WebKit can't emulate isMobile on Linux). */
