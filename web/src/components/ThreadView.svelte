@@ -170,6 +170,29 @@
     return () => observer.disconnect();
   });
 
+  /** Sending shows the message being sent, wherever the user had scrolled to. */
+  function followToBottom() {
+    if (transcript) transcript.scrollTop = pin.follow(transcript);
+  }
+
+  // A mouse button held on the transcript or its scrollbar is the user's hand on it, like a
+  // finger. Touch has its own events, since a panning touch cancels its pointer.
+  function grab(event: PointerEvent) {
+    const element = transcript;
+    if (!element || event.pointerType === "touch") return;
+    pin.hold();
+    window.addEventListener("pointerup", () => pin.release(element, performance.now()), { once: true });
+  }
+
+  /** Keys scroll the transcript when no field or other panel has them. */
+  function scrollKey(event: KeyboardEvent) {
+    const target = event.target as Element;
+    if (target !== document.body && !transcript?.contains(target)) return;
+    const up = event.key === "PageUp" || event.key === "ArrowUp" || event.key === "Home" || (event.key === " " && event.shiftKey);
+    if (up) pin.intendUp(performance.now());
+    else pin.input(performance.now());
+  }
+
   // A pending question takes over the composer: number keys pick options and typed text is a
   // free-text answer. Several questions are answered one after another, then sent together.
   const asking = $derived(detail?.questions[0] ?? null);
@@ -239,6 +262,7 @@
     const attachments = attached.ids;
     error = "";
     setDraft(threadId, "");
+    followToBottom();
     const pending = takeAttachments(threadId);
     try {
       await rpc.request("threads.send", { threadId, text, attachments, model, effort, accessMode });
@@ -280,6 +304,7 @@
   async function publish() {
     if (busy) return;
     error = "";
+    followToBottom();
     try {
       await rpc.request("threads.publish", { threadId: id, model, effort, accessMode });
     } catch (cause) {
@@ -319,7 +344,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onWindowKeydown} />
+<svelte:window onkeydown={(event) => { scrollKey(event); onWindowKeydown(event); }} />
 
 {#if !detail || !thread}
   <div class="page muted">Loading thread…</div>
@@ -388,10 +413,12 @@
         <button class="ghost icon delete" title="Delete thread" onclick={remove}><Trash2 size={16} /></button>
       </header>
       <div class="transcript" role="region" aria-label="Thread transcript" bind:this={transcript}
-        onscroll={() => transcript && pin.scrolled(transcript)}
-        onwheel={(event) => pin.wheel(event.deltaY)}
-        ontouchstart={() => pin.touchStart()}
-        ontouchend={() => transcript && pin.touchEnd(transcript)} ontouchcancel={() => transcript && pin.touchEnd(transcript)}>
+        onscroll={() => transcript && pin.scrolled(transcript, performance.now())}
+        onwheel={(event) => (event.deltaY < 0 ? pin.intendUp(performance.now()) : pin.input(performance.now()))}
+        onpointerdown={grab}
+        ontouchstart={() => pin.hold()}
+        ontouchend={() => transcript && pin.release(transcript, performance.now())}
+        ontouchcancel={() => transcript && pin.release(transcript, performance.now())}>
         <div class="column" class:skipped-items={skippedItems}>
           {#each segments as segment (segment.kind === "item" ? segment.item.id : segment.id)}
             {#if segment.kind === "item"}
