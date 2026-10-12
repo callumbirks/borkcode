@@ -19,6 +19,7 @@ import { MentionSearch } from "./mentions.ts";
 import { listModels } from "./models.ts";
 import { ProjectStore } from "./projects.ts";
 import { SettingsStore } from "./settings.ts";
+import { locateAll, PreviewError, readPreview, type PreviewRoots } from "./threadFiles.ts";
 import { ThreadService } from "./threads.ts";
 
 const config = loadConfig();
@@ -49,6 +50,11 @@ const threads = new ThreadService(
 );
 
 const mentions = new MentionSearch(files, (threadId) => threads.location(threadId));
+
+async function previewRoots(threadId: string): Promise<PreviewRoots> {
+  const { project, root } = await threads.location(threadId);
+  return { workspace: root, project: files.root(project.name), repos: project.repos.map((repo) => repo.name) };
+}
 
 async function projectsChanged<T>(result: T): Promise<T> {
   broadcast({ type: "projects.changed", projects: await projects.list() });
@@ -83,6 +89,7 @@ const handlers: Handlers = {
   },
   "files.deleteFolder": ({ project, path }) => files.deleteFolder(project, path),
   "mentions.search": ({ threadId, query }) => mentions.search(threadId, query),
+  "threads.locateFiles": async ({ threadId, paths }) => locateAll(await previewRoots(threadId), paths),
   "threads.list": async () => threads.list(),
   "threads.create": (params) => threads.create(params),
   "threads.get": ({ threadId }) => threads.get(threadId),
@@ -207,6 +214,38 @@ async function handleAttachments(
   createReadStream(file.path).pipe(response);
 }
 
+/** `GET /api/threads/<id>/files?root=&path=` serves a file or folder listing for the preview panel. */
+async function handleFilePreview(request: IncomingMessage, response: ServerResponse, threadId: string): Promise<void> {
+  if (!isAllowedOrigin(request) || !isSameSiteFetch(request)) return replyError(response, 403, "Forbidden");
+  if (request.method !== "GET") return replyError(response, 405, "Method not allowed");
+  const query = new URL(request.url ?? "/", "http://x").searchParams;
+  const root = query.get("root") ?? "workspace";
+  if (root !== "workspace" && root !== "project") return replyError(response, 400, "Unknown root");
+  const roots = await previewRoots(threadId).catch(() => null);
+  if (!roots) return replyError(response, 404, "Unknown thread");
+  const preview = await readPreview(roots, root, query.get("path") ?? "");
+  const headers = {
+    // Files change under agents' hands, so always ask again.
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "default-src 'none'; sandbox",
+  };
+  if (preview.kind === "directory") {
+    response.writeHead(200, { ...headers, "content-type": "application/json", "x-file-kind": "directory" });
+    response.end(JSON.stringify({ entries: preview.entries }));
+  } else if (preview.kind === "image") {
+    response.writeHead(200, { ...headers, "content-type": preview.mimeType, "content-length": preview.size });
+    createReadStream(preview.full).pipe(response);
+  } else {
+    response.writeHead(200, {
+      ...headers,
+      "content-type": "text/plain; charset=utf-8",
+      ...(preview.truncated ? { "x-file-truncated": String(preview.size) } : {}),
+    });
+    response.end(preview.text);
+  }
+}
+
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript",
@@ -239,6 +278,14 @@ const server = createServer(async (request, response) => {
         return replyError(response, error.status, error.message);
       }
       replyError(response, 400, error.message);
+    });
+    return;
+  }
+  const previewRoute = /^\/api\/threads\/([\w-]+)\/files$/.exec(pathname);
+  if (previewRoute) {
+    await handleFilePreview(request, response, previewRoute[1]!).catch((error: Error) => {
+      if (response.headersSent) return response.destroy();
+      replyError(response, error instanceof PreviewError ? error.status : 500, error.message);
     });
     return;
   }

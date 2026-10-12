@@ -154,6 +154,23 @@ export interface Attachment {
   size: number;
 }
 
+/**
+ * A file or folder a thread can preview: in its workspace (every repo, plus the root's scratch
+ * folder) or in its project's shared files. The browser reads it over HTTP with
+ * `GET /api/threads/<threadId>/files?root=<root>&path=<path>`, never by a local path, so a remote
+ * browser works too. Text comes as `text/plain` (cut at 1 MB, `x-file-truncated: <full size>`),
+ * images as themselves, folders as JSON `{ entries: { name, kind }[] }`, and everything else is
+ * refused as binary. Nothing is served as active content: SVG and HTML are plain text.
+ */
+export interface FileTarget {
+  root: FileRoot;
+  /** Relative to the root with forward slashes, such as `borkcode/server/src/main.ts`. */
+  path: string;
+  kind: "file" | "directory";
+}
+
+export type FileRoot = "workspace" | "project";
+
 export type ToolStatus = "running" | "done" | "failed";
 
 export type Item =
@@ -266,6 +283,12 @@ export interface Requests {
   "files.deleteFolder": { params: { project: string; path: string }; result: number };
   /** The best matches for an `@` reference in a thread's composer, at most 50. */
   "mentions.search": { params: { threadId: string; query: string }; result: Mention[] };
+  /**
+   * Which of these paths, as written in a transcript, name an existing file or folder of the
+   * thread: absolute, relative to the workspace root, to any repo, or to the project files. Null
+   * for the rest. At most 200 paths.
+   */
+  "threads.locateFiles": { params: { threadId: string; paths: string[] }; result: (FileTarget | null)[] };
   "threads.list": { params: Record<string, never>; result: Thread[] };
   "threads.create": {
     params: {

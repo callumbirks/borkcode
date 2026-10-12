@@ -23,12 +23,14 @@
     restoreAttachments,
     takeAttachments,
   } from "../lib/composerAttachments.svelte";
+  import { forgetMissing, previews } from "../lib/filePreview.svelte";
   import { referenceRoots } from "../lib/fileReferences";
   import { answer, pick } from "../lib/questions";
   import { app, getDraft, go, openThread, rpc, setDraft } from "../lib/state.svelte";
   import AttachButton from "./AttachButton.svelte";
   import ComposerAttachments from "./ComposerAttachments.svelte";
   import ComposerEditor from "./ComposerEditor.svelte";
+  import FilePreview from "./FilePreview.svelte";
   import ItemView from "./ItemView.svelte";
   import MentionPicker from "./MentionPicker.svelte";
   import ModelPicker from "./ModelPicker.svelte";
@@ -54,6 +56,10 @@
     }
     return result;
   });
+
+  const preview = $derived(previews[id]);
+  // Files may have appeared since paths in this thread were last looked up.
+  $effect(() => forgetMissing(id));
 
   // Each thread keeps its own unsent text, since this component stays mounted across threads.
   const draft = $derived(getDraft(id));
@@ -315,7 +321,7 @@
 {#if !detail || !thread}
   <div class="page muted">Loading thread…</div>
 {:else}
-  <div class="thread">
+  <div class="thread" class:previewing={preview}>
     <div class="chat">
       <header>
         <span class="dot {thread.status}" title={thread.status}></span>
@@ -504,12 +510,17 @@
         </div>
       </div>
     </div>
-    <RepoPanel
-      threadId={id}
-      status={thread.status}
-      workspacePath={detail.workspacePath}
-      pullRequests={app.pullRequests[detail.thread.id] ?? []}
-    />
+    <!-- The preview takes the overview's place while it is open. -->
+    {#if preview}
+      <FilePreview threadId={id} target={preview} />
+    {:else}
+      <RepoPanel
+        threadId={id}
+        status={thread.status}
+        workspacePath={detail.workspacePath}
+        pullRequests={app.pullRequests[detail.thread.id] ?? []}
+      />
+    {/if}
   </div>
 {/if}
 
@@ -519,6 +530,9 @@
     grid-template-columns: 1fr var(--panel-width);
     height: 100%;
     min-height: 0;
+  }
+  .thread.previewing {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
   .chat {
     display: flex;
