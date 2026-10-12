@@ -473,7 +473,7 @@ test("an archived thread's pull request merging updates its state without waking
 
 function unread(threadId: string): boolean {
   const thread = threads.list().find((each) => each.id === threadId)!;
-  return thread.respondedAt !== null && thread.respondedAt > (thread.readAt ?? 0);
+  return thread.markedUnread || (thread.respondedAt !== null && thread.respondedAt > (thread.readAt ?? 0));
 }
 
 test("a finished or failed turn leaves the thread unread until the user reads it; a stopped one does not", async () => {
@@ -486,7 +486,7 @@ test("a finished or failed turn leaves the thread unread until the user reads it
   // Reading is not activity, so the thread keeps its place in the lists.
   const updatedAt = () => threads.list().find((each) => each.id === thread.id)!.updatedAt;
   const activeAt = updatedAt();
-  threads.markRead(thread.id);
+  threads.setRead(thread.id, true);
   assert.equal(unread(thread.id), false);
   assert.equal(updatedAt(), activeAt);
 
@@ -501,11 +501,45 @@ test("a finished or failed turn leaves the thread unread until the user reads it
   assert.equal(unread(thread.id), true);
 });
 
+test("the user can mark a thread unread and read again, even before any response, without it counting as activity", async () => {
+  const { thread, agent } = await startThread("look into it");
+  await agent.turn(1);
+  const stored = () => threads.list().find((each) => each.id === thread.id)!;
+  assert.equal(stored().respondedAt, null);
+  const activeAt = stored().updatedAt;
+
+  const markedUnread = broadcastOf(
+    (event) => event.type === "thread.updated" && event.thread.id === thread.id && event.thread.markedUnread,
+  );
+  threads.setRead(thread.id, false);
+  await markedUnread;
+  assert.equal(unread(thread.id), true);
+  assert.equal(stored().updatedAt, activeAt);
+
+  const markedRead = broadcastOf(
+    (event) => event.type === "thread.updated" && event.thread.id === thread.id && !event.thread.markedUnread,
+  );
+  threads.setRead(thread.id, true);
+  await markedRead;
+  assert.equal(unread(thread.id), false);
+  assert.equal(stored().updatedAt, activeAt);
+
+  // After a response, marking unread and then read clears both the flag and the response.
+  agent.finish("found it");
+  const answeredAt = stored().updatedAt;
+  threads.setRead(thread.id, true);
+  threads.setRead(thread.id, false);
+  assert.equal(unread(thread.id), true);
+  threads.setRead(thread.id, true);
+  assert.equal(unread(thread.id), false);
+  assert.equal(stored().updatedAt, answeredAt);
+});
+
 test("a watched child's report is its parent's to read, unless the user joined the child's turn", async () => {
   const { thread: parent, agent: parentAgent } = await startThread("lead the work");
   await parentAgent.turn(1);
   parentAgent.finish("delegating");
-  threads.markRead(parent.id);
+  threads.setRead(parent.id, true);
 
   await threads.startThread(parent.id, { message: "do a part", watch: true, startFrom: "base" });
   const [child] = threads.list().filter((thread) => thread.parentId === parent.id);

@@ -30,6 +30,7 @@ function thread(branch: string | null): Thread {
     archivedAt: null,
     respondedAt: null,
     readAt: null,
+    markedUnread: false,
     waiting: false,
     createdAt: 0,
     updatedAt: 0,

@@ -41,7 +41,7 @@ test("linking a pull request reports changes only when something changed", () =>
   db.insertThread({
     id: "t2", project: "p", title: "T", provider: "claude", model: null, effort: null, accessMode: "ask",
     workspace: "t-t2", branch: "borkcode/t-t2", status: "idle", providerSessionId: null, parentId: null, startBranch: null,
-    captain: false, watched: false, paused: false, queued: 0, archivedAt: null, respondedAt: null, readAt: null,
+    captain: false, watched: false, paused: false, queued: 0, archivedAt: null, respondedAt: null, readAt: null, markedUnread: false,
     createdAt: 1, updatedAt: 1,
   });
   const pr = { repo: "alpha", number: 4, url: "https://github.com/me/alpha/pull/4", state: "OPEN", title: "Fix", headOid: "abc" };
@@ -84,7 +84,7 @@ test("deleting a parent keeps its children and drops their link", () => {
   const base = {
     project: "p", title: "T", provider: "claude" as const, model: null, effort: null, accessMode: "ask" as const,
     workspace: null, branch: null, status: "idle" as const, providerSessionId: null, startBranch: null, createdAt: 1, updatedAt: 1,
-    captain: false, watched: false, paused: false, queued: 0, archivedAt: null, respondedAt: null, readAt: null,
+    captain: false, watched: false, paused: false, queued: 0, archivedAt: null, respondedAt: null, readAt: null, markedUnread: false,
   };
   db.insertThread({ ...base, id: "parent", parentId: null });
   db.insertThread({ ...base, id: "child", parentId: "parent", startBranch: "borkcode/parent" });
@@ -127,7 +127,7 @@ test("archiving is stored without counting as activity", () => {
   db.insertThread({
     id: "t5", project: "p", title: "T", provider: "claude", model: null, effort: null, accessMode: "ask",
     workspace: null, branch: null, status: "idle", providerSessionId: null, parentId: null, startBranch: null,
-    captain: false, watched: false, paused: false, queued: 0, archivedAt: null, respondedAt: null, readAt: null, createdAt: 1, updatedAt: 1,
+    captain: false, watched: false, paused: false, queued: 0, archivedAt: null, respondedAt: null, readAt: null, markedUnread: false, createdAt: 1, updatedAt: 1,
   });
   db.setArchived(["t5"], 42);
   assert.deepEqual([db.getThread("t5")?.archivedAt, db.getThread("t5")?.updatedAt], [42, 1]);
@@ -143,7 +143,7 @@ test("only status changes and delivered messages count as activity", () => {
   db.insertThread({
     id: "t6", project: "p", title: "T", provider: "claude", model: null, effort: null, accessMode: "ask",
     workspace: null, branch: null, status: "idle", providerSessionId: null, parentId: null, startBranch: null,
-    captain: false, watched: false, paused: false, queued: 0, archivedAt: null, respondedAt: null, readAt: null, createdAt: 1, updatedAt: 1,
+    captain: false, watched: false, paused: false, queued: 0, archivedAt: null, respondedAt: null, readAt: null, markedUnread: false, createdAt: 1, updatedAt: 1,
   });
   db.updateThread("t6", { title: "Renamed", model: "opus", accessMode: "full", paused: true, watched: true });
   db.updateThread("t6", { providerSessionId: "session", status: "idle" });
