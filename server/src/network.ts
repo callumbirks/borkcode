@@ -1,5 +1,5 @@
 import { isIP } from "node:net";
-import { networkInterfaces } from "node:os";
+import { networkInterfaces, platform, type NetworkInterfaceInfo } from "node:os";
 import type { NetworkState } from "shared/protocol";
 import { isTailscaleAddress } from "./config.ts";
 import { run } from "./exec.ts";
@@ -13,28 +13,42 @@ export interface Tailnet {
   httpsUrl: string | null;
 }
 
+interface TailscaleStatus {
+  BackendState?: string;
+  Self?: { DNSName?: string; TailscaleIPs?: string[] };
+}
+
+/** CGNAT ranges alone do not prove an interface belongs to Tailscale. */
+export function tailscaleAddresses(interfaces: Record<string, NetworkInterfaceInfo[] | undefined>,
+  os: string, status: TailscaleStatus | null): string[] {
+  if (status !== null) return status.BackendState === "Running"
+    ? [...new Set((status.Self?.TailscaleIPs ?? []).filter((ip) => typeof ip === "string" && isTailscaleAddress(ip)))] : [];
+  return [...new Set(Object.entries(interfaces).flatMap(([name, entries]) => {
+    const known = os === "linux" ? name === "tailscale0" : os === "darwin" && /^utun\d+$/.test(name);
+    return known ? (entries ?? []).filter((entry) => !entry.internal && isTailscaleAddress(entry.address)).map((entry) => entry.address) : [];
+  }))];
+}
+
 /** Read only after opt-in: some Tailscale builds prompt when another app runs their CLI. */
 export async function detectTailnet(port: number): Promise<Tailnet> {
-  const addresses = Object.values(networkInterfaces()).flat().flatMap((entry) =>
-    entry && !entry.internal && isTailscaleAddress(entry.address) ? [entry.address] : []);
+  let status: TailscaleStatus | null = null;
+  try {
+    status = JSON.parse(await run("tailscale", ["status", "--json"], { timeoutMs: 2000 })) as TailscaleStatus;
+  } catch { /* Without the CLI, inspect only known Tailscale interfaces. */ }
+  const addresses = tailscaleAddresses(networkInterfaces(), platform(), status);
   let dnsName: string | null = null;
   let httpsUrl: string | null = null;
-  try {
-    const status = JSON.parse(await run("tailscale", ["status", "--json"], { timeoutMs: 2000 })) as
-      { BackendState?: string; Self?: { DNSName?: string; TailscaleIPs?: string[] } };
-    if (status.BackendState === "Running") {
-      for (const ip of status.Self?.TailscaleIPs ?? []) if (typeof ip === "string" && isTailscaleAddress(ip)) addresses.push(ip);
-      const name = String(status.Self?.DNSName ?? "").toLowerCase().replace(/\.$/, "");
-      if (/^[a-z0-9-]+\.[a-z0-9.-]+\.ts\.net$/.test(name)) dnsName = name;
-    }
-    if (dnsName) {
+  if (status?.BackendState === "Running") {
+    const name = String(status.Self?.DNSName ?? "").toLowerCase().replace(/\.$/, "");
+    if (/^[a-z0-9-]+\.[a-z0-9.-]+\.ts\.net$/.test(name)) dnsName = name;
+  }
+  if (dnsName) {
+    try {
       const serve = JSON.parse(await run("tailscale", ["serve", "status", "--json"], { timeoutMs: 2000 })) as ServeConfig;
       httpsUrl = serveEndpoint(serve, dnsName, port);
-    }
-  } catch {
-    // Interfaces still work when the CLI is unavailable, disconnected or Serve is absent.
+    } catch { /* Serve is optional; its failure must not change the discovered addresses. */ }
   }
-  return { addresses: [...new Set(addresses)], dnsName, httpsUrl };
+  return { addresses, dnsName, httpsUrl };
 }
 
 interface ServeConfig {

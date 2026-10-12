@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import { test } from "node:test";
-import { isTailscaleAddress, serveEndpoint, NetworkAccess, type Tailnet } from "./network.ts";
+import { tailscaleAddresses, isTailscaleAddress, serveEndpoint, NetworkAccess, type Tailnet } from "./network.ts";
 
 test("only Tailscale IPv4 and IPv6 ranges are selected", () => {
   for (const ip of ["100.64.0.1", "100.127.255.254", "::ffff:100.64.0.1", "fd7a:115c:a1e0::1", "FD7A:115C:A1E0:0:0:0:0:1"]) assert.ok(isTailscaleAddress(ip), ip);
@@ -62,3 +62,27 @@ test("Serve URLs advertise only HTTPS rooted at this borkcode port", () => {
   assert.equal(serveEndpoint({ TCP: config.TCP, Web: { [`${dnsName}:443`]: { Handlers: { "/other": { Proxy: "http://127.0.0.1:4800" } } } } }, dnsName, 4800), null);
   assert.equal(serveEndpoint({ TCP: config.TCP, Web: { [`${dnsName}:443`]: { Handlers: { "/": { Proxy: "http://192.168.1.1:4800" } } } } }, dnsName, 4800), null);
 });
+
+
+test("CLI self addresses are authoritative, including when stopped", () => {
+  const interfaces = { eth0: [entry("100.80.0.1")], tailscale0: [entry("100.80.0.2")] };
+  assert.deepEqual(tailscaleAddresses(interfaces, "linux", { BackendState: "Running", Self: { TailscaleIPs: ["100.80.0.3", "fd7a:115c:a1e0::3", "192.168.1.1", "100.80.0.3"] } }), ["100.80.0.3", "fd7a:115c:a1e0::3"]);
+  assert.deepEqual(tailscaleAddresses(interfaces, "linux", { BackendState: "Stopped" }), []);
+  assert.deepEqual(tailscaleAddresses(interfaces, "linux", { BackendState: "Running", Self: {} }), []);
+});
+
+test("interface fallback rejects ISP CGNAT and unrelated VPN interfaces", () => {
+  const interfaces = {
+    eth0: [entry("100.80.0.1")], en0: [entry("100.80.0.4")],
+    tailscale0: [entry("100.80.0.2"), entry("192.168.1.1")],
+    utun100: [entry("100.80.0.3"), entry("fd7a:115c:a1e0::3")],
+    utun1: [entry("10.0.0.1")], utunother: [entry("100.80.0.5")],
+  };
+  assert.deepEqual(tailscaleAddresses(interfaces, "linux", null), ["100.80.0.2"]);
+  assert.deepEqual(tailscaleAddresses(interfaces, "darwin", null), ["100.80.0.3", "fd7a:115c:a1e0::3"]);
+  assert.deepEqual(tailscaleAddresses(interfaces, "win32", null), []);
+});
+
+function entry(address: string): import("node:os").NetworkInterfaceInfo {
+  return { address, netmask: "255.255.255.255", family: "IPv4", mac: "00:00:00:00:00:00", internal: false, cidr: `${address}/32` };
+}
