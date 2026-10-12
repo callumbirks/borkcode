@@ -22,6 +22,7 @@ test("settings default until saved, then round-trip through settings.json", asyn
         use: { provider: "claude" as const, model: "opus-5-5", effort: "medium" as const },
       },
     ],
+    autoArchive: { enabled: false, days: 30 },
   };
   await store.update(settings);
   assert.deepEqual(await store.get(), settings);
@@ -61,6 +62,7 @@ test("hand edits with unknown values fall back field by field", async () => {
         use: { provider: "codex", model: null, effort: null },
       },
     ],
+    autoArchive: { enabled: true, days: 7 },
   });
   await writeFile(store.path, JSON.stringify({ autoCommit: false, childModelRules: { not: "a list" } }));
   assert.deepEqual(await store.get(), { ...DEFAULT_SETTINGS, autoCommit: false });
@@ -77,4 +79,21 @@ test("network access is opt-in and persists in settings.json", async () => {
   assert.equal((await store.get()).networkAccess, true);
   await store.update({ ...enabled, networkAccess: false });
   assert.equal((await store.get()).networkAccess, false);
+});
+
+test("automatic archiving is on for 7 days by default, and bad days fall back without touching the rest", async () => {
+  const store = new SettingsStore(join(scratch, "archive"));
+  assert.deepEqual((await store.get()).autoArchive, { enabled: true, days: 7 });
+  await store.update(DEFAULT_SETTINGS);
+  for (const days of [0, -3, 366, 2.5, "14", null]) {
+    await writeFile(store.path, JSON.stringify({ autoCommit: false, autoArchive: { enabled: false, days } }));
+    assert.deepEqual(await store.get(), { ...DEFAULT_SETTINGS, autoCommit: false, autoArchive: { enabled: false, days: 7 } });
+  }
+  await writeFile(store.path, JSON.stringify({ autoArchive: "yes" }));
+  assert.deepEqual((await store.get()).autoArchive, { enabled: true, days: 7 });
+  const saved = await store.update({ ...DEFAULT_SETTINGS, autoArchive: { enabled: true, days: 365 } });
+  assert.deepEqual(saved.autoArchive, { enabled: true, days: 365 });
+  assert.deepEqual((await store.get()).autoArchive, { enabled: true, days: 365 });
+  const clamped = await store.update({ ...DEFAULT_SETTINGS, autoArchive: { enabled: true, days: 1000 } });
+  assert.deepEqual(clamped.autoArchive, { enabled: true, days: 7 });
 });

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { ChildModelRule, DelegationLimits, ModelChoice, Settings } from "shared/protocol";
+import type { AutoArchive, ChildModelRule, DelegationLimits, ModelChoice, Settings } from "shared/protocol";
 import { isEffort } from "./providers/types.ts";
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS: Settings = {
   networkAccess: false,
   delegation: { wakesPerWindow: 8, windowMinutes: 10, maxAutomaticTurns: 50 },
   childModelRules: [],
+  autoArchive: { enabled: true, days: 7 },
 };
 
 function readDelegation(value: unknown): DelegationLimits {
@@ -24,6 +25,20 @@ function readDelegation(value: unknown): DelegationLimits {
     wakesPerWindow: positive("wakesPerWindow"),
     windowMinutes: positive("windowMinutes"),
     maxAutomaticTurns: positive("maxAutomaticTurns"),
+  };
+}
+
+export const MAX_AUTO_ARCHIVE_DAYS = 365;
+
+function readAutoArchive(value: unknown): AutoArchive {
+  const raw = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const { days } = raw;
+  return {
+    enabled: typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_SETTINGS.autoArchive.enabled,
+    days:
+      typeof days === "number" && Number.isInteger(days) && days >= 1 && days <= MAX_AUTO_ARCHIVE_DAYS
+        ? days
+        : DEFAULT_SETTINGS.autoArchive.days,
   };
 }
 
@@ -62,6 +77,7 @@ function readSettings(raw: Record<string, unknown>): Settings {
     networkAccess: typeof raw.networkAccess === "boolean" ? raw.networkAccess : false,
     delegation: readDelegation(raw.delegation),
     childModelRules: readChildModelRules(raw.childModelRules),
+    autoArchive: readAutoArchive(raw.autoArchive),
   };
 }
 

@@ -38,6 +38,17 @@ export interface Settings {
   delegation: DelegationLimits;
   /** Pick a child thread's model from its parent's. The first match applies; none means copy the parent. */
   childModelRules: ChildModelRule[];
+  autoArchive: AutoArchive;
+}
+
+/**
+ * Archives threads, with their subtree, once the whole subtree has been inactive (as the sidebar
+ * means it) with no activity or reading for `days` days. Checked at start, hourly, and on change.
+ */
+export interface AutoArchive {
+  enabled: boolean;
+  /** A whole number from 1 to 365. */
+  days: number;
 }
 
 export interface NetworkState {

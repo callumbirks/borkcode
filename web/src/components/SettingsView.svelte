@@ -2,7 +2,7 @@
   import ArrowDown from "@lucide/svelte/icons/arrow-down";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import Trash2 from "@lucide/svelte/icons/trash-2";
-  import type { Effort, ModelChoice, ProviderKind } from "shared/protocol";
+  import type { AutoArchive, Effort, ModelChoice, ProviderKind } from "shared/protocol";
   import { app, models, rpc } from "../lib/state.svelte";
   import { copyText } from "../lib/browser";
   import ModelPicker from "./ModelPicker.svelte";
@@ -127,6 +127,28 @@
       toggleError = (cause as Error).message;
     }
   }
+  let archiveDays = $state(7);
+  let archiveLoaded = false;
+  let archiveError = $state("");
+
+  $effect(() => {
+    if (!app.settings || archiveLoaded) return;
+    archiveLoaded = true;
+    archiveDays = app.settings.autoArchive.days;
+  });
+
+  async function setAutoArchive(autoArchive: AutoArchive) {
+    if (!app.settings) return;
+    archiveError = "";
+    try {
+      const next = await rpc.request("settings.update", { settings: { ...app.settings, autoArchive } });
+      // Out-of-range days fall back to the default on the server; show what was kept.
+      archiveDays = next.autoArchive.days;
+    } catch (cause) {
+      archiveError = (cause as Error).message;
+    }
+  }
+
   let networkBusy = $state(false);
   let networkError = $state("");
   let copiedUrl = $state("");
@@ -195,6 +217,43 @@
           </span>
         </label>
         {#if toggleError}<p class="error">{toggleError}</p>{/if}
+      </section>
+      <section class="card">
+        <div class="section-label">Archiving</div>
+        <label class="switch">
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label="Archive inactive threads"
+            checked={app.settings.autoArchive.enabled}
+            onchange={(event) => setAutoArchive({ enabled: event.currentTarget.checked, days: archiveDays })}
+          />
+          <span class="track"></span>
+          <span class="text">
+            Archive inactive threads automatically
+            <span class="muted">
+              Inactive as the sidebar's filter means it: read, idle, no open PR. A thread is archived
+              once nothing has happened in it and it has not been read for this many days, together
+              with its child threads, which must be inactive too. Sending an archived thread a message
+              brings it back.
+            </span>
+          </span>
+        </label>
+        <div class="row">
+          <label>
+            Days inactive
+            <input
+              type="number"
+              min="1"
+              max="365"
+              step="1"
+              aria-label="Days inactive"
+              bind:value={archiveDays}
+              onchange={() => setAutoArchive({ enabled: app.settings!.autoArchive.enabled, days: archiveDays })}
+            />
+          </label>
+        </div>
+        {#if archiveError}<p class="error">{archiveError}</p>{/if}
       </section>
       <form class="card" onsubmit={saveLimits}>
         <div class="section-label">Delegation limits</div>
