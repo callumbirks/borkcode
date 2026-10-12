@@ -198,6 +198,14 @@ inventing a fix.
 - **Transcript items use `content-visibility: auto`.** Without it every keystroke in the composer
   paid to paint and hit-test the whole transcript. It contains each item's layout and paint, so a
   fixed overlay inside an item must move to `document.body` (`MessageAttachments` does).
+  Work groups render their steps only once opened, since long threads hold hundreds of them.
+- **The composer's input box and the sidebar are their own compositor layers**
+  (`transform: translateZ(0)`), so a keystroke or a sidebar update re-rasters only that layer
+  instead of tiles spanning the page. Layers keep subpixel text only if opaque, so the input has
+  the composer's background; `will-change: transform` drops subpixel text outright. A promoted
+  element is the containing block for fixed descendants. Promote sparingly: each layer costs memory.
+  The mobile drawer wraps the promoted nav, and sheets sit outside the promoted composer input,
+  so their bounds do not depend on those transforms.
 - **Clients get everything by broadcast.** It's fine for one user across their devices. Revisit
   if many clients arrive. Keep payloads small: stream deltas, not whole items.
 
@@ -255,6 +263,12 @@ inventing a fix.
 - **Claude expands `@path` in prompts.** The CLI, also under the SDK, turns each `@path` (or
   `@"path with spaces"`) in a user message into an inlined Read result. Codex passes the text
   through. The composer's `@` picker relies on this and inserts paths, never file contents.
+- **Transcript work must not scale with history on every event.** A captain thread gets frequent
+  `thread.updated`, PR and item events, and anything each message reads from them reruns
+  hundreds of times. The thread object is replaced on every update, so derive from its fields,
+  not the object. Svelte 5 also keeps counting a `$derived` as dirty once it recomputes to an equal
+  value, so it reruns on every later upstream change; keep expensive work such as markdown
+  rendering in an effect or attachment fed by cheap deriveds, as `ItemView` does.
 - **Claude SDK types.** The source of truth is
   `server/node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`. With partial messages on,
   `assistant` messages arrive one content block at a time, after the matching `stream_event`
@@ -291,7 +305,9 @@ inventing a fix.
 - Inferred types over annotations; `any` is the enemy.
 - Comments say how a thing is used or why it is surprising. Don't narrate control flow.
 - No continuously repainting animations; they peg the GPU. The one exception is `Spinner.svelte`,
-  a few stepped glyphs in pure CSS, shown only while a thread works. Spinners must not lie about state.
+  stepped braille glyphs shown only while a thread works. It moves a strip of glyphs with
+  `transform`, so it runs on the compositor; animating anything that paints, such as `content`,
+  repaints the page every step. Spinners must not lie about state.
 - Don't add docs that restate the code. Record decisions and traps here; user-facing usage goes in
   the README.
 

@@ -14,7 +14,7 @@
   import Square from "@lucide/svelte/icons/square";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import { untrack } from "svelte";
-  import type { AccessMode, Effort, Item } from "shared/protocol";
+  import type { AccessMode, Effort } from "shared/protocol";
   import { isUnread, providerLabel } from "../lib/display.svelte";
   import { composerAttachments } from "../lib/attachments";
   import {
@@ -27,6 +27,7 @@
   import { forgetMissing, previews } from "../lib/filePreview.svelte";
   import { referenceRoots } from "../lib/fileReferences";
   import { answer, pick } from "../lib/questions";
+  import { segmentItems, type Segment } from "../lib/segments";
   import { app, getDraft, go, openThread, rpc, setDraft } from "../lib/state.svelte";
   import AttachButton from "./AttachButton.svelte";
   import ComposerAttachments from "./ComposerAttachments.svelte";
@@ -47,17 +48,8 @@
   const parent = $derived(thread?.parentId ? app.threads.find((other) => other.id === thread.parentId) : undefined);
 
   // Consecutive tool calls and reasoning fold into one group; messages and notices stand alone.
-  type Segment = { kind: "item"; item: Item } | { kind: "work"; id: string; items: Item[] };
-  const segments = $derived.by(() => {
-    const result: Segment[] = [];
-    for (const item of detail?.items ?? []) {
-      const previous = result.at(-1);
-      if (item.kind !== "tool" && item.kind !== "reasoning") result.push({ kind: "item", item });
-      else if (previous?.kind === "work") previous.items.push(item);
-      else result.push({ kind: "work", id: item.id, items: [item] });
-    }
-    return result;
-  });
+  let lastSegments: Segment[] = [];
+  const segments = $derived((lastSegments = segmentItems(detail?.items ?? [], lastSegments)));
 
   const preview = $derived(previews[id]);
   // Files may have appeared since paths in this thread were last looked up.
@@ -282,8 +274,11 @@
   }
 
   let composer = $state<ComposerEditor>();
+  // The thread is replaced on every update. Depending on its project name alone keeps the roots,
+  // and with them the composer and every message, from redrawing each time.
+  const projectName = $derived(thread?.project);
   const fileRoots = $derived(
-    referenceRoots(app.projects.find((project) => project.name === thread?.project), detail?.workspacePath),
+    referenceRoots(app.projects.find((project) => project.name === projectName), detail?.workspacePath),
   );
   let mentions = $state<MentionPicker>();
 
@@ -386,9 +381,9 @@
         <div class="column">
           {#each segments as segment (segment.kind === "item" ? segment.item.id : segment.id)}
             {#if segment.kind === "item"}
-              <ItemView item={segment.item} />
+              <ItemView item={segment.item} threadId={id} roots={fileRoots} />
             {:else}
-              <WorkGroup items={segment.items} />
+              <WorkGroup items={segment.items} threadId={id} roots={fileRoots} />
             {/if}
           {/each}
           {#each detail.approvals as approval (approval.id)}
@@ -746,7 +741,6 @@
     border-radius: var(--radius-xl);
     box-shadow: var(--shadow-md);
     padding: var(--space-2-5) var(--space-3) var(--space-2);
-    transition: border-color var(--transition-fast);
   }
   .composer:focus-within,
   .composer.dragging {

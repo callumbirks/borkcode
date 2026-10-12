@@ -373,7 +373,14 @@
   .editor {
     position: relative;
   }
+  /*
+   * Its own compositor layer, so a keystroke re-rasters only this box rather than tiles spanning
+   * the page. The layer must be opaque to keep subpixel text, so its background has to match the
+   * composer's surface around it.
+   */
   .input {
+    transform: translateZ(0);
+    background: var(--surface-raised);
     min-height: 44px;
     max-height: 240px;
     overflow-y: auto;
@@ -384,6 +391,7 @@
   }
   .placeholder {
     position: absolute;
+    z-index: 1;
     inset: 0 0 auto;
     color: var(--text-faint);
     font-size: var(--text-md);
@@ -394,7 +402,6 @@
     font-size: 16px;
     padding: 0;
     border: 0;
-    background: none;
     resize: none;
     max-height: 24vh;
   }
