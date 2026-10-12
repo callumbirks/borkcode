@@ -11,7 +11,8 @@
   import { providerLabel, pullRequestIcon, toolIcon, toolLabel } from "../lib/display.svelte";
   import { fileUrl, labelTarget, targetLabel, toolPaths } from "../lib/fileLinks";
   import { linker, openFileLink } from "../lib/filePreview.svelte";
-  import { findFileReferences, splitReferences, type ReferenceRoots } from "../lib/fileReferences";
+  import { splitReferences, type ReferenceRoots } from "../lib/fileReferences";
+  import { findReferences, findThreadReferences, isThreadReference } from "../lib/threadReferences";
   import { renderMarkdown } from "../lib/markdown";
   import { mentionedPullRequestNumbers } from "../lib/pullRequests";
   import { app, go } from "../lib/state.svelte";
@@ -67,6 +68,11 @@
   }
 
   const markdownText = $derived(item.kind === "assistant" || item.kind === "reasoning" ? item.text : "");
+  const referenceText = $derived(item.kind === "user" ? item.text : markdownText);
+  const referencedThreadIds = $derived(findThreadReferences(referenceText, []).map(r => r.threadId));
+  const threadLabels = $derived(JSON.stringify(referencedThreadIds.length ? app.threads
+    .filter(t => referencedThreadIds.includes(t.id))
+    .map(({ id, title, project, status, archivedAt }) => ({ id, title, project, status, archivedAt })) : []));
   const prNumbers = $derived(mentionedPullRequestNumbers(markdownText));
   /**
    * The PRs this message could show as chips, as JSON, so that an update to any other PR, or a
@@ -84,9 +90,9 @@
    * effect rather than a `$derived`: a derived that recomputes to an equal value keeps counting as
    * dirty, so it would rerun on every upstream change, such as each update of the thread.
    */
-  function markdown(text: string, pullRequests: string) {
+  function markdown(text: string, pullRequests: string, threads: string) {
     return (node: HTMLElement) => {
-      const html = renderMarkdown(text, JSON.parse(pullRequests), roots, links);
+      const html = renderMarkdown(text, JSON.parse(pullRequests), roots, links, JSON.parse(threads));
       node.innerHTML = DOMPurify.sanitize(html, { ADD_ATTR: ["target"] });
       const icons = [...node.querySelectorAll<HTMLElement>("[data-pr-state]")].map((target) => {
         const state = target.dataset.prState;
@@ -99,7 +105,7 @@
 </script>
 
 <!-- On one line: the message keeps its whitespace, so none may sneak in around the parts. -->
-{#snippet withChips(text: string)}{#each splitReferences(text, roots ? findFileReferences(text, roots) : []) as part, index (index)}{#if part.reference}{@const target = labelTarget(part.reference.label)}<a class="file-chip" href={fileUrl(threadId, target)} data-file-root={target.root} data-file-path={target.path} title={part.reference.label}>{part.reference.name}</a>{:else}{part.text}{/if}{/each}{/snippet}
+{#snippet withChips(text: string)}{#each splitReferences(text, findReferences(text, roots, JSON.parse(threadLabels))) as part, index (index)}{#if part.reference && isThreadReference(part.reference)}<a class="thread-chip" href="#/thread/{part.reference.threadId}" title={part.reference.label}>↳ {part.reference.name}</a>{:else if part.reference}{@const target = labelTarget(part.reference.label)}<a class="file-chip" href={fileUrl(threadId, target)} data-file-root={target.root} data-file-path={target.path} title={part.reference.label}>{part.reference.name}</a>{:else}{part.text}{/if}{/each}{/snippet}
 
 {#if item.kind === "user" && item.fromThreadId}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex: it is focusable only while it is a button -->
@@ -157,7 +163,7 @@
 {:else if item.kind === "assistant"}
   {#if item.text}
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions: the links inside are focusable -->
-    <div class="assistant" onclick={(event) => openFileLink(threadId, event)} {@attach markdown(markdownText, referenced)}></div>
+    <div class="assistant" onclick={(event) => openFileLink(threadId, event)} {@attach markdown(markdownText, referenced, threadLabels)}></div>
   {/if}
 {:else if item.kind === "reasoning"}
   {#if item.text}
@@ -167,7 +173,7 @@
         <span class="name">Thinking</span>
       </summary>
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions: the links inside are focusable -->
-      <div class="body reasoning" onclick={(event) => openFileLink(threadId, event)} {@attach markdown(markdownText, referenced)}></div>
+      <div class="body reasoning" onclick={(event) => openFileLink(threadId, event)} {@attach markdown(markdownText, referenced, threadLabels)}></div>
     </details>
   {/if}
 {:else if item.kind === "tool"}

@@ -275,6 +275,12 @@ inventing a fix.
 - **Codex asks questions only in plan mode by default.** `request_user_input` needs the
   `features.default_mode_request_user_input` config, which the adapter sets. Claude's
   `AskUserQuestion` reaches `canUseTool` in every permission mode, including bypass.
+- **Thread references use `borkcode:thread:<uuid>`, without `@`.** The `@` picker inserts this
+  stable form so Claude does not expand it as a file. Chips resolve title/project/status from
+  server-owned threads and open `#/thread/<id>`. MCP discovery and transcript reads work across
+  projects, without read receipts, PR refreshes, activity updates or agent deliveries. Transcript
+  cursors use SQLite seq, count non-reasoning items, and advance older from the end/newer from the
+  start. Tools expose summaries only; long item text is fetched in bounded character chunks.
 - **Claude expands `@path` in prompts.** The CLI, also under the SDK, turns each `@path` (or
   `@"path with spaces"`) in a user message into an inlined Read result. Codex passes the text
   through. The composer's `@` picker relies on this and inserts paths, never file contents.

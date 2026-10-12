@@ -379,3 +379,19 @@ a.file-link:hover {
   .row { flex-wrap: wrap; }
   .file-chip { min-height: 32px; }
 }
+
+.thread-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-active);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  text-decoration: none;
+  cursor: pointer;
+  vertical-align: baseline;
+}
+.thread-chip:hover { text-decoration: underline; }
+@media (pointer: coarse) { .thread-chip { min-height: 32px; } }

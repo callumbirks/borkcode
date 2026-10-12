@@ -54,13 +54,16 @@ What borkcode has shipped and what may come next. The constraints every change w
     thread header, to mark it read or unread, even before it has a response. A thread marked
     unread while open stays unread until you leave it. A project's menu marks all its threads read.
 
+17. **`@` thread references.** The picker suggests other non-archived threads by title, inserting
+    stable `borkcode:thread:<uuid>` references rendered as clickable thread chips. Agents discover
+    projects/threads and read transcripts through bounded MCP pages, starting from the end,
+    with tool summaries, skipped reasoning and complete text available in chunks.
+
 ## Next
 
 Not prioritized yet. The order below is a suggestion.
 
-1. **`@` thread references.** `@` also suggests other threads in the project that aren't
-   archived, so one thread can read through another's transcript. Builds on `@` file references.
-2. **File uploads.** Attach any file to a message, not just images, from any device viewing
+1. **File uploads.** Attach any file to a message, not just images, from any device viewing
    borkcode, including remote ones. Builds on the attachments behind images in the prompt, and
    comes after remote and mobile access.
 

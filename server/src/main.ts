@@ -77,7 +77,7 @@ const network = new NetworkAccess(config.port, config.host, async (address) => {
 
 let networkRevision = 0;
 
-const mentions = new MentionSearch(files, (threadId) => threads.location(threadId));
+const mentions = new MentionSearch(files, (threadId) => threads.location(threadId), () => threads.list());
 
 async function previewRoots(threadId: string): Promise<PreviewRoots> {
   const { project, root } = await threads.location(threadId);

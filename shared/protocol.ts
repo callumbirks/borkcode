@@ -80,6 +80,7 @@ export interface Project {
   name: string;
   path: string;
   repos: RepoConfig[];
+  description?: string;
 }
 
 /** A file in a project's shared `files/` folder, which every thread and the user can read and write. */
@@ -101,8 +102,18 @@ export interface FileMention {
   reference: string;
 }
 
-/** Something the composer's `@` picker can insert. Other kinds, such as threads, join this union. */
-export type Mention = FileMention;
+/** A reference to another thread, resolved by ID even after a rename or archive. */
+export interface ThreadMention {
+  kind: "thread";
+  threadId: string;
+  title: string;
+  project: string;
+  status: ThreadStatus;
+  /** Stable ID reference without @, so Claude does not expand it as a file. */
+  reference: string;
+}
+
+export type Mention = FileMention | ThreadMention;
 
 export type ThreadStatus = "preparing" | "idle" | "running" | "error";
 

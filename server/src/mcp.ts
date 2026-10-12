@@ -35,6 +35,27 @@ function buildServer({ threads, files }: Services, threadId: string): McpServer 
   const project = threads.projectOf(threadId);
   const path = z.string().describe("Path relative to the project files folder, such as specs/login.md");
 
+  const references = threads.references();
+  server.registerTool("list_projects", {
+    description: "Discover projects in this borkcode home: names, descriptions, repos, shared files roots and active/archived thread counts. Give project for one project's details.",
+    inputSchema: { project: z.string().optional() },
+  }, ({ project }) => toolResult(async () => JSON.stringify(await references.listProjects(project))));
+
+  server.registerTool("list_threads", {
+    description: "List threads by recent activity with IDs, titles, models, status, parent/captain relationships and stored PR states. Defaults to this project and non-archived threads. Read-only; does not refresh PRs. Follow next_cursor while more is true.",
+    inputSchema: { project: z.string().optional(), include_archived: z.boolean().optional(), cursor: z.string().optional(), limit: z.number().int().min(1).max(100).optional() },
+  }, (args) => toolResult(async () => JSON.stringify(await references.listThreads(args.project ?? project, args.include_archived, args.cursor, args.limit))));
+
+  server.registerTool("read_thread", {
+    description: "Read any thread in this borkcode home without changing its state. Start with the last 10 items (from=end); pages are chronological, with next_cursor pointing older from=end or newer from=start. Reasoning is skipped; tools are one-line summaries. At most 50 items and 16000 message characters per page, each text truncated at 2000. Use read_thread_item for longer text.",
+    inputSchema: { thread_id: z.string(), from: z.enum(["end", "start"]).optional(), cursor: z.string().optional(), limit: z.number().int().min(1).max(50).optional() },
+  }, (args) => toolResult(async () => JSON.stringify(references.readThread(args.thread_id, args.from, args.cursor, args.limit))));
+
+  server.registerTool("read_thread_item", {
+    description: "Read untruncated text for one transcript item, in chunks of up to 16000 characters. Follow next_offset while more is true. Tool calls still give summaries; reasoning is unavailable.",
+    inputSchema: { thread_id: z.string(), item_id: z.string(), offset: z.number().int().min(0).optional(), limit: z.number().int().min(1).max(16000).optional() },
+  }, (args) => toolResult(async () => JSON.stringify(references.readItem(args.thread_id, args.item_id, args.offset, args.limit))));
+
   server.registerTool(
     "list_project_files",
     {

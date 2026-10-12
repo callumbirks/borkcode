@@ -24,6 +24,7 @@ export function repoNameFromUrl(url: string): string {
 }
 
 interface ProjectFile {
+  description?: string;
   repos: RepoConfig[];
 }
 
@@ -58,7 +59,7 @@ export class ProjectStore {
     assertValidName("Project", name);
     const path = this.projectPath(name);
     const file = JSON.parse(await readFile(join(path, "project.json"), "utf8")) as ProjectFile;
-    return { name, path, repos: file.repos ?? [] };
+    return { name, path, repos: file.repos ?? [], ...(file.description ? { description: file.description } : {}) };
   }
 
   async create(name: string): Promise<Project> {
@@ -108,7 +109,7 @@ export class ProjectStore {
   }
 
   async #write(project: Project): Promise<void> {
-    const file: ProjectFile = { repos: project.repos };
+    const file: ProjectFile = { repos: project.repos, ...(project.description ? { description: project.description } : {}) };
     await writeFile(join(project.path, "project.json"), `${JSON.stringify(file, null, 2)}\n`);
   }
 }

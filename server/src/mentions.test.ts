@@ -69,7 +69,7 @@ test("search lists repo files, skipping ignored ones, and project files by absol
   const search = new MentionSearch(files, async () => ({ project, root }));
 
   assert.deepEqual(
-    (await search.search("t1", "server")).map((mention) => [mention.repo, mention.path, mention.reference]),
+    (await search.search("t1", "server")).filter(m => m.kind === "file").map((mention) => [mention.repo, mention.path, mention.reference]),
     [
       [null, "specs/server.md", `@${join(project.path, "files", "specs", "server.md")}`],
       ["app", "src/server.ts", "@app/src/server.ts"],
@@ -79,4 +79,24 @@ test("search lists repo files, skipping ignored ones, and project files by absol
     (await search.search("t1", "draft")).map((mention) => mention.reference),
     ["@app/src/draft.ts"],
   );
+});
+
+test("thread title matching excludes current, archived and other-project threads", async () => {
+  const { threadMentions } = await import("./mentions.ts");
+  const base = { project: "demo", title: "Server design", status: "idle", archivedAt: null, updatedAt: 1 };
+  const list = [
+    { ...base, id: "current" }, { ...base, id: "match" },
+    { ...base, id: "archived", archivedAt: 1 }, { ...base, id: "other", project: "other" },
+    { ...base, id: "nomatch", title: "Frontend" },
+  ] as import("shared/protocol").Thread[];
+  assert.deepEqual(threadMentions(list, "demo", "current", "serv").map(t => t.threadId), ["match"]);
+  assert.equal(threadMentions(list, "demo", "current", "serv")[0].reference, "borkcode:thread:match");
+  const project = await new ProjectStore(join(scratch, "picker-home")).create("demo");
+  const files = new FileStore(new ProjectStore(join(scratch, "picker-home")), () => {});
+  for (let i = 0; i < 55; i++) await files.write("demo", `s${i}.md`, "", null);
+  const search = new MentionSearch(files, async () => ({ project, root: project.path }), () => list);
+  const matches = await search.search("current", "");
+  assert.equal(matches.length, 50);
+  assert.equal(matches[0].kind, "thread");
+  assert.ok(matches.some(m => m.kind === "file"));
 });

@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { FileMention, Mention, Project } from "shared/protocol";
+import type { FileMention, Mention, Project, Thread, ThreadMention } from "shared/protocol";
 import { git } from "./exec.ts";
 import type { FileStore } from "./files.ts";
 
@@ -45,14 +45,24 @@ export function fileReference(path: string): string {
   return /\s/.test(path) ? `@"${path}"` : `@${path}`;
 }
 
-/** Answers the composer's `@` picker with files from a thread's workspace and the project's shared files. */
+/** Title matches from this project, excluding the current and archived threads. */
+export function threadMentions(threads: Thread[], project: string, current: string, query: string): ThreadMention[] {
+  return threads.filter(t => t.project === project && t.id !== current && t.archivedAt === null && matchScore(query, t.title) !== null)
+    .sort((a, b) => matchScore(query, a.title)! - matchScore(query, b.title)! || b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+    .slice(0, 10).map(t => ({ kind: "thread", threadId: t.id, title: t.title, project: t.project,
+      status: t.status, reference: `borkcode:thread:${t.id}` }));
+}
+
+/** Offers other active threads, workspace files and the project's shared files in the @ picker. */
 export class MentionSearch {
   readonly #files: FileStore;
   readonly #locate: (threadId: string) => Promise<{ project: Project; root: string }>;
+  readonly #threads: () => Thread[];
   readonly #listings = new Map<string, { at: number; paths: Promise<string[]> }>();
 
-  constructor(files: FileStore, locate: (threadId: string) => Promise<{ project: Project; root: string }>) {
+  constructor(files: FileStore, locate: (threadId: string) => Promise<{ project: Project; root: string }>, threads: () => Thread[] = () => []) {
     this.#files = files;
+    this.#threads = threads;
     this.#locate = locate;
   }
 
@@ -78,10 +88,13 @@ export class MentionSearch {
         consider(match, { kind: "file", repo: repo.name, path, reference: fileReference(match) });
       }
     });
-    return matches
+    // Keep a short thread group above files so even a repo with thousands of paths offers threads.
+    const threads = threadMentions(this.#threads(), project.name, threadId, query);
+    const rankedFiles = matches
       .sort((a, b) => a.score - b.score || a.match.localeCompare(b.match))
-      .slice(0, MAX_RESULTS)
+      .slice(0, MAX_RESULTS - threads.length)
       .map((entry) => entry.mention);
+    return [...threads, ...rankedFiles];
   }
 
   /** Tracked and untracked files, skipping ignored ones. Repos not checked out yet list nothing. */

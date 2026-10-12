@@ -1,3 +1,4 @@
+import { ThreadReferences } from "./threadReferences.ts";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -184,6 +185,10 @@ export class ThreadService {
     // Their first message is still queued; delivering it waits for the workspace.
     for (const threadId of stale.preparing) this.#resumePreparing(threadId);
     this.#pollPullRequests();
+  }
+
+  references(): ThreadReferences {
+    return new ThreadReferences(this.#db, this.#projects, () => this.list());
   }
 
   list(): Thread[] {
