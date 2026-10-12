@@ -12,12 +12,14 @@
   const failed = $derived(tools.filter((tool) => tool.status === "failed").length);
   const running = $derived(tools.some((tool) => tool.status === "running"));
   const last = $derived(tools.at(-1));
+  let opened = $state(false);
   const label = $derived(
     tools.length === 0 ? "Thought" : `${tools.length} ${tools.length === 1 ? "step" : "steps"}`,
   );
 </script>
 
-<details class="group" class:running>
+<!-- Steps render once the group is first opened: long threads hold hundreds of them, mostly unread. -->
+<details class="group" class:running ontoggle={(event) => (opened ||= event.currentTarget.open)}>
   <summary>
     <span class="chevron"><ChevronRight size={14} /></span>
     <span class="label">{label}</span>
@@ -30,11 +32,13 @@
       </span>
     {/if}
   </summary>
-  <div class="steps">
-    {#each items as item (item.id)}
-      <ItemView {item} {threadId} {roots} />
-    {/each}
-  </div>
+  {#if opened}
+    <div class="steps">
+      {#each items as item (item.id)}
+        <ItemView {item} {threadId} {roots} />
+      {/each}
+    </div>
+  {/if}
 </details>
 
 <style>
