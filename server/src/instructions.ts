@@ -53,6 +53,7 @@ export function buildInstructions(
   lines.push(
     "",
     "## Other threads",
+    "Use list_projects and list_threads to discover any project or thread in this borkcode home. A borkcode:thread:<id> reference in a message means use read_thread with that thread_id; start from end with a small limit, then follow next_cursor only if needed. read_thread_item retrieves longer text in chunks. These reads do not mark threads read or wake agents.",
     thread.captain
       ? "You may start threads whenever the work calls for it; see the captain section below."
       : "When the user asks you to hand work off or delegate it to a new thread, use the borkcode start_thread tool. Only start threads when asked.",

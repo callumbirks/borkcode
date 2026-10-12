@@ -12,6 +12,8 @@ import {
 import { findFileReferences, type FileReference, type ReferenceRoots } from "./fileReferences.ts";
 import { parsePullRequestUrl, pullRequestIndex, pullRequestRef, pullRequestState } from "./pullRequests.ts";
 
+import { findThreadReferences } from "./threadReferences.ts";
+
 function escape(text: string) {
   return text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 }
@@ -56,8 +58,22 @@ export function renderMarkdown(
   pullRequests: LinkedPullRequest[],
   roots: ReferenceRoots | null = null,
   links: FileLinker | null = null,
+  threads: Parameters<typeof findThreadReferences>[1] = [],
 ): string {
   const index = pullRequestIndex(pullRequests);
+  const threadExtension: TokenizerAndRendererExtension = {
+    name: "threadReference", level: "inline",
+    start: src => findThreadReferences(src, threads)[0]?.start,
+    tokenizer(src) {
+      if (this.lexer.state.inLink) return;
+      const reference = findThreadReferences(src, threads)[0];
+      if (reference?.start === 0) return { type: "threadReference", raw: src.slice(0, reference.end), reference };
+    },
+    renderer(token) {
+      const r = token.reference;
+      return `<a class="thread-chip" href="#/thread/${escape(r.threadId)}" title="${escape(r.label)}">↳ ${escape(r.name)}</a>`;
+    },
+  };
 
   const fileReferenceExtension: TokenizerAndRendererExtension = {
     name: "fileReference",
@@ -125,7 +141,7 @@ export function renderMarkdown(
     walkTokens(token) {
       if (token.type === "link") for (const child of token.tokens ?? []) inLinks.add(child);
     },
-    extensions: [pullRequestRefExtension, fileReferenceExtension, filePathExtension],
+    extensions: [threadExtension, pullRequestRefExtension, fileReferenceExtension, filePathExtension],
     renderer: {
       codespan(token) {
         const found = links && codePath(token.text);

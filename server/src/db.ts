@@ -415,6 +415,21 @@ export class Database {
     return rows.map((row) => JSON.parse(row.data) as Item);
   }
 
+  /** Bounded transcript scan in either direction. Reasoning never leaves this query. */
+  pageItems(threadId: string, from: "start" | "end", cursor: number | null, limit: number): { seq: number; item: Item }[] {
+    const rows = this.#db.prepare(
+      `SELECT seq, data FROM items WHERE thread_id = ? AND json_extract(data, '$.kind') != 'reasoning'
+       ${cursor === null ? "" : `AND seq ${from === "end" ? "<" : ">"} ?`}
+       ORDER BY seq ${from === "end" ? "DESC" : "ASC"} LIMIT ?`,
+    ).all(...(cursor === null ? [threadId, limit] : [threadId, cursor, limit])) as unknown as { seq: number; data: string }[];
+    return rows.map(row => ({ seq: row.seq, item: JSON.parse(row.data) as Item }));
+  }
+
+  getItem(threadId: string, itemId: string): Item | undefined {
+    const row = this.#db.prepare(`SELECT data FROM items WHERE thread_id = ? AND id = ?`).get(threadId, itemId) as { data: string } | undefined;
+    return row ? JSON.parse(row.data) as Item : undefined;
+  }
+
   /** Inserts or replaces an item, keeping its original position in the transcript. */
   upsertItem(threadId: string, item: Item): void {
     this.#db

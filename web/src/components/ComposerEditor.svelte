@@ -1,6 +1,8 @@
 <script lang="ts">
   import { chipBeside, coverReferences, History, insertBeside, replaceRange, sameChips, type Snapshot } from "../lib/composerModel";
-  import { findFileReferences, splitReferences, type FileReference, type ReferenceRoots } from "../lib/fileReferences";
+  import { splitReferences, type FileReference, type ReferenceRoots } from "../lib/fileReferences";
+  import { findReferences, findThreadReferences, isThreadReference } from "../lib/threadReferences";
+  import { app } from "../lib/state.svelte";
   import { resizeTextarea } from "../lib/textarea";
 
   // The composer's text box. A textarea can't show file references as chips, so this is a
@@ -42,9 +44,13 @@
   /** An edit left to the browser, inside `node`, which starts at `at` in the text. */
   let native: { node: Text; at: number; length: number; before: Snapshot; kind: string } | null = null;
 
+  const referencedThreadIds = $derived(findThreadReferences(value, []).map(r => r.threadId));
+  const threadLabels = $derived(JSON.stringify(referencedThreadIds.length ? app.threads
+    .filter(t => referencedThreadIds.includes(t.id))
+    .map(({ id, title, project, status, archivedAt }) => ({ id, title, project, status, archivedAt })) : []));
+
   function references(of: string) {
-    if (!roots) return [];
-    return findFileReferences(of, roots).filter((reference) => reference.end !== typingAt);
+    return findReferences(of, roots, JSON.parse(threadLabels)).filter((reference) => reference.end !== typingAt);
   }
 
   $effect(() => {
@@ -59,6 +65,7 @@
 
   $effect(() => {
     void roots;
+    void threadLabels;
     if (touch) return;
     if (composing) return;
     render(document.activeElement === element ? (selected()?.[1] ?? null) : null);
@@ -69,12 +76,14 @@
     shown = references(text);
     const nodes: Node[] = splitReferences(text, shown).map((part) => {
       if (!part.reference) return document.createTextNode(part.text);
-      const chip = document.createElement("span");
-      chip.className = "file-chip";
+      const thread = isThreadReference(part.reference);
+      const chip = document.createElement(thread ? "a" : "span");
+      chip.className = thread ? "thread-chip" : "file-chip";
+      if (chip instanceof HTMLAnchorElement && isThreadReference(part.reference)) chip.href = `#/thread/${part.reference.threadId}`;
       chip.contentEditable = "false";
       chip.dataset.source = part.text;
       chip.title = part.reference.label;
-      chip.textContent = part.reference.name;
+      chip.textContent = (thread ? "↳ " : "") + part.reference.name;
       return chip;
     });
     // Without it a trailing newline has no line to put the caret on.

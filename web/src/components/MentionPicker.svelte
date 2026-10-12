@@ -100,6 +100,7 @@
 
   /** How a suggestion is shown; each kind of mention adds its case here. */
   function describe(mention: Mention): { title: string; label: string; detail: string } {
+    if (mention.kind === "thread") return { title: `↳ ${mention.title}`, label: "Thread", detail: `${mention.project} · ${mention.status}` };
     return { title: fileName(mention.path), label: mention.repo ?? "Project files", detail: mention.path };
   }
 </script>

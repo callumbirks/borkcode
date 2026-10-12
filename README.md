@@ -155,3 +155,19 @@ Touch devices use a native textarea for predictive text, autocorrect and composi
 file picking and image paste/attachment support; references become chips in sent messages. Enter
 adds a newline there; tap Send. Returning to the app or regaining the network reconnects and
 reloads server state while keeping your draft.
+
+Typing `@` also suggests this project's other active threads, matched by title. Picking one inserts
+`borkcode:thread:<uuid>`: a stable reference that Claude leaves intact instead of expanding as an
+`@path` file. Desktop composers and sent messages show it as a thread chip with its current title;
+hover for project/status and click to open the thread. Phone composers keep the reference as text,
+with chips in sent messages. Archived threads stay resolvable but are omitted from suggestions.
+
+Agents can discover local projects through `list_projects { project? }` (repos, description when
+present, shared files root and thread counts), then `list_threads { project?, include_archived?,
+cursor?, limit? }`. The latter defaults to the calling project, active threads and 50 results,
+ordered by recent activity with stored PR states. `read_thread { thread_id, from?, cursor?, limit? }`
+defaults to the last 10 items from `end`; pages are chronological with `next_cursor` pointing older
+from the end or newer from the start. It skips reasoning, summarizes tool calls, truncates each
+text at 2,000 characters and caps message data at 16,000 characters per page.
+`read_thread_item { thread_id, item_id, offset?, limit? }` retrieves complete text in chunks,
+returning `next_offset`. All these tools are read-only and work across projects in this home.

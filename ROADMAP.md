@@ -51,15 +51,18 @@ What borkcode has shipped and what may come next. The constraints every change w
     uploads, previews and visualizations use the same server routes. Reconnect on returning from
     the background or regaining the network.
 
+16. **`@` thread references.** The picker suggests other non-archived threads by title, inserting
+    stable `borkcode:thread:<uuid>` references rendered as clickable thread chips. Agents discover
+    projects/threads and read transcripts through bounded MCP pages, starting from the end,
+    with tool summaries, skipped reasoning and complete text available in chunks.
+
 ## Next
 
 Not prioritized yet. The order below is a suggestion.
 
 1. **Mark as read or unread.** Actions to mark a thread read or unread by hand, building on the
    automatic unread indicator.
-2. **`@` thread references.** `@` also suggests other threads in the project that aren't
-   archived, so one thread can read through another's transcript. Builds on `@` file references.
-3. **File uploads.** Attach any file to a message, not just images, from any device viewing
+2. **File uploads.** Attach any file to a message, not just images, from any device viewing
    borkcode, including remote ones. Builds on the attachments behind images in the prompt, and
    comes after remote and mobile access.
 
