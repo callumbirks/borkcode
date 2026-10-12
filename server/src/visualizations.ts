@@ -18,8 +18,8 @@ export const MAX_VISUALIZATION_BYTES = 2 * 1024 * 1024;
  * script/image requests that carry no Origin.
  *
  * A page shown from a file may also load from `assetBase`, its own asset route
- * (`<scheme>://<host>/api/threads/<thread>/visualizations/<id>/`). It uses HTTPS for the configured
- * tailnet hostname and HTTP locally. The full path scopes the exception; `'self'` is unreliable
+ * (`<scheme>://<host>/api/threads/<thread>/visualizations/<id>/`). It uses HTTPS through an
+ * allowed loopback proxy and HTTP for direct tailnet or local access. The full path scopes the exception; `'self'` is unreliable
  * for an opaque origin and would open all of `/api`.
  */
 export function visualizationCsp(assetBase: string | null): string {

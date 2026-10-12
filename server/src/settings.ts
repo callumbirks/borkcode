@@ -7,6 +7,7 @@ import { isEffort } from "./providers/types.ts";
 export const DEFAULT_SETTINGS: Settings = {
   titleModel: { provider: "codex", model: "gpt-6-luna", effort: "low" },
   autoCommit: true,
+  networkAccess: false,
   delegation: { wakesPerWindow: 8, windowMinutes: 10, maxAutomaticTurns: 50 },
   childModelRules: [],
 };
@@ -58,6 +59,7 @@ function readSettings(raw: Record<string, unknown>): Settings {
   return {
     titleModel: readModelChoice(raw.titleModel, DEFAULT_SETTINGS.titleModel),
     autoCommit: typeof raw.autoCommit === "boolean" ? raw.autoCommit : DEFAULT_SETTINGS.autoCommit,
+    networkAccess: typeof raw.networkAccess === "boolean" ? raw.networkAccess : false,
     delegation: readDelegation(raw.delegation),
     childModelRules: readChildModelRules(raw.childModelRules),
   };

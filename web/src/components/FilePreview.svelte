@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { copyText } from "../lib/browser";
   import Check from "@lucide/svelte/icons/check";
   import Copy from "@lucide/svelte/icons/copy";
   import ExternalLink from "@lucide/svelte/icons/external-link";
@@ -103,7 +104,7 @@
   async function copyPath() {
     const project = app.projects.find((candidate) => candidate.name === app.detail?.thread.project);
     const text = target.root === "project" && project ? `${project.path}/files/${target.path}` : target.path;
-    await navigator.clipboard.writeText(text + formatLines(target.lines));
+    await copyText(text + formatLines(target.lines));
     copied = true;
     setTimeout(() => (copied = false), 1500);
   }

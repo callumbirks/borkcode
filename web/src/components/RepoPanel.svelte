@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { copyText } from "../lib/browser";
   import ArrowUpRight from "@lucide/svelte/icons/arrow-up-right";
   import Copy from "@lucide/svelte/icons/copy";
   import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
@@ -92,7 +93,7 @@
   </section>
 
   <footer>
-    <button class="ghost path" title="Copy workspace path" onclick={() => navigator.clipboard.writeText(workspacePath)}>
+    <button class="ghost path" title="Copy workspace path" onclick={() => copyText(workspacePath)}>
       <Copy size={12} />
       <span class="truncate">{workspacePath}</span>
     </button>

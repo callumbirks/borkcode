@@ -1,3 +1,4 @@
+import { uploadKey } from "./browser";
 import { refusal, upload, type PendingAttachment } from "./attachments";
 
 /**
@@ -15,7 +16,7 @@ export function attachFiles(threadId: string, files: File[]): void {
   const list = byThread[threadId];
   for (const file of files) {
     list.push({
-      key: crypto.randomUUID(),
+      key: uploadKey(),
       name: file.name,
       preview: URL.createObjectURL(file),
       progress: 0,

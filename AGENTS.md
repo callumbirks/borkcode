@@ -35,22 +35,24 @@ inventing a fix.
 
 ## Design decisions
 
-- **Remote access uses Tailscale Serve over HTTPS,** explicitly enabled by
-  `BORKCODE_TAILNET_HOST`, with a loopback listener still the default. Serve supplies the tailnet
-  access boundary and secure browser context; no app accounts or browser-side filesystem state.
-  Non-loopback binds require `BORKCODE_ALLOW_NETWORK_BIND=true`, including direct Tailscale IP
-  binds: they lack HTTPS and wildcard binds also expose the LAN. Optional `BORKCODE_TAILNET_LOGIN`
-  trusts Serve's identity header only with a loopback listener. Funnel is refused.
-- **Every HTTP request and WebSocket upgrade checks Host.** Browser Origin and Sec-Fetch-Site
-  are checked except on the capability asset routes described below. Only
-  localhost, loopback, the explicitly bound IP and configured tailnet hostname are accepted;
-  forwarded Host is never authority. Serve preserves Host. Proxy requests claiming localhost
-  are refused, so they cannot bypass identity filtering. `/mcp/` requires a direct loopback peer,
-  loopback Host, no browser fetch metadata, no Origin and no proxy headers: Serve's loopback
-  connection is not an agent.
-  HTTPS sandbox subresources may carry no Origin, so the fetch-site guard covers static files
-  too, not just API routes. User-activated top-level links may open the static app from another
-  site; cross-site frames and resources remain refused.
+- **Network access is a server-owned Settings toggle, off by default.** `networkAccess` persists
+  in settings.json. `NetworkAccess` keeps the main loopback listener on and adds/removes listeners
+  only on Tailscale addresses (100.64.0.0/10 and fd7a:115c:a1e0::/48). No wildcard or LAN bind.
+  Discovery retries every 30 seconds while enabled, reading interfaces and the optional CLI.
+  The server broadcasts reachable URLs; the browser does not discover its own addresses. An
+  existing Serve configuration targeting this port is probed before its HTTPS URL is advertised.
+- **Host is allowlisted from loopback and detected Tailscale addresses/MagicDNS.** Proxy headers
+  are accepted only from a loopback peer for an allowlisted remote host; Funnel is refused.
+  Non-loopback peers must also have Tailscale addresses, closing access from LAN routes.
+  `/mcp/` requires a direct loopback peer, loopback Host, no Origin, no browser fetch metadata
+  and no proxy headers. Browser Origin and Sec-Fetch-Site checks cover static files and upgrades
+  too, except the capability asset routes below and user-activated top-level app navigation.
+  Disabling access clears remote Hosts and closes remote sockets without closing the local UI.
+- **Plain tailnet HTTP is supported.** Upload queue keys use `crypto.getRandomValues`, available
+  outside secure contexts; saved file IDs still come from the server. Copy uses the clipboard API
+  when available, then selected-text copy. Image paste uses the paste event, never clipboard.read.
+  Asset CSP sources use the incoming scheme: forwarded HTTPS is trusted only from an allowed
+  loopback proxy, not from direct tailnet clients.
 - **Small screens use a navigation drawer and full-screen side panels.** The app follows
   `visualViewport` for keyboards and safe-area insets. Coarse-pointer composers use a native
   textarea, retaining `@` picking and drafts, with chips in sent messages; desktop keeps the
@@ -184,8 +186,8 @@ inventing a fix.
   are the capability. The page's CSP names that exact URL prefix as a source, since `'self'` is
   unreliable for an opaque origin and would open all of `/api`. The global request gate
   lets `isAssetRequest` bypass only Origin and fetch-site checks, retaining the Host
-  allowlist, proxy/Funnel restrictions and optional login filter. `assetBase` uses HTTPS for the
-  configured tailnet hostname and HTTP locally, without trusting forwarded protocol headers.
+  allowlist and proxy/Funnel restrictions. `assetBase` uses HTTPS through an
+  allowed loopback proxy and HTTP directly; arbitrary clients cannot choose its scheme with headers.
 - **The composer is a contenteditable whose plain text is the source of truth**
   (`ComposerEditor.svelte`), so file references can show as chips. Plain typing and deleting
   inside one text node is left to the browser and read back from that node; redrawing on every

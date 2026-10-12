@@ -14,6 +14,7 @@ test("settings default until saved, then round-trip through settings.json", asyn
   const settings = {
     titleModel: { provider: "claude" as const, model: "haiku", effort: null },
     autoCommit: false,
+    networkAccess: false,
     delegation: { wakesPerWindow: 4, windowMinutes: 5, maxAutomaticTurns: 20 },
     childModelRules: [
       {
@@ -48,6 +49,7 @@ test("hand edits with unknown values fall back field by field", async () => {
   assert.deepEqual(await store.get(), {
     titleModel: { provider: "codex", model: null, effort: null },
     autoCommit: true,
+    networkAccess: false,
     delegation: { wakesPerWindow: 8, windowMinutes: 10, maxAutomaticTurns: 30 },
     childModelRules: [
       {
@@ -66,4 +68,13 @@ test("hand edits with unknown values fall back field by field", async () => {
   assert.deepEqual(await store.get(), DEFAULT_SETTINGS);
   await writeFile(store.path, "{ not json");
   await assert.rejects(store.get(), /Could not read/);
+});
+
+test("network access is opt-in and persists in settings.json", async () => {
+  const store = new SettingsStore(join(scratch, "network"));
+  const enabled = await store.update({ ...DEFAULT_SETTINGS, networkAccess: true });
+  assert.equal(enabled.networkAccess, true);
+  assert.equal((await store.get()).networkAccess, true);
+  await store.update({ ...enabled, networkAccess: false });
+  assert.equal((await store.get()).networkAccess, false);
 });

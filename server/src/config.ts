@@ -7,8 +7,6 @@ export interface Config {
   home: string;
   port: number;
   host: string;
-  tailnetHost: string | null;
-  tailnetLogin: string | null;
   /** Built web client to serve, if present. */
   webDist: string;
 }
@@ -19,25 +17,23 @@ export function isLoopback(address: string | undefined): boolean {
     (!!address && address.startsWith("::ffff:") && isLoopback(address.slice(7)));
 }
 
+export function isTailscaleAddress(address: string): boolean {
+  if (address.toLowerCase().startsWith("::ffff:")) return isTailscaleAddress(address.slice(7));
+  if (isIP(address) === 4) {
+    const [a, b] = address.split(".").map(Number);
+    return a === 100 && b! >= 64 && b! <= 127;
+  }
+  return isIP(address) === 6 && address.toLowerCase().startsWith("fd7a:115c:a1e0:");
+}
+
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const host = env.HOST ?? "127.0.0.1";
-  if (!isLoopback(host) && env.BORKCODE_ALLOW_NETWORK_BIND !== "true") {
-    throw new Error("Use tailscale serve with localhost, or explicitly set BORKCODE_ALLOW_NETWORK_BIND=true to expose HOST");
-  }
-  const tailnetHost = env.BORKCODE_TAILNET_HOST?.toLowerCase() || null;
-  if (tailnetHost && !/^[a-z0-9-]+\.[a-z0-9.-]+\.ts\.net$/.test(tailnetHost)) {
-    throw new Error("BORKCODE_TAILNET_HOST must be the full machine.tailnet.ts.net hostname (without scheme or port)");
-  }
-  const tailnetLogin = env.BORKCODE_TAILNET_LOGIN || null;
-  if (tailnetLogin && (!tailnetHost || !isLoopback(host))) {
-    throw new Error("BORKCODE_TAILNET_LOGIN requires BORKCODE_TAILNET_HOST and a loopback listener");
-  }
+  if (!isLoopback(host)) throw new Error("HOST must be loopback; turn on Network access in Settings for Tailscale");
   return {
     home: resolve(env.BORKCODE_HOME ?? join(homedir(), "borkcode")),
     port: Number(env.PORT ?? 4800),
     host,
-    tailnetHost,
-    tailnetLogin,
     webDist: resolve(import.meta.dirname, "../../web/dist"),
   };
 }

@@ -44,8 +44,9 @@ What borkcode has shipped and what may come next. The constraints every change w
     file) as a card in the thread, sandboxed in an opaque origin, which opens larger in the
     preview panel or in a new tab. Showing it again by id replaces it.
 
-15. **Remote and mobile over Tailscale.** Explicit HTTPS access through Tailscale Serve while the
-    server stays on localhost, with a Host allowlist and a local-only agent MCP endpoint. Phones
+15. **Remote and mobile over Tailscale.** A Network access toggle detects and binds only Tailscale
+    addresses, lists HTTP/MagicDNS URLs and any existing Serve HTTPS endpoint, while the
+    server keeps loopback, with a Host allowlist and a local-only agent MCP endpoint. Phones
     get a navigation drawer, full-screen panels, touch targets and a native keyboard composer;
     uploads, previews and visualizations use the same server routes. Reconnect on returning from
     the background or regaining the network.

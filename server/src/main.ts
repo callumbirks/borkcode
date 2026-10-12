@@ -1,6 +1,7 @@
 import { createReadStream, existsSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { Socket } from "node:net";
 import { extname, join, normalize } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import type {
@@ -11,12 +12,13 @@ import type {
   ServerMessage,
 } from "shared/protocol";
 import { AttachmentError, AttachmentStore, MAX_ATTACHMENT_BYTES } from "./attachments.ts";
-import { isLoopback, loadConfig } from "./config.ts";
+import { loadConfig } from "./config.ts";
 import { Database } from "./db.ts";
 import { FileStore } from "./files.ts";
 import { handleMcpRequest } from "./mcp.ts";
+import { NetworkAccess } from "./network.ts";
 import { MentionSearch } from "./mentions.ts";
-import { assetBase, isAllowedOrigin, isAssetRequest, isSameSiteFetch, isAllowedRequest, isLocalMcpRequest } from "./origins.ts";
+import { hostName, assetBase, isAllowedOrigin, isAssetRequest, isSameSiteFetch, isAllowedRequest, isLocalMcpRequest } from "./origins.ts";
 import { listModels } from "./models.ts";
 import { ProjectStore } from "./projects.ts";
 import { SettingsStore } from "./settings.ts";
@@ -29,6 +31,7 @@ const db = new Database(join(config.home, "state.sqlite"));
 const projects = new ProjectStore(config.home);
 const settings = new SettingsStore(config.home);
 const clients = new Set<WebSocket>();
+const remoteClients = new Map<WebSocket, string>();
 
 function broadcast(event: ServerEvent): void {
   const payload = JSON.stringify({ event } satisfies ServerMessage);
@@ -40,8 +43,8 @@ const files = new FileStore(projects, (project, list) =>
 );
 void files.watchAll().catch((error: Error) => console.error(`Could not watch project files: ${error.message}`));
 
-// Agents connect from this machine, so a wildcard bind is reached through loopback.
-const mcpHost = config.host === "::1" ? "[::1]" : isLoopback(config.host) ? config.host : "127.0.0.1";
+// Agents always use the permanent loopback listener.
+const mcpHost = config.host === "::1" ? "[::1]" : config.host;
 const threads = new ThreadService(
   db,
   projects,
@@ -50,6 +53,29 @@ const threads = new ThreadService(
   `http://${mcpHost}:${config.port}/mcp/`,
   new AttachmentStore(config.home),
 );
+
+const network = new NetworkAccess(config.port, config.host, async (address) => {
+  const listener = createServer((request, response) => server.emit("request", request, response));
+  listener.on("upgrade", (request, socket, head) => server.emit("upgrade", request, socket, head));
+  const connections = new Set<Socket>();
+  listener.on("connection", (socket) => {
+    connections.add(socket);
+    socket.on("close", () => connections.delete(socket));
+  });
+  await new Promise<void>((resolve, reject) => {
+    listener.once("error", reject);
+    listener.listen(config.port, address, () => { listener.off("error", reject); resolve(); });
+  });
+  return () => new Promise<void>((resolve) => {
+    for (const socket of connections) socket.destroy();
+    listener.close(() => resolve());
+  });
+}, (state) => {
+  broadcast({ type: "network.changed", network: state });
+  for (const [client, host] of remoteClients) if (!network.policy.remoteHosts.includes(host)) client.close();
+});
+
+let networkRevision = 0;
 
 const mentions = new MentionSearch(files, (threadId) => threads.location(threadId));
 
@@ -145,9 +171,12 @@ const handlers: Handlers = {
     return null;
   },
   "models.list": ({ provider }) => listModels(provider),
+  "network.get": async () => network.state,
   "settings.get": () => settings.get(),
   "settings.update": async (params) => {
+    networkRevision++;
     const next = await settings.update(params.settings);
+    await network.refresh(next.networkAccess);
     broadcast({ type: "settings.changed", settings: next });
     return next;
   },
@@ -209,7 +238,7 @@ async function handleVisualization(
   assetPath: string,
 ): Promise<void> {
   if (request.method !== "GET") return replyError(response, 405, "Method not allowed");
-  const base = assetBase(request, threadId, visualizationId, config.tailnetHost);
+  const base = assetBase(request, threadId, visualizationId, network.policy);
   if (assetPath) {
     if (!isAssetRequest(request)) return replyError(response, 403, "Forbidden");
     const file = await threads.visualizationAsset(threadId, visualizationId, decodeURIComponent(assetPath));
@@ -276,7 +305,11 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 const server = createServer(async (request, response) => {
-  if (!isAllowedRequest(request, config)) return replyError(response, 403, "Forbidden");
+  if (!isAllowedRequest(request, network.policy)) return replyError(response, 403, "Forbidden");
+  if (request.url === "/api/network-check" && request.method === "GET") {
+    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ application: "borkcode", port: config.port }));
+    return;
+  }
   const mcpToken = /^\/mcp\/([\w-]+)$/.exec(request.url ?? "")?.[1];
   if (mcpToken) {
     if (!isLocalMcpRequest(request)) {
@@ -340,16 +373,18 @@ const server = createServer(async (request, response) => {
 
 const sockets = new WebSocketServer({ noServer: true });
 server.on("upgrade", (request, socket, head) => {
-  if (request.url !== "/ws" || !isAllowedRequest(request, config)) {
+  if (request.url !== "/ws" || !isAllowedRequest(request, network.policy)) {
     socket.destroy();
     return;
   }
-  sockets.handleUpgrade(request, socket, head, (ws) => sockets.emit("connection", ws));
+  sockets.handleUpgrade(request, socket, head, (ws) => sockets.emit("connection", ws, request));
 });
 
-sockets.on("connection", (ws: WebSocket) => {
+sockets.on("connection", (ws: WebSocket, request: IncomingMessage) => {
   clients.add(ws);
-  ws.on("close", () => clients.delete(ws));
+  const host = hostName(request.headers.host);
+  if (host && network.policy.remoteHosts.includes(host)) remoteClients.set(ws, host);
+  ws.on("close", () => { clients.delete(ws); remoteClients.delete(ws); });
   ws.on("message", async (data) => {
     let message: ClientMessage;
     try {
@@ -367,16 +402,16 @@ sockets.on("connection", (ws: WebSocket) => {
   });
 });
 
-if (!isLoopback(config.host) && config.host !== "0.0.0.0" && config.host !== "::") {
-  const local = createServer((request, response) => server.emit("request", request, response));
-  local.on("upgrade", (request, socket, head) => server.emit("upgrade", request, socket, head));
-  local.listen(config.port, "127.0.0.1");
-}
-
 server.listen(config.port, config.host, () => {
   console.log(`borkcode listening on http://${config.host}:${config.port} (home: ${config.home})`);
-  // After listening, since agents started by these deliveries connect back to the MCP endpoint.
   threads.resumeQueued();
+  const refreshNetwork = async () => {
+    const revision = networkRevision;
+    const enabled = (await settings.get()).networkAccess;
+    if (revision === networkRevision) await network.refresh(enabled);
+  };
+  void refreshNetwork().catch(console.error);
+  setInterval(() => void refreshNetwork().catch(console.error), 30_000).unref();
 });
 
 // Records running turns as cut off by the server, so neither the user nor the agent mistakes the

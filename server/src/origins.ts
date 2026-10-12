@@ -1,5 +1,5 @@
 import type { IncomingMessage } from "node:http";
-import { isLoopback, type Config } from "./config.ts";
+import { isLoopback, isTailscaleAddress } from "./config.ts";
 
 /**
  * Browsers let any page open a WebSocket to localhost, so only same-origin pages may connect.
@@ -27,18 +27,25 @@ export function isSameSiteFetch(request: IncomingMessage): boolean {
 /** Strict authority parsing: URL's permissive userinfo/path handling is inappropriate for Host. */
 export function hostName(host: string | undefined): string | null {
   if (!host || !/^(?:[a-z0-9.-]+|\[[a-f0-9:]+\])(?::[0-9]+)?$/i.test(host)) return null;
-  try { return new URL(`http://${host}`).hostname.toLowerCase(); } catch { return null; }
+  try { return new URL(`http://${host}`).hostname.toLowerCase().replace(/^\[|\]$/g, ""); } catch { return null; }
 }
 
-export function isAllowedHost(request: IncomingMessage, config: Pick<Config, "host" | "tailnetHost">): boolean {
+export interface AccessPolicy {
+  host: string;
+  remoteHosts: readonly string[];
+}
+
+export function isAllowedHost(request: IncomingMessage, policy: AccessPolicy): boolean {
   const name = hostName(request.headers.host);
-  return name !== null && (name === "localhost" || name === "127.0.0.1" || name === "[::1]" ||
-    name === config.tailnetHost || (config.host !== "0.0.0.0" && config.host !== "::" && name === config.host));
+  return name !== null && (name === "localhost" || name === "127.0.0.1" || name === "::1" ||
+    name === policy.host || policy.remoteHosts.includes(name));
 }
 
 /** Serve preserves Host; never accept forwarded Host as authority. Funnel isn't the access boundary. */
-export function isAllowedRequest(request: IncomingMessage, config: Config): boolean {
-  if (!isAllowedHost(request, config)) return false;
+export function isAllowedRequest(request: IncomingMessage, policy: AccessPolicy): boolean {
+  const peer = request.socket.remoteAddress;
+  if (!isLoopback(peer) && (!peer || !isTailscaleAddress(peer))) return false;
+  if (!isAllowedHost(request, policy)) return false;
   const asset = isAssetRequest(request);
   if (!asset && !isAllowedOrigin(request)) return false;
   // A user may open the app from a link on another site. Sandboxed frames cannot navigate the
@@ -49,11 +56,8 @@ export function isAllowedRequest(request: IncomingMessage, config: Config): bool
   if (!asset && !isSameSiteFetch(request) && !openApp) return false;
   if (request.headers["tailscale-funnel-request"] !== undefined) return false;
   const forwarded = Object.keys(request.headers).some((key) => key.startsWith("x-forwarded-") || key.startsWith("tailscale-") || key === "forwarded");
-  // A proxy request cannot pretend to be localhost to bypass the optional identity check.
-  if (forwarded && hostName(request.headers.host) !== config.tailnetHost) return false;
-  if (hostName(request.headers.host) === config.tailnetHost && config.tailnetLogin) {
-    return isLoopback(request.socket.remoteAddress) && request.headers["tailscale-user-login"] === config.tailnetLogin;
-  }
+  // Proxy traffic must arrive from loopback and name an allowed tailnet host.
+  if (forwarded && (!isLoopback(request.socket.remoteAddress) || !policy.remoteHosts.includes(hostName(request.headers.host) ?? ""))) return false;
   return true;
 }
 
@@ -86,18 +90,20 @@ export function isAssetRequest(request: IncomingMessage): boolean {
 /**
  * The URL prefix a page's assets are served under, as a CSP source. It names this server as the
  * browser reached it; a Host header that is not a plain host and port gives none, so it cannot
- * add to the policy. The configured tailnet hostname uses HTTPS; localhost uses HTTP.
- * Forwarded protocol headers never choose the scheme.
+ * add to the policy. Only a loopback proxy for an allowlisted remote host can supply the
+ * forwarded HTTPS scheme; a direct tailnet client cannot choose it with spoofed headers.
  */
 export function assetBase(
   request: IncomingMessage,
   threadId: string,
   visualizationId: string,
-  tailnetHost: string | null = null,
+  policy: AccessPolicy = { host: "127.0.0.1", remoteHosts: [] },
 ): string | null {
   const host = request.headers.host;
   const name = hostName(host);
   if (!name) return null;
-  const scheme = name === tailnetHost ? "https" : "http";
+  const proxiedHttps = isLoopback(request.socket?.remoteAddress) && policy.remoteHosts.includes(name) &&
+    request.headers["x-forwarded-proto"] === "https" && request.headers["x-forwarded-host"] === host;
+  const scheme = proxiedHttps ? "https" : "http";
   return `${scheme}://${host}/api/threads/${threadId}/visualizations/${visualizationId}/`;
 }

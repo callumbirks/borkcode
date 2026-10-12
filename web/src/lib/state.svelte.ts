@@ -1,6 +1,7 @@
 import type {
   LinkedPullRequest,
   ModelOption,
+  NetworkState,
   Project,
   ProjectFile,
   ProviderKind,
@@ -13,6 +14,7 @@ import { RpcClient } from "./rpc";
 
 export const app = $state({
   connected: false,
+  network: null as NetworkState | null,
   projects: [] as Project[],
   threads: [] as Thread[],
   /** Every thread's linked pull requests, keyed by thread id, oldest first. */
@@ -143,6 +145,9 @@ function handleEvent(event: ServerEvent): void {
     case "files.changed":
       app.files[event.project] = event.files;
       return;
+    case "network.changed":
+      app.network = event.network;
+      break;
     case "settings.changed":
       app.settings = event.settings;
       app.settingsError = null;
@@ -190,6 +195,7 @@ function handleEvent(event: ServerEvent): void {
 
 async function refresh(): Promise<void> {
   // A broken settings.json should not keep projects and threads from loading.
+  void rpc.request("network.get", {}).then((state) => app.network = state).catch(() => undefined);
   void rpc.request("settings.get", {}).then(
     (settings) => {
       app.settings = settings;

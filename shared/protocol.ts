@@ -33,9 +33,17 @@ export interface Settings {
   titleModel: ModelChoice;
   /** Agents in worktree threads commit finished steps without being asked. */
   autoCommit: boolean;
+  /** Listen on detected Tailscale addresses as well as loopback. */
+  networkAccess: boolean;
   delegation: DelegationLimits;
   /** Pick a child thread's model from its parent's. The first match applies; none means copy the parent. */
   childModelRules: ChildModelRule[];
+}
+
+export interface NetworkState {
+  enabled: boolean;
+  endpoints: { label: string; url: string }[];
+  message: string | null;
 }
 
 /**
@@ -371,6 +379,7 @@ export interface Requests {
     result: null;
   };
   "models.list": { params: { provider: ProviderKind }; result: ModelOption[] };
+  "network.get": { params: Record<string, never>; result: NetworkState };
   "settings.get": { params: Record<string, never>; result: Settings };
   "settings.update": { params: { settings: Settings }; result: Settings };
 }
@@ -379,6 +388,7 @@ export type RequestMethod = keyof Requests;
 
 export type ServerEvent =
   | { type: "projects.changed"; projects: Project[] }
+  | { type: "network.changed"; network: NetworkState }
   | { type: "settings.changed"; settings: Settings }
   /** Sent whenever anything in the folder changes, whether through borkcode or not. */
   | { type: "files.changed"; project: string; files: ProjectFile[] }
