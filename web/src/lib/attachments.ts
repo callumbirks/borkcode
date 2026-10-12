@@ -14,6 +14,13 @@ export function attachmentUrl(threadId: string, attachmentId: string): string {
   return `/api/threads/${encodeURIComponent(threadId)}/attachments/${encodeURIComponent(attachmentId)}`;
 }
 
+/** Where a composer uploads: its thread, or, before the thread exists, the new-thread draft's folder. */
+export function uploadUrl(target: { threadId: string } | { draftId: string }): string {
+  return "threadId" in target
+    ? `/api/threads/${encodeURIComponent(target.threadId)}/attachments`
+    : `/api/drafts/${encodeURIComponent(target.draftId)}/attachments`;
+}
+
 /** A file in the composer: uploading, uploaded, or refused. */
 export interface PendingAttachment {
   key: string;
@@ -69,10 +76,10 @@ export function composerAttachments(pending: PendingAttachment[]): { ids: string
 }
 
 /** Uploads with XMLHttpRequest, since fetch cannot report upload progress. */
-export function upload(threadId: string, file: File, onProgress: (fraction: number) => void): Promise<Attachment> {
+export function upload(url: string, file: File, onProgress: (fraction: number) => void): Promise<Attachment> {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
-    request.open("POST", `/api/threads/${encodeURIComponent(threadId)}/attachments`);
+    request.open("POST", url);
     request.setRequestHeader("content-type", file.type || "application/octet-stream");
     request.setRequestHeader("x-filename", encodeURIComponent(file.name));
     request.responseType = "json";

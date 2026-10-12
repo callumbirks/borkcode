@@ -2,13 +2,13 @@
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import { attachFiles } from "../lib/composerAttachments.svelte";
 
-  let { threadId }: { threadId: string } = $props();
+  let { draftKey, uploadUrl }: { draftKey: string; uploadUrl: string } = $props();
 
   let input: HTMLInputElement | undefined = $state();
 
   function picked() {
     if (!input?.files) return;
-    attachFiles(threadId, [...input.files]);
+    attachFiles(draftKey, uploadUrl, [...input.files]);
     input.value = "";
   }
 </script>

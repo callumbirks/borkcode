@@ -4,9 +4,9 @@
   import { pendingAttachments, removeAttachment } from "../lib/composerAttachments.svelte";
   import FileChip from "./FileChip.svelte";
 
-  let { threadId }: { threadId: string } = $props();
+  let { draftKey }: { draftKey: string } = $props();
 
-  const pending = $derived(pendingAttachments(threadId));
+  const pending = $derived(pendingAttachments(draftKey));
 </script>
 
 {#if pending.length > 0}
@@ -27,7 +27,7 @@
         {:else if !each.attachment}
           <span class="state progress" style:--progress={each.progress}></span>
         {/if}
-        <button class="remove" title="Remove {each.name}" onclick={() => removeAttachment(threadId, each.key)}>
+        <button class="remove" title="Remove {each.name}" onclick={() => removeAttachment(draftKey, each.key)}>
           <X size={12} />
         </button>
       </div>

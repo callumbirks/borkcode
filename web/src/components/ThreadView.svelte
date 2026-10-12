@@ -1,7 +1,6 @@
 <script lang="ts">
   import Archive from "@lucide/svelte/icons/archive";
   import ArchiveRestore from "@lucide/svelte/icons/archive-restore";
-  import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import CornerDownRight from "@lucide/svelte/icons/corner-down-right";
   import Crown from "@lucide/svelte/icons/crown";
@@ -18,14 +17,8 @@
   import { untrack } from "svelte";
   import type { AccessMode, Effort, Thread } from "shared/protocol";
   import { isUnread, providerLabel } from "../lib/display.svelte";
-  import { composerAttachments } from "../lib/attachments";
-  import {
-    attachFiles,
-    pendingAttachments,
-    releaseAttachments,
-    restoreAttachments,
-    takeAttachments,
-  } from "../lib/composerAttachments.svelte";
+  import { uploadUrl } from "../lib/attachments";
+  import { pendingAttachments } from "../lib/composerAttachments.svelte";
   import { forgetMissing, previews } from "../lib/filePreview.svelte";
   import { referenceRoots } from "../lib/fileReferences";
   import { answer, pick } from "../lib/questions";
@@ -34,13 +27,9 @@
   import { autoReadDue, nextHold, type ReadHold } from "../lib/unread";
   import { segmentItems, type Segment } from "../lib/segments";
   import { app, getDraft, openThread, rpc, setDraft } from "../lib/state.svelte";
-  import AttachButton from "./AttachButton.svelte";
-  import ComposerAttachments from "./ComposerAttachments.svelte";
-  import ComposerEditor from "./ComposerEditor.svelte";
+  import Composer from "./Composer.svelte";
   import FilePreview from "./FilePreview.svelte";
   import ItemView from "./ItemView.svelte";
-  import MentionPicker from "./MentionPicker.svelte";
-  import ComposerOptions from "./ComposerOptions.svelte";
   import RepoPanel from "./RepoPanel.svelte";
   import VisualizationPanel from "./VisualizationPanel.svelte";
   import WorkGroup from "./WorkGroup.svelte";
@@ -65,8 +54,7 @@
 
   // Each thread keeps its own unsent text, since this component stays mounted across threads.
   const draft = $derived(getDraft(id));
-  const attached = $derived(composerAttachments(pendingAttachments(id)));
-  const canSend = $derived((draft.trim() !== "" || attached.ids.length > 0) && attached.ready);
+  const hasAttachments = $derived(pendingAttachments(id).length > 0);
   let error = $state("");
   let transcript: HTMLDivElement | undefined = $state();
 
@@ -255,45 +243,9 @@
   }
 
   // While the agent works, a message joins its turn at the next step or waits for the turn to end.
-  async function send() {
-    const threadId = id;
-    const text = draft.trim();
-    if (!canSend) return;
-    const attachments = attached.ids;
-    error = "";
-    setDraft(threadId, "");
+  async function send(text: string, attachments: string[]) {
     followToBottom();
-    const pending = takeAttachments(threadId);
-    try {
-      await rpc.request("threads.send", { threadId, text, attachments, model, effort, accessMode });
-      releaseAttachments(pending);
-    } catch (cause) {
-      setDraft(threadId, text);
-      restoreAttachments(threadId, pending);
-      error = (cause as Error).message;
-    }
-  }
-
-  // Pasted or dropped files join the message; text pasted alongside them still pastes.
-  function onPaste(event: ClipboardEvent) {
-    const files = [...(event.clipboardData?.files ?? [])];
-    if (files.length === 0) return;
-    if (!event.clipboardData?.types.includes("text/plain")) event.preventDefault();
-    attachFiles(id, files);
-  }
-
-  let dragging = $state(false);
-  function onDragOver(event: DragEvent) {
-    if (!event.dataTransfer?.types.includes("Files")) return;
-    event.preventDefault();
-    dragging = true;
-  }
-  function onDrop(event: DragEvent) {
-    dragging = false;
-    const files = [...(event.dataTransfer?.files ?? [])];
-    if (files.length === 0) return;
-    event.preventDefault();
-    attachFiles(id, files);
+    await rpc.request("threads.send", { threadId: id, text, attachments, model, effort, accessMode });
   }
 
   async function resume() {
@@ -312,22 +264,12 @@
     }
   }
 
-  let composer = $state<ComposerEditor>();
   // The thread is replaced on every update. Depending on its project name alone keeps the roots,
   // and with them the composer and every message, from redrawing each time.
   const projectName = $derived(thread?.project);
   const fileRoots = $derived(
     referenceRoots(app.projects.find((project) => project.name === projectName), detail?.workspacePath),
   );
-  let mentions = $state<MentionPicker>();
-
-  function onKeydown(event: KeyboardEvent) {
-    if (mentions?.keydown(event)) return;
-    if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !(event.target instanceof HTMLTextAreaElement)) {
-      event.preventDefault();
-      void (asking ? submitAnswer() : send());
-    }
-  }
 
   async function respond(approvalId: string, allow: boolean) {
     await rpc.request("approvals.respond", { threadId: id, approvalId, allow }).catch(() => undefined);
@@ -444,112 +386,101 @@
           {/if}
         </div>
       </div>
-      <div class="composer-wrap">
-        {#if error}<p class="error">{error}</p>{/if}
-        {#if thread.paused || (thread.queued > 0 && !busy)}
-          <div class="waiting">
-            <Inbox size={14} />
-            <span>
-              {#if thread.paused}
-                Deliveries between threads are paused after a burst of automatic turns.
-              {:else}
-                Waiting since the agent was stopped.
+      <Composer
+        draftKey={id}
+        uploadUrl={uploadUrl({ threadId: id })}
+        scope={{ threadId: id }}
+        roots={fileRoots}
+        bind:error
+        provider={thread.provider}
+        bind:model
+        bind:effort
+        bind:accessMode
+        onsend={send}
+        onsubmit={asking ? () => void submitAnswer() : undefined}
+        showSend={!asking && (thread.status !== "running" || draft.trim() !== "" || hasAttachments)}
+        answering={!!asking}
+        placeholder={question
+          ? question.options.length === 0
+            ? "Type your answer"
+            : question.multiSelect
+              ? "Type your own answer, or leave this blank to use the selected options"
+              : "Type your own answer, or leave this blank to use the selected option"
+          : busy
+            ? "Message the agent; it reads this at its next step"
+            : "Message the agent"}
+      >
+        {#snippet above()}
+          {#if thread.paused || (thread.queued > 0 && !busy)}
+            <div class="waiting">
+              <Inbox size={14} />
+              <span>
+                {#if thread.paused}
+                  Deliveries between threads are paused after a burst of automatic turns.
+                {:else}
+                  Waiting since the agent was stopped.
+                {/if}
+                {thread.queued} {thread.queued === 1 ? "message" : "messages"} queued.
+              </span>
+              <button class="ghost" onclick={resume}>Deliver</button>
+            </div>
+          {:else if thread.queued > 0}
+            <div class="waiting">
+              <Inbox size={14} />
+              <span>
+                {thread.queued} {thread.queued === 1 ? "message reaches" : "messages reach"} the agent at its next
+                step or when this turn ends.
+              </span>
+            </div>
+          {/if}
+          {#if asking && question}
+            <div class="question" class:collapsed>
+              <button class="question-head ghost" onclick={() => (collapsed = !collapsed)} title={collapsed ? "Show options" : "Hide options"}>
+                <span class="question-header truncate">{question.header}</span>
+                {#if asking.questions.length > 1}<span class="question-step">{step + 1} of {asking.questions.length}</span>{/if}
+                {#if question.multiSelect}<span class="question-step">Pick any</span>{/if}
+                <ChevronDown size={14} />
+              </button>
+              <div class="question-text">{question.question}</div>
+              {#if !collapsed}
+                {#each question.options as option, index (index)}
+                  <button class="option ghost" class:picked={picks[step]?.includes(index)} onclick={() => choose(index)}>
+                    <span class="option-text">
+                      <span class="option-label">{option.label}</span>
+                      {#if option.description}<span class="option-description">{option.description}</span>{/if}
+                    </span>
+                    {#if index < 9}<kbd>{index + 1}</kbd>{/if}
+                  </button>
+                {/each}
               {/if}
-              {thread.queued} {thread.queued === 1 ? "message" : "messages"} queued.
-            </span>
-            <button class="ghost" onclick={resume}>Deliver</button>
-          </div>
-        {:else if thread.queued > 0}
-          <div class="waiting">
-            <Inbox size={14} />
-            <span>
-              {thread.queued} {thread.queued === 1 ? "message reaches" : "messages reach"} the agent at its next
-              step or when this turn ends.
-            </span>
-          </div>
-        {/if}
-        {#if asking && question}
-          <div class="question" class:collapsed>
-            <button class="question-head ghost" onclick={() => (collapsed = !collapsed)} title={collapsed ? "Show options" : "Hide options"}>
-              <span class="question-header truncate">{question.header}</span>
-              {#if asking.questions.length > 1}<span class="question-step">{step + 1} of {asking.questions.length}</span>{/if}
-              {#if question.multiSelect}<span class="question-step">Pick any</span>{/if}
-              <ChevronDown size={14} />
+            </div>
+          {/if}
+        {/snippet}
+        {#snippet actions()}
+          {#if thread.workspace}
+            <button
+              class="ghost publish"
+              aria-label="Push and open pull requests"
+              onclick={publish}
+              disabled={busy}
+              title="Ask the agent to commit, push and open pull requests"
+            >
+              <GitPullRequestArrow size={16} /><span>Push &amp; PR</span>
             </button>
-            <div class="question-text">{question.question}</div>
-            {#if !collapsed}
-              {#each question.options as option, index (index)}
-                <button class="option ghost" class:picked={picks[step]?.includes(index)} onclick={() => choose(index)}>
-                  <span class="option-text">
-                    <span class="option-label">{option.label}</span>
-                    {#if option.description}<span class="option-description">{option.description}</span>{/if}
-                  </span>
-                  {#if index < 9}<kbd>{index + 1}</kbd>{/if}
-                </button>
-              {/each}
-            {/if}
-          </div>
-        {/if}
-        <div
-          class="composer"
-          class:dragging
-          role="group"
-          ondragover={onDragOver}
-          ondragleave={() => (dragging = false)}
-          ondrop={onDrop}
-        >
-          <MentionPicker bind:this={mentions} threadId={id} editor={composer} text={draft} />
-          <ComposerAttachments threadId={id} />
-          <ComposerEditor
-            bind:this={composer}
-            value={draft}
-            roots={fileRoots}
-            onchange={(text) => setDraft(id, text)}
-            onkeydown={onKeydown}
-            onpaste={onPaste}
-            placeholder={question
-              ? question.options.length === 0
-                ? "Type your answer"
-                : question.multiSelect
-                  ? "Type your own answer, or leave this blank to use the selected options"
-                  : "Type your own answer, or leave this blank to use the selected option"
-              : busy
-                ? "Message the agent; it reads this at its next step"
-                : "Message the agent"}
-          />
-          <div class="actions" class:answering={!!asking}>
-            <span class="attachment-control"><AttachButton threadId={id} /></span>
-            <ComposerOptions provider={thread.provider} bind:model bind:effort bind:accessMode />
-            <span class="spacer"></span>
-            {#if thread.workspace}
-              <button
-                class="ghost publish"
-                aria-label="Push and open pull requests"
-                onclick={publish}
-                disabled={busy}
-                title="Ask the agent to commit, push and open pull requests"
-              >
-                <GitPullRequestArrow size={16} /><span>Push &amp; PR</span>
-              </button>
-            {/if}
-            {#if thread.status === "running"}
-              <button class="icon" aria-label="Stop" title="Stop" onclick={() => rpc.request("threads.interrupt", { threadId: id })}>
-                <Square size={12} fill="currentColor" />
-              </button>
-            {/if}
-            {#if asking}
-              {#if step > 0}<button class="ghost" onclick={() => goToStep(step - 1)}>Back</button>{/if}
-              <button class="primary answer" onclick={submitAnswer} disabled={currentAnswer.length === 0}>
-                {lastStep ? "Submit answer" : "Next"}
-              </button>
-            {:else if thread.status !== "running" || draft.trim() || attached.ids.length > 0}
-              <button class="primary icon" aria-label="Send" title="Send (Enter)" onclick={send} disabled={!canSend}>
-                <ArrowUp size={16} />
-              </button>
-            {/if}
-          </div>
-        </div>
-      </div>
+          {/if}
+          {#if thread.status === "running"}
+            <button class="icon" aria-label="Stop" title="Stop" onclick={() => rpc.request("threads.interrupt", { threadId: id })}>
+              <Square size={12} fill="currentColor" />
+            </button>
+          {/if}
+          {#if asking}
+            {#if step > 0}<button class="ghost" onclick={() => goToStep(step - 1)}>Back</button>{/if}
+            <button class="primary answer" onclick={submitAnswer} disabled={currentAnswer.length === 0}>
+              {lastStep ? "Submit answer" : "Next"}
+            </button>
+          {/if}
+        {/snippet}
+      </Composer>
     </div>
     <div class="side-sheet" class:show={preview || overview}>
     {#if !preview}<button class="overview-close ghost" onclick={() => overview = false}>Close overview</button>{/if}
@@ -680,17 +611,6 @@
     word-break: break-word;
     color: var(--text-secondary);
   }
-  .composer-wrap {
-    padding: 0 var(--space-6) var(--space-4);
-  }
-  .composer-wrap > * {
-    max-width: var(--content-width);
-    margin-left: auto;
-    margin-right: auto;
-  }
-  .composer-wrap .error {
-    margin-bottom: var(--space-2);
-  }
   .waiting {
     display: flex;
     align-items: center;
@@ -772,35 +692,9 @@
     font-size: var(--text-2xs);
     color: var(--text-faint);
   }
-  .actions .answer {
+  .answer {
     border-radius: var(--radius-full);
   }
-  .composer {
-    position: relative;
-    background: var(--surface-raised);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-xl);
-    box-shadow: var(--shadow-md);
-    padding: var(--space-2-5) var(--space-3) var(--space-2);
-  }
-  .composer:focus-within,
-  .composer.dragging {
-    border-color: var(--border-strong);
-  }
-  .actions {
-    display: flex;
-    align-items: center;
-    gap: var(--space-1);
-    margin-top: var(--space-2);
-  }
-  .spacer {
-    flex: 1;
-  }
-  .actions .icon {
-    border-radius: var(--radius-full);
-  }
-  .attachment-control { display: contents; }
-
   .side-sheet {
     min-height: 0;
     display: flex;
@@ -867,26 +761,13 @@
       padding: 12px;
       overscroll-behavior: contain;
     }
-    .composer-wrap {
-      padding: 4px 8px 8px;
-    }
-    .composer {
-      padding: 8px;
-    }
     :global(html[data-keyboard]) .chips {
       display: none;
     }
-    .actions {
-      flex-wrap: nowrap;
-      gap: 4px;
-    }
     .publish { min-width: 40px; min-height: 40px; padding: 4px; }
     .publish span { display: none; }
-    .answering .attachment-control, .answering .publish { display: none; }
-    .answering .answer { flex-shrink: 0; }
-    .actions .spacer {
-      display: none;
-    }
+    :global(.answering) .publish { display: none; }
+    .answer { flex-shrink: 0; }
     .question {
       max-height: 25vh;
     }
@@ -907,42 +788,10 @@
     :global(html[data-short-viewport]) header {
       display: none;
     }
-    .composer-wrap {
-      flex: 0 1 auto;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-    }
-    :global(html[data-keyboard]) .composer-wrap {
-      padding-bottom: 8px;
-    }
-    .composer-wrap > * {
-      flex-shrink: 0;
-      width: 100%;
-    }
-    .composer-wrap > .question {
+    /* Outranks the composer's rule that keeps what sits above the box from shrinking. */
+    div.question {
       flex-shrink: 1;
       min-height: 44px;
-    }
-    .composer {
-      flex-shrink: 1;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-    }
-    .composer > :global(*) {
-      flex-shrink: 0;
-    }
-    .composer > :global(.strip) {
-      flex-shrink: 1;
-      min-height: 0;
-      overflow-y: auto;
-    }
-    .composer > :global(.editor) {
-      flex-shrink: 1;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
     }
   }
 </style>
