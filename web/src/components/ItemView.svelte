@@ -170,8 +170,7 @@
       <span class="name">{toolLabel(item.name)}</span>
       {#if toolFiles.length > 0}
         <code class="summary truncate">
-          {#each toolFiles as target, index (target.path)}{#if index > 0},
-            {/if}<a class="file-link" href={fileUrl(threadId, target)} data-file-root={target.root} data-file-path={target.path} title={targetLabel(target)} onclick={(event) => openFileLink(threadId, event)}>{targetLabel(target)}</a>{/each}
+          {#each toolFiles as target, index (target.path)}{#if index > 0}{", "}{/if}<a class="file-link" href={fileUrl(threadId, target)} data-file-root={target.root} data-file-path={target.path} title={targetLabel(target)} onclick={(event) => openFileLink(threadId, event)}>{targetLabel(target)}</a>{/each}
         </code>
       {:else}
         <code class="summary truncate">{item.summary}</code>

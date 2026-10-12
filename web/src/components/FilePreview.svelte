@@ -313,6 +313,15 @@
     padding: var(--space-3) var(--space-4);
     word-break: break-word;
   }
+  .markdown :global(:is(p, ul, ol, pre, blockquote, table)) {
+    margin: 0 0 var(--space-3);
+  }
+  .markdown :global(:is(h1, h2, h3, h4)) {
+    margin: var(--space-4) 0 var(--space-2);
+  }
+  .markdown :global(> :first-child) {
+    margin-top: 0;
+  }
   .markdown :global(pre) {
     overflow-x: auto;
     background: var(--surface-raised);

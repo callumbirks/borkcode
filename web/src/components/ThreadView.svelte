@@ -13,6 +13,7 @@
   import ShieldAlert from "@lucide/svelte/icons/shield-alert";
   import Square from "@lucide/svelte/icons/square";
   import Trash2 from "@lucide/svelte/icons/trash-2";
+  import { untrack } from "svelte";
   import type { AccessMode, Effort, Item } from "shared/protocol";
   import { isUnread, providerLabel } from "../lib/display.svelte";
   import { composerAttachments } from "../lib/attachments";
@@ -59,7 +60,10 @@
 
   const preview = $derived(previews[id]);
   // Files may have appeared since paths in this thread were last looked up.
-  $effect(() => forgetMissing(id));
+  $effect(() => {
+    const threadId = id;
+    untrack(() => forgetMissing(threadId));
+  });
 
   // Each thread keeps its own unsent text, since this component stays mounted across threads.
   const draft = $derived(getDraft(id));
