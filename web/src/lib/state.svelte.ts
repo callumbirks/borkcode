@@ -181,7 +181,12 @@ function handleEvent(event: ServerEvent): void {
       if (detail?.thread.id === event.threadId) app.detail = null;
       return;
     case "item.upserted":
-      if (detail?.thread.id === event.threadId) upsertById(detail.items, event.item);
+      if (detail?.thread.id !== event.threadId) return;
+      if (event.toEnd) {
+        const index = detail.items.findIndex((entry) => entry.id === event.item.id);
+        if (index !== -1) detail.items.splice(index, 1);
+        detail.items.push(event.item);
+      } else upsertById(detail.items, event.item);
       return;
     case "item.delta": {
       if (detail?.thread.id !== event.threadId) return;

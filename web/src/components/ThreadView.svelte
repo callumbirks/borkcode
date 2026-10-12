@@ -161,6 +161,16 @@
     observer.observe(element);
     return () => observer.disconnect();
   });
+  // A replaced visualization moving to the end leaves the column's height as it was, so nothing
+  // resizes, yet anchoring (or a clamp mid-move) has shifted the view up as the card left.
+  const lastSegment = $derived(segments.at(-1));
+  $effect(() => {
+    void lastSegment;
+    const element = untrack(() => transcript);
+    if (!element) return;
+    const top = pin.resized(element);
+    if (top !== null) element.scrollTop = top;
+  });
 
   /** Sending shows the message being sent, wherever the user had scrolled to. */
   function followToBottom() {

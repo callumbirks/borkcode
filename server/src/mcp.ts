@@ -104,7 +104,7 @@ function buildServer({ threads, files }: Services, threadId: string): McpServer 
         "A file is shown live, so the user sees your edits when it reloads, and its relative URLs load the files in its folder and below, such as images, fonts, scripts, CSS and JSON (not hidden files, nor anything above its folder).",
         `Otherwise the page must be self-contained, up to ${MAX_VISUALIZATION_BYTES / 1024 / 1024} MB. Resources from https: URLs load, such as chart libraries from a CDN, but local files and http: URLs do not.`,
         "It runs sandboxed: scripts work, but forms, popups and navigating away do not.",
-        "Pass the id an earlier call returned to replace that visualization instead of adding another.",
+        "Pass the id an earlier call returned to replace that visualization instead of adding another; the replacement moves to the end of the thread.",
       ].join(" "),
       inputSchema: {
         title: z.string().describe("A short title shown above it"),

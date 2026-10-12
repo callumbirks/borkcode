@@ -482,7 +482,8 @@ export type ServerEvent =
   | { type: "files.changed"; project: string; files: ProjectFile[] }
   | { type: "thread.updated"; thread: Thread }
   | { type: "thread.deleted"; threadId: string }
-  | { type: "item.upserted"; threadId: string; item: Item }
+  /** `toEnd` moves an existing item to the end of the transcript, as a replaced visualization does. */
+  | { type: "item.upserted"; threadId: string; item: Item; toEnd?: true }
   | { type: "item.delta"; threadId: string; itemId: string; text: string }
   | { type: "approval.requested"; threadId: string; approval: Approval }
   | { type: "approval.resolved"; threadId: string; approvalId: string }
