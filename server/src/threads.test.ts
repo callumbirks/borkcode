@@ -800,16 +800,20 @@ test("show_html stores the page beside the attachments, records only its id and 
   const item = (await threads.get(thread.id)).items.find((candidate) => candidate.id === id);
   assert.deepEqual(item && { ...item, updatedAt: 0 }, { id, kind: "visualization", title: "Sales", updatedAt: 0 });
   assert.equal(await readFile(join(attachments.dir(thread.id), "visualizations", `${id}.html`), "utf8"), "<p>v1</p>");
-  assert.match(String(await threads.visualizationPage(thread.id, id)), /^<p>v1<\/p>\n<script>/);
+  assert.match(String((await threads.visualizationPage(thread.id, id))?.html), /^<p>v1<\/p>\n<script>/);
 
   const { workspacePath } = await threads.get(thread.id);
   await writeFile(join(workspacePath, ".scratch", "chart.html"), "<p>v2</p>");
-  assert.match(await threads.showHtml(thread.id, { title: "Sales by month", path: ".scratch/chart.html", id }), /^Updated/);
+  assert.match(
+    await threads.showHtml(thread.id, { title: "Sales by month", path: ".scratch/chart.html", id }),
+    /^Updated .* served live from the file/,
+  );
+  assert.equal(await threads.visualizationAsset(thread.id, id, "chart.html"), join(workspacePath, ".scratch", "chart.html"));
   const visualizations = (await threads.get(thread.id)).items.filter((candidate) => candidate.kind === "visualization");
   assert.deepEqual(visualizations.map((candidate) => [candidate.id, candidate.kind === "visualization" && candidate.title]), [
     [id, "Sales by month"],
   ]);
-  assert.match(String(await threads.visualizationPage(thread.id, id)), /^<p>v2<\/p>/);
+  assert.match(String((await threads.visualizationPage(thread.id, id))?.html), /^<p>v2<\/p>/);
 
   // Only this thread's own visualizations can be replaced or served.
   const other = await startThread("elsewhere");

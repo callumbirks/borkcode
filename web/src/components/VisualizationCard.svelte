@@ -2,6 +2,7 @@
   import ChartColumn from "@lucide/svelte/icons/chart-column";
   import ExternalLink from "@lucide/svelte/icons/external-link";
   import PanelRightOpen from "@lucide/svelte/icons/panel-right-open";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import { previews } from "../lib/filePreview.svelte";
   import { FRAME_HEIGHT, reportedHeight, visualizationUrl } from "../lib/visualizations";
 
@@ -30,6 +31,8 @@
   <figcaption>
     <ChartColumn size={14} />
     <span class="title truncate" {title}>{title}</span>
+    <!-- Setting src again reloads the frame; a page shown from a file then shows its edits. -->
+    <button class="ghost icon" title="Reload" onclick={() => frame && (frame.src = url)}><RefreshCw size={14} /></button>
     <button class="ghost icon" title="Open in the side panel" onclick={() => (previews[threadId] = { visualization: id })}>
       <PanelRightOpen size={14} />
     </button>
