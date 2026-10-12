@@ -161,6 +161,11 @@ inventing a fix.
 - **Transcript items use `content-visibility: auto`.** Without it every keystroke in the composer
   paid to paint and hit-test the whole transcript. It contains each item's layout and paint, so a
   fixed overlay inside an item must move to `document.body` (`MessageAttachments` does).
+- **The composer's input box and the sidebar are their own compositor layers**
+  (`transform: translateZ(0)`), so a keystroke or a sidebar update re-rasters only that layer
+  instead of tiles spanning the page. Layers keep subpixel text only if opaque, so the input has
+  the composer's background; `will-change: transform` drops subpixel text outright. A promoted
+  element is the containing block for fixed descendants. Promote sparingly: each layer costs memory.
 - **Clients get everything by broadcast.** It's fine for one local user. Revisit if remote access
   or many clients arrive. Keep payloads small: stream deltas, not whole items.
 
@@ -254,7 +259,9 @@ inventing a fix.
 - Inferred types over annotations; `any` is the enemy.
 - Comments say how a thing is used or why it is surprising. Don't narrate control flow.
 - No continuously repainting animations; they peg the GPU. The one exception is `Spinner.svelte`,
-  a few stepped glyphs in pure CSS, shown only while a thread works. Spinners must not lie about state.
+  stepped braille glyphs shown only while a thread works. It moves a strip of glyphs with
+  `transform`, so it runs on the compositor; animating anything that paints, such as `content`,
+  repaints the page every step. Spinners must not lie about state.
 - Don't add docs that restate the code. Record decisions and traps here; user-facing usage goes in
   the README.
 

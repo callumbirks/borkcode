@@ -740,7 +740,6 @@
     border-radius: var(--radius-xl);
     box-shadow: var(--shadow-md);
     padding: var(--space-2-5) var(--space-3) var(--space-2);
-    transition: border-color var(--transition-fast);
   }
   .composer:focus-within,
   .composer.dragging {

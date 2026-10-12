@@ -152,7 +152,9 @@
 </nav>
 
 <style>
+  /* Its own compositor layer, so sidebar updates don't re-raster the page beside it. */
   nav {
+    transform: translateZ(0);
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
