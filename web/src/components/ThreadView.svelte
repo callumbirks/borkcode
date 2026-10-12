@@ -601,6 +601,14 @@
     flex-direction: column;
     gap: var(--space-4);
   }
+  /*
+   * Long transcripts made every keystroke in the composer pay for painting and hit-testing the
+   * whole transcript. Off-screen items skip rendering; each remembers its size once laid out.
+   */
+  .column > :global(*) {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 120px;
+  }
   .status {
     display: flex;
     align-items: center;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { chipBeside, coverReferences, History, insertBeside, replaceRange } from "./composerModel.ts";
+import { chipBeside, coverReferences, History, insertBeside, replaceRange, sameChips } from "./composerModel.ts";
 import type { FileReference } from "./fileReferences.ts";
 
 // "see @app/a.ts now": the reference spans 4..13.
@@ -43,4 +43,13 @@ test("typing against a chip keeps a space between them", () => {
   assert.deepEqual(insertBeside(text, 13, 13, " ", references), { text: "see @app/a.ts  now", caret: 14 });
   assert.deepEqual(insertBeside(text, 4, 4, "Y", references), { text: "see Y @app/a.ts now", caret: 5 });
   assert.deepEqual(insertBeside(text, 1, 1, "x", references), { text: "sxee @app/a.ts now", caret: 2 });
+});
+
+test("an edit in the text around chips keeps them unless the references change", () => {
+  // "see @app/a.ts now" with the chip at 4..13; typing "!" at 1 moves it to 5..14.
+  const moved = [{ ...references[0], start: 5, end: 14 }];
+  assert.equal(sameChips(references, moved, 0, 4, 5), true);
+  assert.equal(sameChips(references, references, 14, 3, 4), true);
+  assert.equal(sameChips(references, [], 14, 3, 4), false);
+  assert.equal(sameChips(references, [...references, { start: 15, end: 20, name: "b", label: "app/b" }], 14, 3, 9), false);
 });
