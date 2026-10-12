@@ -445,13 +445,16 @@ export class Database {
     return row ? JSON.parse(row.data) as Item : undefined;
   }
 
-  /** Inserts or replaces an item, keeping its original position in the transcript. */
-  upsertItem(threadId: string, item: Item): void {
+  /**
+   * Inserts or replaces an item. A replaced item keeps its position in the transcript unless
+   * `toEnd`, which gives it the next seq, as if added now.
+   */
+  upsertItem(threadId: string, item: Item, toEnd = false): void {
     this.#db
       .prepare(
         `INSERT INTO items (thread_id, id, seq, data)
          VALUES (?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM items WHERE thread_id = ?), ?)
-         ON CONFLICT (thread_id, id) DO UPDATE SET data = excluded.data`,
+         ON CONFLICT (thread_id, id) DO UPDATE SET data = excluded.data${toEnd ? ", seq = excluded.seq" : ""}`,
       )
       .run(threadId, item.id, threadId, JSON.stringify(item));
   }

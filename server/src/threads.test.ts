@@ -60,6 +60,11 @@ class FakeAgent implements ProviderSession {
     return this.turns[n - 1]!;
   }
 
+  /** An assistant message mid-turn. */
+  say(text: string) {
+    this.#events.item({ id: randomUUID(), kind: "assistant", text });
+  }
+
   finish(reply: string) {
     this.#events.item({ id: randomUUID(), kind: "assistant", text: reply });
     this.#events.turnEnded({ status: "completed" });
@@ -1126,10 +1131,18 @@ test("show_html stores the page beside the attachments, records only its id and 
 
   const { workspacePath } = await threads.get(thread.id);
   await writeFile(join(workspacePath, ".scratch", "chart.html"), "<p>v2</p>");
+  agent.say("Here is a new version.");
+  // The replacement moves to the end, after what was added since, and live clients are told so.
+  const moved = broadcastOf((event) => event.type === "item.upserted" && event.item.id === id && event.toEnd === true);
   assert.match(
     await threads.showHtml(thread.id, { title: "Sales by month", path: ".scratch/chart.html", id }),
-    /^Updated .* served live from the file/,
+    /^Updated "Sales by month" and moved it to the end of the thread .* served live from the file/,
   );
+  await moved;
+  assert.deepEqual((await threads.get(thread.id)).items.slice(-2).map((candidate) => candidate.kind === "assistant" ? candidate.text : candidate.id), [
+    "Here is a new version.",
+    id,
+  ]);
   assert.equal(await threads.visualizationAsset(thread.id, id, "chart.html"), join(workspacePath, ".scratch", "chart.html"));
   const visualizations = (await threads.get(thread.id)).items.filter((candidate) => candidate.kind === "visualization");
   assert.deepEqual(visualizations.map((candidate) => [candidate.id, candidate.kind === "visualization" && candidate.title]), [

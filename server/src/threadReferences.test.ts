@@ -50,6 +50,24 @@ test("start pages advance newer, including new messages after a cursor was issue
   assert.equal(p3.more, false);
 });
 
+test("an item moved to the end pages once, after the items it moved past", () => {
+  seed("moved");
+  for (let i = 1; i <= 5; i++) db.upsertItem("moved", { id: `m${i}`, kind: "assistant", text: `Message ${i}` });
+  db.upsertItem("moved", { id: "m2", kind: "assistant", text: "Moved" }, true);
+  const ids = (from: "start" | "end") => {
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = refs.readThread("moved", from, cursor, 2);
+      seen.push(...(from === "end" ? page.messages.reverse() : page.messages).map(m => m.id));
+      cursor = page.next_cursor ?? undefined;
+    } while (cursor);
+    return seen;
+  };
+  assert.deepEqual(ids("start"), ["m1", "m3", "m4", "m5", "m2"]);
+  assert.deepEqual(ids("end"), ["m2", "m5", "m4", "m3", "m1"]);
+});
+
 test("text truncation and page budget still allow reading every item and its complete text", () => {
   seed("long");
   for (let i = 0; i < 15; i++) db.upsertItem("long", { id: `long${i}`, kind: "assistant", text: "x".repeat(40_000) });

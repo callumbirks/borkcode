@@ -11,6 +11,8 @@ const SEND = "33333333-3333-4333-8333-333333333333";
 const SEND_UP = "44444444-4444-4444-8444-444444444444";
 const TALL_CARD = "55555555-5555-4555-8555-555555555555";
 const GROWING_CARD = "66666666-6666-4666-8666-666666666666";
+const MOVE = "77777777-7777-4777-8777-777777777777";
+const FAR_CARD = "88888888-8888-4888-8888-888888888888";
 
 const paragraph = "A paragraph with enough words to wrap a few times on a phone and once on a desktop. ";
 const tools = (prefix: string, count: number): Item[] =>
@@ -37,11 +39,22 @@ const threads = [
     ] satisfies Item[],
   },
   { id: OTHER, title: "Other thread", items: conversation("other", 3) },
+  {
+    id: MOVE,
+    title: "Replaced card",
+    items: [
+      ...conversation("before", 30),
+      { id: FAR_CARD, kind: "visualization", title: "Far card", updatedAt: 1 },
+      ...conversation("after", 30),
+      { id: "move-end", kind: "assistant", text: "LAST-MOVE" },
+    ] satisfies Item[],
+  },
   { id: SEND, title: "Send thread", items: [...conversation("send", 20), { id: "send-done", kind: "assistant", text: "Agent response done." }] },
   { id: SEND_UP, title: "Send while scrolled up", items: [...conversation("up", 20), { id: "up-done", kind: "assistant", text: "Agent response done." }] },
 ] satisfies { id: string; title: string; items: Item[] }[];
 
 const visualizations = {
+  [MOVE]: { [FAR_CARD]: `<div style="height:520px;background:#642">Far card</div>` },
   [LONG]: {
     [TALL_CARD]: `<div style="height:760px;background:#246">Tall card</div>`,
     // Grows after it first reports its height, as a chart does once its data loads.
@@ -248,6 +261,44 @@ for (const engine of engines) {
       upsert(session, LONG, { id: GROWING_CARD, kind: "visualization", title: "Growing card", updatedAt: 1 });
       await waitForCard(session.page, GROWING_CARD, 600);
       await assertFollowing(session.page, "after the card grew");
+      await done();
+    });
+
+    test("a replaced card far above moves to the bottom and is followed without a jump", async () => {
+      const session = await visit(MOVE);
+      const { page } = session;
+      await page.getByText("LAST-MOVE").waitFor();
+      await assertFollowing(page, "opened");
+      // The view as painted in each frame from the move until the card has loaded and settled.
+      // A frame's rAF reads layout before that frame's ResizeObserver follows it, so an observer
+      // made after the transcript's (they run in creation order) corrects the frame's sample.
+      await page.evaluate(() => {
+        const transcript = document.querySelector<HTMLElement>(".transcript")!;
+        const gap = () => transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight;
+        const gaps: number[] = [];
+        (window as unknown as { gaps: number[] }).gaps = gaps;
+        new ResizeObserver(() => gaps.length && (gaps[gaps.length - 1] = gap())).observe(transcript.firstElementChild!);
+        const tick = () => {
+          gaps.push(gap());
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+      session.socket().send(JSON.stringify({ event: { type: "item.upserted", threadId: MOVE, item: { id: FAR_CARD, kind: "visualization", title: "Far card v2", updatedAt: 2 }, toEnd: true } }));
+      await page.getByText("Far card v2").waitFor();
+      await waitForCard(page, FAR_CARD, 500);
+      await settle(page);
+      const last = await page.evaluate(() => {
+        const column = document.querySelector(".transcript .column")!;
+        return !!column.lastElementChild?.querySelector("iframe");
+      });
+      assert.ok(last, "the card is the last item");
+      assert.equal(await page.locator("iframe[src*='" + FAR_CARD + "']").count(), 1, "one card");
+      const gaps = await page.evaluate(() => (window as unknown as { gaps: number[] }).gaps);
+      assert.ok(Math.max(...gaps) < 2, `jumped up to ${Math.max(...gaps)}px above the bottom: ${gaps.filter((gap) => gap >= 2).join(", ")}`);
+      await assertFollowing(page, "after the move");
+      await stream(session, 2);
+      await assertFollowing(page, "still pinned after the move");
       await done();
     });
 

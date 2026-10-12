@@ -581,9 +581,10 @@ export class ThreadService {
       source = await findSource(await this.#visualizationRoots(threadId), full);
     }
     const id = await this.#visualizations.save(threadId, html!, input.id, source);
-    this.#upsertItem(threadId, { id, kind: "visualization", title, updatedAt: Date.now() });
+    // A replacement moves to the end, after this call, so the user sees it where the agent is.
+    this.#upsertItem(threadId, { id, kind: "visualization", title, updatedAt: Date.now() }, input.id !== undefined);
     const shown = input.id
-      ? `Updated "${title}" where it is shown in the thread.`
+      ? `Updated "${title}" and moved it to the end of the thread (id ${id}).`
       : `Showing "${title}" in the thread (id ${id}). To change it, call show_html again with this id.`;
     if (input.path === undefined) return shown;
     return source
@@ -1444,10 +1445,10 @@ export class ThreadService {
     this.#update(threadId, { status });
   }
 
-  #upsertItem(threadId: string, item: Item): void {
+  #upsertItem(threadId: string, item: Item, toEnd = false): void {
     if (!this.#db.getThread(threadId)) return;
-    this.#db.upsertItem(threadId, item);
-    this.#emit({ type: "item.upserted", threadId, item });
+    this.#db.upsertItem(threadId, item, toEnd);
+    this.#emit({ type: "item.upserted", threadId, item, ...(toEnd && { toEnd }) });
   }
 
   #notice(threadId: string, level: "info" | "error", text: string): void {

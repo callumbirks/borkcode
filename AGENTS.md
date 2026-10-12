@@ -225,6 +225,11 @@ inventing a fix.
   `http:` hosts. Other opaque-origin requests to borkcode are refused by Origin or Sec-Fetch-Site
   even over HTTPS; the policy is `visualizationCsp` in `visualizations.ts`. A served page gets a
   script appended that posts its content height; the card accepts only a clamped number from its own frame.
+  Replacing one (`show_html` with its `id`) keeps the item's id but moves it to the end of the
+  transcript, with the next seq, and broadcasts `item.upserted` with `toEnd`; updated in place far
+  up the transcript, the user saw only the tool step and thought nothing had been shown. The move
+  leaves the column's height unchanged, so no resize follows it while anchoring or a clamp has
+  shifted the view; a pinned transcript also follows when its last row changes.
 - **A visualization shown from a file is served live and loads the files beside it.** When the
   file is in the thread's workspace or project files, `<id>.json` records its root and path; the
   page is read from there on each load (the copy stands in if it goes away) and served at
