@@ -295,3 +295,13 @@ server.listen(config.port, config.host, () => {
   // After listening, since agents started by these deliveries connect back to the MCP endpoint.
   threads.resumeQueued();
 });
+
+// Records running turns as cut off by the server, so neither the user nor the agent mistakes the
+// stop for the user's. A second signal exits at once. A kill without a signal handler leaves turns
+// marked running, which the next start treats the same way.
+function stop(): void {
+  void threads.shutdown().finally(() => process.exit());
+}
+process.once("SIGINT", stop);
+process.once("SIGTERM", stop);
+process.once("SIGHUP", stop);

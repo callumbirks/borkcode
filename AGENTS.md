@@ -97,6 +97,11 @@ inventing a fix.
   its next step when the provider allows, otherwise they start the next turn together. A stop
   holds what was waiting when the turn was stopped until the user sends or resumes; messages that
   arrive later, such as a child's report or a PR merge or close notice, start a turn as usual.
+- **A turn cut off by the server is not the user's stop.** The providers report it in the user's
+  words ("rejected", "interrupted by user"), so borkcode flags the thread (`server_stopped`): on
+  SIGINT/SIGTERM/SIGHUP for running turns, and at startup for threads still marked running after a
+  kill or crash. The transcript gets "Stopped: borkcode server shut down", and the next turn,
+  whoever starts it, opens with a borkcode note saying so; the flag clears once the agent has it.
 - **A watched child reports every turn that isn't stopped,** including turns the user started, to
   its parent. `watch: true` on `start_thread`, or any message from the parent, makes it watched.
   Captains are a role chosen at creation, with their own instructions and their own worktree.

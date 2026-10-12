@@ -76,3 +76,10 @@ export function pullRequestNews(prs: LinkedPullRequest[]): string {
 export function borkcodeMessage(text: string): string {
   return `From borkcode, not the user:\n\n${text}`;
 }
+
+/** Leads the first turn after the server stopped in the middle of one, so the agent knows who stopped it. */
+export const SERVER_STOPPED_NOTE = [
+  "Your previous turn was cut off because the borkcode server stopped or restarted.",
+  `The user did not interrupt you: any tool call "rejected" or "interrupted by user" at the end of that turn came from the shutdown.`,
+  "Check the state of what you were doing before continuing.",
+].join(" ");

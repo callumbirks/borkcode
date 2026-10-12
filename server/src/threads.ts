@@ -28,6 +28,7 @@ import {
   parentMessage,
   pullRequestNews,
   report,
+  SERVER_STOPPED_NOTE,
   userMessage,
 } from "./delegation.ts";
 import { buildInstructions } from "./instructions.ts";
@@ -98,6 +99,8 @@ const realDeps: ThreadDeps = {
 const PULL_REQUEST_POLL_MS = 60_000;
 /** Coming back to borkcode checks pull requests, unless a check ran this recently. */
 const RETURN_REFRESH_MS = 15_000;
+/** In the transcript where a turn ended because the server stopped, unlike the user's "Interrupted". */
+const SERVER_STOPPED_NOTICE = "Stopped: borkcode server shut down";
 
 /** In-memory state for a thread whose agent may be active. */
 interface LiveThread {
@@ -152,6 +155,8 @@ export class ThreadService {
   readonly #familyWakes = new Map<string, number>();
   #pullRequestPoll: NodeJS.Timeout | null = null;
   #lastPullRequestCheck = 0;
+  /** The server is shutting down, so no new turns start. */
+  #stopping = false;
 
   constructor(
     db: Database,
@@ -169,6 +174,7 @@ export class ThreadService {
     this.#mcpBaseUrl = mcpBaseUrl;
     this.#attachments = attachments;
     this.#deps = deps;
+    for (const threadId of this.#db.endStaleTurns()) this.#notice(threadId, "info", SERVER_STOPPED_NOTICE);
     this.#pollPullRequests();
   }
 
@@ -509,6 +515,28 @@ export class ThreadService {
     await this.#deliver(threadId);
   }
 
+  /**
+   * The server is stopping. Running turns are recorded as cut off by the server rather than stopped
+   * by the user, so the transcript says so and the agent is told at its next turn; then the agent
+   * sessions are closed. A turn ending from here on is not settled, so it reads as neither.
+   */
+  async shutdown(): Promise<void> {
+    this.#stopping = true;
+    const sessions: Promise<ProviderSession>[] = [];
+    for (const [threadId, live] of this.#live) {
+      if (live.active && this.#db.getThread(threadId)?.status === "running") {
+        live.active = false;
+        for (const item of live.streaming.values()) this.#db.upsertItem(threadId, item);
+        live.streaming.clear();
+        this.#db.setServerStopped(threadId, true);
+        this.#notice(threadId, "info", SERVER_STOPPED_NOTICE);
+        this.#setStatus(threadId, "idle");
+      }
+      if (live.session) sessions.push(live.session);
+    }
+    await Promise.all(sessions.map((session) => session.then((open) => open.close(), () => undefined)));
+  }
+
   /** Delivers messages that were waiting when the server last stopped. */
   resumeQueued(): void {
     for (const threadId of this.#db.threadsWithInbox()) void this.#deliver(threadId);
@@ -521,7 +549,7 @@ export class ThreadService {
    */
   async #deliver(threadId: string): Promise<void> {
     // Called on every tool call, so skip reading settings when nothing is waiting.
-    if (this.#db.listInbox(threadId).length === 0) return;
+    if (this.#stopping || this.#db.listInbox(threadId).length === 0) return;
     const waiting = this.#liveThread(threadId);
     if (waiting.refreshing) return;
     const stored = this.#db.getThread(threadId);
@@ -540,7 +568,7 @@ export class ThreadService {
     const thread = this.#db.getThread(threadId);
     const live = this.#liveThread(threadId);
     const messages = this.#db.listInbox(threadId);
-    if (!thread || messages.length === 0 || live.steering) return;
+    if (!thread || messages.length === 0 || live.steering || this.#stopping) return;
     // Nothing works out of sight: a waiting message brings an archived thread back.
     if (thread.archivedAt !== null) this.setArchived(threadId, false);
     if (live.active && !live.session) return;
@@ -576,7 +604,13 @@ export class ThreadService {
     live.userJoined = false;
     this.#db.removeFromInbox(messages.map((message) => message.id));
     this.#accepted(thread, messages, false, automatic);
-    await this.#runTurn(threadId, this.#compose(thread, messages), this.#turnAttachments(thread, messages));
+    const serverStopped = this.#db.serverStopped(threadId);
+    await this.#runTurn(
+      threadId,
+      this.#compose(thread, messages, serverStopped),
+      this.#turnAttachments(thread, messages),
+      serverStopped,
+    );
   }
 
   /** Records delivered messages in the transcript. A parent's message makes it watch the thread. */
@@ -607,11 +641,15 @@ export class ThreadService {
     this.#emitThread(thread.id);
   }
 
-  /** What the agent reads: the user's lone message as typed, anything else labelled by sender. */
-  #compose(thread: StoredThread, messages: InboxMessage[]): string {
-    if (messages.length === 1 && fromUser(messages[0]!)) return messages[0]!.text;
-    return combine(
-      messages.map((message) => {
+  /**
+   * What the agent reads: the user's lone message as typed, anything else labelled by sender. After
+   * the server stopped mid-turn, borkcode's note saying so comes first.
+   */
+  #compose(thread: StoredThread, messages: InboxMessage[], serverStopped = false): string {
+    if (!serverStopped && messages.length === 1 && fromUser(messages[0]!)) return messages[0]!.text;
+    return combine([
+      ...(serverStopped ? [borkcodeMessage(SERVER_STOPPED_NOTE)] : []),
+      ...messages.map((message) => {
         if (message.kind === "borkcode") return borkcodeMessage(message.text);
         if (message.fromThreadId === null) return userMessage(message.text);
         if (message.kind === "message" && message.fromThreadId === thread.parentId) {
@@ -619,7 +657,7 @@ export class ThreadService {
         }
         return message.text;
       }),
-    );
+    ]);
   }
 
   #turnAttachments(thread: StoredThread, messages: InboxMessage[]): TurnAttachment[] {
@@ -628,7 +666,8 @@ export class ThreadService {
     );
   }
 
-  async #runTurn(threadId: string, text: string, attachments: TurnAttachment[]): Promise<void> {
+  /** `serverStopped` means the text carries the note about a cut-off turn, cleared once the agent has it. */
+  async #runTurn(threadId: string, text: string, attachments: TurnAttachment[], serverStopped: boolean): Promise<void> {
     const live = this.#liveThread(threadId);
     await live.preparing;
     if (!this.#db.getThread(threadId)) return;
@@ -643,6 +682,7 @@ export class ThreadService {
         { model: thread.model, effort: thread.effort, accessMode: thread.accessMode },
         attachments,
       );
+      if (serverStopped) this.#db.setServerStopped(threadId, false);
     } catch (error) {
       const session = live.session;
       live.session = null;

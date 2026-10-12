@@ -180,10 +180,34 @@ export class Database {
     if (!inboxColumns.some((column) => column.name === "attachments")) {
       this.#db.exec(`ALTER TABLE inbox ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'`);
     }
-    // A server restart ends every provider process, so nothing can still be running.
-    this.#db
-      .prepare(`UPDATE threads SET status = 'idle' WHERE status IN ('running', 'preparing')`)
-      .run();
+    if (missing("server_stopped")) {
+      this.#db.exec(`ALTER TABLE threads ADD COLUMN server_stopped INTEGER NOT NULL DEFAULT 0`);
+    }
+  }
+
+  /**
+   * A server restart ends every provider process, so nothing can still be running. A turn still
+   * marked running was cut off by the server going away, e.g. killed or crashed, so it is flagged
+   * for the agent's next turn. Returns those threads.
+   */
+  endStaleTurns(): string[] {
+    const rows = this.#db
+      .prepare(`UPDATE threads SET server_stopped = 1 WHERE status = 'running' RETURNING id`)
+      .all() as unknown as { id: string }[];
+    this.#db.prepare(`UPDATE threads SET status = 'idle' WHERE status IN ('running', 'preparing')`).run();
+    return rows.map((row) => row.id);
+  }
+
+  /** The thread's last turn was cut off by the server stopping, and its agent has not been told yet. */
+  serverStopped(id: string): boolean {
+    const row = this.#db.prepare(`SELECT server_stopped FROM threads WHERE id = ?`).get(id) as
+      | { server_stopped: number }
+      | undefined;
+    return row?.server_stopped === 1;
+  }
+
+  setServerStopped(id: string, stopped: boolean): void {
+    this.#db.prepare(`UPDATE threads SET server_stopped = ? WHERE id = ?`).run(Number(stopped), id);
   }
 
   listThreads(): StoredThread[] {
