@@ -38,12 +38,27 @@ export const VISUALIZATION_HEADERS = {
 };
 
 /**
- * Appended to every visualization so its card can fit it: it posts the document's height to the
- * parent, which trusts nothing in the message but a clamped number from its own frame.
+ * Appended to every visualization so its card can fit it: it posts the height of the page's
+ * content to the parent, which trusts nothing in the message but a clamped number from its own
+ * frame. The content is measured rather than the document, which is never shorter than the frame,
+ * so a small page lets its card shrink.
  */
-export const HEIGHT_SCRIPT =
-  "\n<script>(() => { const post = () => parent.postMessage({ borkcodeHeight: document.documentElement.scrollHeight }, \"*\");" +
-  " new ResizeObserver(post).observe(document.documentElement); addEventListener(\"load\", post); })();</script>\n";
+export const HEIGHT_SCRIPT = `
+<script>(() => {
+  const post = () => {
+    if (!document.body) return;
+    const range = document.createRange();
+    range.selectNodeContents(document.body);
+    const style = getComputedStyle(document.body);
+    const bottom = range.getBoundingClientRect().bottom + scrollY + parseFloat(style.paddingBottom) + parseFloat(style.marginBottom);
+    parent.postMessage({ borkcodeHeight: Math.ceil(bottom) }, "*");
+  };
+  const observer = new ResizeObserver(post);
+  observer.observe(document.documentElement);
+  if (document.body) observer.observe(document.body);
+  addEventListener("load", post);
+})();</script>
+`;
 
 /**
  * HTML shown in a thread, kept as `visualizations/<id>.html` in the thread's attachments folder,
