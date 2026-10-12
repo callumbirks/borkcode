@@ -40,22 +40,23 @@ What borkcode has shipped and what may come next. The constraints every change w
     rendered. The server serves thread files over HTTP for it, safely, so it works remotely too.
 13. **Images in tool calls.** When the agent views an image file (Claude's Read, Codex's image
     view), the expanded tool call shows a thumbnail that opens full size in the preview panel.
+14. **HTML visualizations.** The agent's `show_html` tool shows HTML it writes (inline or from a
+    file) as a card in the thread, sandboxed in an opaque origin, which opens larger in the
+    preview panel or in a new tab. Showing it again by id replaces it.
 
 ## Next
 
 Not prioritized yet. The order below is a suggestion.
 
-1. **HTML visualizations.** A tool that lets the agent show HTML it writes, rendered in the
-   thread, instead of the user opening a separate file.
-2. **Remote and mobile over Tailscale.** Use borkcode from another device on the same tailnet while
+1. **Remote and mobile over Tailscale.** Use borkcode from another device on the same tailnet while
    the server runs on the main machine. The tailnet is the access boundary, so the server only
    needs to listen beyond localhost (it already reads `HOST`). The web client needs a layout
    that works on a phone, and file previews must keep working.
-3. **Mark as read or unread.** Actions to mark a thread read or unread by hand, building on the
+2. **Mark as read or unread.** Actions to mark a thread read or unread by hand, building on the
    automatic unread indicator.
-4. **`@` thread references.** `@` also suggests other threads in the project that aren't
+3. **`@` thread references.** `@` also suggests other threads in the project that aren't
    archived, so one thread can read through another's transcript. Builds on `@` file references.
-5. **File uploads.** Attach any file to a message, not just images, from any device viewing
+4. **File uploads.** Attach any file to a message, not just images, from any device viewing
    borkcode, including remote ones. Builds on the attachments behind images in the prompt, and
    comes after remote and mobile access.
 
