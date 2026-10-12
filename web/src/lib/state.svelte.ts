@@ -48,11 +48,23 @@ export function getDraft(threadId: string): string {
   return drafts[threadId] ?? "";
 }
 
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+function saveDrafts() {
+  clearTimeout(saveTimer);
+  saveTimer = undefined;
+  localStorage.setItem(draftsKey, JSON.stringify(drafts));
+}
+
+/** Drafts change on every keystroke, so writing them all to localStorage waits for a pause. */
 export function setDraft(threadId: string, text: string): void {
   if (text) drafts[threadId] = text;
   else delete drafts[threadId];
-  localStorage.setItem(draftsKey, JSON.stringify(drafts));
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveDrafts, 300);
 }
+
+addEventListener("pagehide", () => saveTimer !== undefined && saveDrafts());
 
 /** Each provider's model list, loaded on first use. */
 export const models = $state<Partial<Record<ProviderKind, { list: ModelOption[]; error: string | null }>>>({});

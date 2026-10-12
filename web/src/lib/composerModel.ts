@@ -29,6 +29,19 @@ export function insertBeside(
   return before ? { ...next, caret: next.caret - 1 } : next;
 }
 
+/**
+ * Whether an edit the browser made inside one stretch of text, `[at, at + before)` becoming
+ * `after` characters long, leaves the same references as chips: the ones after it only move.
+ */
+export function sameChips(shown: FileReference[], wanted: FileReference[], at: number, before: number, after: number): boolean {
+  if (wanted.length !== shown.length) return false;
+  return wanted.every((chip, index) => {
+    const old = shown[index];
+    const start = old.start >= at + before ? old.start + after - before : old.start;
+    return chip.start === start && chip.end - chip.start === old.end - old.start;
+  });
+}
+
 /** Chips are atomic: a range that cuts into one grows to cover it. */
 export function coverReferences(start: number, end: number, references: FileReference[]): [number, number] {
   for (const reference of references) {

@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { chipBeside, coverReferences, History, insertBeside, replaceRange, type Snapshot } from "../lib/composerModel";
-  import { findFileReferences, splitReferences, type ReferenceRoots } from "../lib/fileReferences";
+  import { chipBeside, coverReferences, History, insertBeside, replaceRange, sameChips, type Snapshot } from "../lib/composerModel";
+  import { findFileReferences, splitReferences, type FileReference, type ReferenceRoots } from "../lib/fileReferences";
 
   // The composer's text box. A textarea can't show file references as chips, so this is a
-  // contenteditable whose text stays the source of truth: every edit arrives as `beforeinput`, is
-  // applied to the text, and the box is redrawn from it. IME composition is the exception; the
-  // browser edits the DOM and the text is read back when it ends.
+  // contenteditable whose text stays the source of truth. Plain typing and deleting inside one
+  // text node is left to the browser and read back from that node, since redrawing on every key
+  // made typing lag. Edits that touch a chip, newlines, paste and the like arrive as `beforeinput`,
+  // are applied to the text, and the box is redrawn from it. IME composition edits the DOM and is
+  // read back when it ends.
   let {
     value,
     roots,
@@ -28,6 +30,10 @@
   let typingAt: number | null = null;
   let composing = $state(false);
   const history = new History();
+  /** The chips on screen, to tell whether a native edit changed which references are chips. */
+  let shown: FileReference[] = [];
+  /** An edit left to the browser, inside `node`, which starts at `at` in the text. */
+  let native: { node: Text; at: number; length: number; before: Snapshot; kind: string } | null = null;
 
   function references(of: string) {
     if (!roots) return [];
@@ -51,7 +57,8 @@
 
   function render(caretAt: number | null) {
     if (!element) return;
-    const nodes: Node[] = splitReferences(text, references(text)).map((part) => {
+    shown = references(text);
+    const nodes: Node[] = splitReferences(text, shown).map((part) => {
       if (!part.reference) return document.createTextNode(part.text);
       const chip = document.createElement("span");
       chip.className = "file-chip";
@@ -77,7 +84,7 @@
     if (node instanceof Text) return node.data.length;
     if (!(node instanceof HTMLElement)) return 0;
     if (node.dataset.source !== undefined) return node.dataset.source.length;
-    if (node.dataset.sentinel !== undefined) return 0;
+    if (node instanceof HTMLBRElement) return 0;
     return serialize(node).length;
   }
 
@@ -87,7 +94,9 @@
     root.childNodes.forEach((node, index) => {
       if (node instanceof Text) out += node.data;
       else if (node instanceof HTMLElement && node.dataset.source !== undefined) out += node.dataset.source;
-      else if (node instanceof HTMLBRElement) out += node.dataset.sentinel !== undefined ? "" : "\n";
+      // Newlines are always text here; a <br> is the sentinel or the placeholder a browser puts in an
+      // emptied box.
+      else if (node instanceof HTMLBRElement) out += "";
       else if (node instanceof HTMLElement) out += (index > 0 ? "\n" : "") + serialize(node);
     });
     return out;
@@ -125,7 +134,7 @@
       total += length;
     }
     const last = children.at(-1);
-    return [root, last instanceof HTMLElement && last.dataset.sentinel !== undefined ? children.length - 1 : children.length];
+    return [root, last instanceof HTMLBRElement ? children.length - 1 : children.length];
   }
 
   function select(start: number, end: number) {
@@ -166,8 +175,58 @@
     render(next.caret);
   }
 
+  /**
+   * Plain typing or deleting within one text node, away from any chip, which the browser can do
+   * itself. Returns the edit to read back on `input`, or null to handle it here.
+   */
+  function nativeEdit(event: InputEvent): typeof native {
+    const type = event.inputType;
+    const data = event.data ?? "";
+    const typing = type === "insertText" && data !== "" && !data.includes("\n");
+    if (!typing && !/^delete(Content|Word)(Backward|Forward)$/.test(type)) return null;
+    const selection = window.getSelection();
+    const range = event.getTargetRanges()[0] ?? (selection?.rangeCount ? selection.getRangeAt(0) : null);
+    const node = range?.startContainer;
+    if (!range || !(node instanceof Text) || range.endContainer !== node || node.parentNode !== element) return null;
+    const at = offsetOf(node, 0);
+    const [start, end] = [at + range.startOffset, at + range.endOffset];
+    if (typing) {
+      // Typing against a chip needs a space added, so it goes through `insertBeside`.
+      if (insertBeside(text, start, end, data, shown).text !== replaceRange(text, start, end, data).text) return null;
+    } else if (start === end || (start === at && end === at + node.data.length)) {
+      // An emptied text node is removed and replaced by the browser's own placeholder.
+      return null;
+    }
+    return { node, at, length: node.data.length, before: here(), kind: typing && data.length === 1 ? "typing" : type };
+  }
+
+  /** Takes in an edit the browser made: usually just the text, sometimes the chips change too. */
+  function onInput() {
+    const edit = native;
+    native = null;
+    if (!edit || edit.node.parentNode !== element) {
+      readBack();
+      if (edit) history.record(edit.before, { text, caret: caret() }, edit.kind, Date.now());
+      return;
+    }
+    const next = text.slice(0, edit.at) + edit.node.data + text.slice(edit.at + edit.length);
+    const caretAt = caret();
+    history.record(edit.before, { text: next, caret: caretAt }, edit.kind, Date.now());
+    typingAt = edit.kind === "typing" ? caretAt : null;
+    text = next;
+    onchange(text);
+    const wanted = references(text);
+    const same =
+      sameChips(shown, wanted, edit.at, edit.length, edit.node.data.length) &&
+      (element?.lastChild instanceof HTMLBRElement) === text.endsWith("\n");
+    if (same) shown = wanted;
+    else render(caretAt < 0 ? text.length : caretAt);
+  }
+
   function onBeforeInput(event: InputEvent) {
     if (composing || event.isComposing || event.inputType.includes("Composition")) return;
+    native = nativeEdit(event);
+    if (native) return;
     event.preventDefault();
     const type = event.inputType;
     if (type === "historyUndo") return undo();
@@ -279,7 +338,7 @@
     aria-placeholder={placeholder}
     data-composer
     onbeforeinput={onBeforeInput}
-    oninput={readBack}
+    oninput={onInput}
     onkeydown={onKeydown}
     {onpaste}
     oncopy={onCopy}
