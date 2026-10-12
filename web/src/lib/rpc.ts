@@ -8,6 +8,7 @@ export class RpcClient {
   #nextId = 1;
   #pending = new Map<number, Pending>();
   #retryDelay = 500;
+  #retryTimer: ReturnType<typeof setTimeout> | undefined;
   readonly #onEvent: (event: ServerEvent) => void;
   readonly #onConnection: (connected: boolean) => void;
 
@@ -15,6 +16,24 @@ export class RpcClient {
     this.#onEvent = onEvent;
     this.#onConnection = onConnection;
     this.#connect();
+    const resume = () => {
+      if (document.visibilityState !== "visible") return;
+      clearTimeout(this.#retryTimer);
+      const old = this.#socket;
+      this.#socket = null;
+      old?.close();
+      this.#lost();
+      this.#connect();
+    };
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("online", resume);
+    window.addEventListener("pageshow", (event) => { if (event.persisted) resume(); });
+  }
+
+  #lost(): void {
+    for (const pending of this.#pending.values()) pending.reject(new Error("Connection lost"));
+    this.#pending.clear();
+    this.#onConnection(false);
   }
 
   request<M extends RequestMethod>(
@@ -37,10 +56,12 @@ export class RpcClient {
     const socket = new WebSocket(`${protocol}//${location.host}/ws`);
     this.#socket = socket;
     socket.onopen = () => {
+      if (this.#socket !== socket) return;
       this.#retryDelay = 500;
       this.#onConnection(true);
     };
     socket.onmessage = (message) => {
+      if (this.#socket !== socket) return;
       const data = JSON.parse(message.data as string) as ServerMessage;
       if ("event" in data) {
         this.#onEvent(data.event);
@@ -52,10 +73,9 @@ export class RpcClient {
       else pending?.resolve(data.result);
     };
     socket.onclose = () => {
-      for (const pending of this.#pending.values()) pending.reject(new Error("Connection lost"));
-      this.#pending.clear();
-      this.#onConnection(false);
-      setTimeout(() => this.#connect(), this.#retryDelay);
+      if (this.#socket !== socket) return;
+      this.#lost();
+      this.#retryTimer = setTimeout(() => this.#connect(), this.#retryDelay);
       this.#retryDelay = Math.min(this.#retryDelay * 2, 5000);
     };
   }

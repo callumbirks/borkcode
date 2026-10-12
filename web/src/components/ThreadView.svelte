@@ -39,7 +39,7 @@
   import VisualizationPanel from "./VisualizationPanel.svelte";
   import WorkGroup from "./WorkGroup.svelte";
 
-  let { id }: { id: string } = $props();
+  let { id, compact = false }: { id: string; compact?: boolean } = $props();
 
   const detail = $derived(app.detail?.thread.id === id ? app.detail : null);
   const thread = $derived(detail?.thread);
@@ -86,6 +86,8 @@
     effort = thread.effort;
     accessMode = thread.accessMode;
   });
+
+  let overview = $state(false);
 
   let editingTitle = $state(false);
   let titleDraft = $state("");
@@ -287,7 +289,7 @@
 
   function onKeydown(event: KeyboardEvent) {
     if (mentions?.keydown(event)) return;
-    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !(event.target instanceof HTMLTextAreaElement)) {
       event.preventDefault();
       void (asking ? submitAnswer() : send());
     }
@@ -327,7 +329,7 @@
   <div class="page muted">Loading thread…</div>
 {:else}
   <div class="thread" class:previewing={preview}>
-    <div class="chat">
+    <div class="chat" inert={compact && !!(preview || overview)}>
       <header>
         <span class="dot {thread.status}" title={thread.status}></span>
         {#if editingTitle}
@@ -377,6 +379,7 @@
             <Archive size={16} />
           </button>
         {/if}
+        <button class="overview-button ghost" onclick={() => overview = true}>Overview</button>
         <button class="ghost icon delete" title="Delete thread" onclick={remove}><Trash2 size={16} /></button>
       </header>
       <div class="transcript" bind:this={transcript} onscroll={onTranscriptScroll}>
@@ -515,6 +518,8 @@
         </div>
       </div>
     </div>
+    <div class="side-sheet" class:show={preview || overview}>
+    {#if !preview}<button class="overview-close ghost" onclick={() => overview = false}>Close overview</button>{/if}
     <!-- The preview takes the overview's place while it is open. -->
     {#if preview && "visualization" in preview}
       <VisualizationPanel threadId={id} id={preview.visualization} />
@@ -528,6 +533,7 @@
         pullRequests={app.pullRequests[detail.thread.id] ?? []}
       />
     {/if}
+    </div>
   </div>
 {/if}
 
@@ -771,5 +777,98 @@
   }
   .actions select:focus {
     border-color: transparent;
+  }
+
+  .side-sheet {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .side-sheet > :global(aside) {
+    flex: 1;
+    min-height: 0;
+  }
+  .overview-button, .overview-close {
+    display: none;
+  }
+  @media (max-width: 900px) {
+    .thread, .thread.previewing {
+      grid-template-columns: minmax(0, 1fr);
+      flex: 1;
+      min-height: 0;
+      position: relative;
+    }
+    header {
+      padding: 0 8px;
+      height: auto;
+      min-height: 44px;
+      flex-wrap: wrap;
+      gap: 2px;
+    }
+    header .title {
+      flex: 1;
+    }
+    .chips {
+      order: 2;
+      flex-basis: 100%;
+      padding-bottom: 4px;
+      overflow-x: auto;
+    }
+    .overview-button, .overview-close {
+      display: inline-flex;
+    }
+    .side-sheet {
+      display: none;
+    }
+    .side-sheet.show {
+      display: flex;
+      position: absolute;
+      inset: 0;
+      z-index: 20;
+      background: var(--surface-base);
+    }
+    .side-sheet :global(aside) {
+      width: 100% !important;
+      border-left: 0;
+    }
+    .side-sheet :global(.resize) {
+      display: none;
+    }
+    .side-sheet :global(header) {
+      min-height: 44px;
+    }
+    .side-sheet :global(a.button) {
+      width: 40px;
+      height: 40px;
+    }
+    .transcript {
+      padding: 12px;
+      overscroll-behavior: contain;
+    }
+    .composer-wrap {
+      flex-shrink: 0;
+      padding: 4px 8px 8px;
+      max-height: 75%;
+    }
+    .composer {
+      padding: 8px;
+    }
+    .actions {
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .actions :global(select) {
+      max-width: 145px;
+      min-width: 0;
+    }
+    .actions .spacer {
+      display: none;
+    }
+    .question {
+      max-height: 25vh;
+    }
+    .option {
+      min-height: 44px;
+    }
   }
 </style>
