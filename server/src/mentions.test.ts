@@ -97,6 +97,63 @@ test("thread title matching excludes current, archived and other-project threads
   const search = new MentionSearch(files, async () => ({ project, root: project.path }), () => list);
   const matches = await search.search("current", "");
   assert.equal(matches.length, 50);
-  assert.equal(matches[0].kind, "thread");
+  assert.ok(matches.every(m => m.kind === "file"));
+  assert.equal((await search.search("current", "serv"))[0].kind, "thread");
   assert.ok(matches.some(m => m.kind === "file"));
+});
+
+
+test("thread mode searches all projects, ranks local then recent, and omits files", async () => {
+  const projects = new ProjectStore(join(scratch, "thread-mode-home"));
+  const project = await projects.create("demo");
+  await projects.create("other");
+  const files = new FileStore(projects, () => {});
+  await files.write("demo", "notes.md", "", null);
+  const { Database, toThread } = await import("./db.ts");
+  const db = new Database(join(scratch, "thread-mode.sqlite"));
+  const seed = (id: string, project: string, updatedAt: number, archivedAt: number | null = null) => {
+    db.insertThread({ id, project, title: `Notes ${id}`, provider: "codex", model: null, effort: null,
+      accessMode: "full", workspace: null, branch: null, status: "idle", parentId: null, captain: false,
+      watched: false, queued: 0, paused: false, archivedAt, respondedAt: null, readAt: null, markedUnread: false,
+      createdAt: 1, updatedAt, providerSessionId: null, startBranch: null });
+  };
+  seed("current", "demo", 500);
+  seed("local-old", "demo", 10);
+  seed("local-new", "demo", 20);
+  seed("other-old", "other", 100);
+  seed("other-new", "other", 200);
+  seed("archived", "other", 300, 1);
+  const search = new MentionSearch(files, async () => ({ project, root: project.path }), () => db.listThreads().map(t => toThread(t, false)));
+  const all = await search.search("current", "notes", "threads");
+  assert.deepEqual(all.map(t => t.kind === "thread" && [t.threadId, t.project, t.status]), [
+    ["local-new", "demo", "idle"], ["local-old", "demo", "idle"],
+    ["other-new", "other", "idle"], ["other-old", "other", "idle"],
+  ]);
+  assert.deepEqual(await search.search("current", "missing", "threads"), []);
+  const mixed = await search.search("current", "notes");
+  assert.deepEqual(mixed.filter(t => t.kind === "thread").map(t => t.threadId).sort(), ["local-new", "local-old"]);
+  assert.ok(mixed.some(t => t.kind === "file"));
+  assert.ok((await search.search("current", "")).every(t => t.kind === "file"));
+  for (let i = 0; i < 55; i++) seed(`extra-${i}`, "other", i);
+  assert.equal((await search.search("current", "", "threads")).length, 50);
+});
+
+
+test("thread queries rank project first, then title relevance and recency; empty queries use recency", async () => {
+  const { threadMentions } = await import("./mentions.ts");
+  const base = { project: "demo", status: "idle", archivedAt: null };
+  const threads = [
+    { ...base, id: "local-weak", title: "n_o_t_e_s", updatedAt: 200 },
+    { ...base, id: "local-prefix", title: "Notes plan", updatedAt: 100 },
+    { ...base, id: "local-exact-old", title: "Notes", updatedAt: 1 },
+    { ...base, id: "local-exact-new", title: "Notes", updatedAt: 5 },
+    { ...base, id: "other-weak", project: "other", title: "n_o_t_e_s", updatedAt: 2000 },
+    { ...base, id: "other-exact", project: "other", title: "Notes", updatedAt: 1000 },
+  ] as import("shared/protocol").Thread[];
+  assert.deepEqual(threadMentions(threads, "demo", "current", "notes", "threads").map(t => t.threadId), [
+    "local-exact-new", "local-exact-old", "local-prefix", "local-weak", "other-exact", "other-weak",
+  ]);
+  assert.deepEqual(threadMentions(threads, "demo", "current", "", "threads").map(t => t.threadId), [
+    "local-weak", "local-prefix", "local-exact-new", "local-exact-old", "other-weak", "other-exact",
+  ]);
 });

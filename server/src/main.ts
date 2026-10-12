@@ -116,7 +116,7 @@ const handlers: Handlers = {
     return null;
   },
   "files.deleteFolder": ({ project, path }) => files.deleteFolder(project, path),
-  "mentions.search": ({ threadId, query }) => mentions.search(threadId, query),
+  "mentions.search": ({ threadId, query, mode }) => mentions.search(threadId, query, mode),
   "threads.locateFiles": async ({ threadId, paths }) => locateAll(await previewRoots(threadId), paths),
   "threads.list": async () => threads.list(),
   "threads.create": (params) => threads.create(params),

@@ -45,11 +45,18 @@ export function fileReference(path: string): string {
   return /\s/.test(path) ? `@"${path}"` : `@${path}`;
 }
 
-/** Title matches from this project, excluding the current and archived threads. */
-export function threadMentions(threads: Thread[], project: string, current: string, query: string): ThreadMention[] {
-  return threads.filter(t => t.project === project && t.id !== current && t.archivedAt === null && matchScore(query, t.title) !== null)
-    .sort((a, b) => matchScore(query, a.title)! - matchScore(query, b.title)! || b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
-    .slice(0, 10).map(t => ({ kind: "thread", threadId: t.id, title: t.title, project: t.project,
+/** Mixed matches stay project-scoped; thread mode includes all projects, local matches first. */
+export function threadMentions(
+  threads: Thread[], project: string, current: string, query: string, mode: "mixed" | "threads" = "mixed",
+): ThreadMention[] {
+  return threads
+    .filter(t => (mode === "threads" || t.project === project) && t.id !== current && t.archivedAt === null && matchScore(query, t.title) !== null)
+    .sort((a, b) => mode === "threads"
+      ? Number(b.project === project) - Number(a.project === project) ||
+        (query ? matchScore(query, a.title)! - matchScore(query, b.title)! : 0) || b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)
+      : matchScore(query, a.title)! - matchScore(query, b.title)! || b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+    .slice(0, mode === "threads" ? MAX_RESULTS : 10)
+    .map(t => ({ kind: "thread", threadId: t.id, title: t.title, project: t.project,
       status: t.status, reference: `borkcode:thread:${t.id}` }));
 }
 
@@ -66,8 +73,9 @@ export class MentionSearch {
     this.#locate = locate;
   }
 
-  async search(threadId: string, query: string): Promise<Mention[]> {
+  async search(threadId: string, query: string, mode: "mixed" | "threads" = "mixed"): Promise<Mention[]> {
     const { project, root } = await this.#locate(threadId);
+    if (mode === "threads") return threadMentions(this.#threads(), project.name, threadId, query, mode);
     const filesRoot = this.#files.root(project.name);
     const matches: { score: number; match: string; mention: FileMention }[] = [];
     const consider = (match: string, mention: FileMention) => {
@@ -89,7 +97,7 @@ export class MentionSearch {
       }
     });
     // Keep a short thread group above files so even a repo with thousands of paths offers threads.
-    const threads = threadMentions(this.#threads(), project.name, threadId, query);
+    const threads = query ? threadMentions(this.#threads(), project.name, threadId, query) : [];
     const rankedFiles = matches
       .sort((a, b) => a.score - b.score || a.match.localeCompare(b.match))
       .slice(0, MAX_RESULTS - threads.length)
