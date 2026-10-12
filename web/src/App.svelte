@@ -9,6 +9,7 @@
   import Sidebar from "./components/Sidebar.svelte";
   import ThreadView from "./components/ThreadView.svelte";
   import { app, nav } from "./lib/state.svelte";
+  import { viewportTracker } from "./lib/viewport";
 
   let drawer = $state(false);
   let compact = $state(window.innerWidth <= 900);
@@ -19,11 +20,24 @@
     return () => media.removeEventListener("change", update);
   });
   $effect(() => { void nav.route; drawer = false; });
+  // Everything on a phone is sized to the visible viewport, since iOS keeps the keyboard's
+  // height in 100dvh and window.innerHeight.
   $effect(() => {
     const viewport = window.visualViewport;
+    const track = viewportTracker();
+    const root = document.documentElement;
     const update = () => {
-      document.documentElement.style.setProperty("--viewport-height", `${viewport?.height ?? window.innerHeight}px`);
-      document.documentElement.style.setProperty("--viewport-top", `${viewport?.offsetTop ?? 0}px`);
+      const layout = track({
+        height: viewport?.height ?? window.innerHeight,
+        top: viewport?.offsetTop ?? 0,
+        scale: viewport?.scale ?? 1,
+        layoutWidth: root.clientWidth,
+        layoutHeight: root.clientHeight,
+      });
+      root.style.setProperty("--viewport-height", `${layout.height}px`);
+      root.style.setProperty("--viewport-top", `${layout.top}px`);
+      root.style.setProperty("--viewport-bottom", `${layout.bottom}px`);
+      root.toggleAttribute("data-keyboard", layout.keyboard);
     };
     update();
     viewport?.addEventListener("resize", update);
@@ -128,6 +142,10 @@
       height: var(--viewport-height, 100dvh);
       grid-template-columns: minmax(0, 1fr);
       padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+    /* The keyboard covers the home indicator, so its inset would only leave a gap above the keys. */
+    :global(html[data-keyboard]) .layout {
+      padding-bottom: 0;
     }
     main {
       margin: 0;

@@ -27,6 +27,7 @@
   import { forgetMissing, previews } from "../lib/filePreview.svelte";
   import { referenceRoots } from "../lib/fileReferences";
   import { answer, pick } from "../lib/questions";
+  import { BottomPin } from "../lib/pin";
   import { segmentItems, type Segment } from "../lib/segments";
   import { app, getDraft, go, openThread, rpc, setDraft } from "../lib/state.svelte";
   import AttachButton from "./AttachButton.svelte";
@@ -129,39 +130,25 @@
 
   // Pin the transcript to the bottom, including when a thread opens, until the user scrolls up.
   // Watching size rather than items also follows growth that isn't a new item: streamed tool
-  // output, expanded groups, late layout.
+  // output, expanded groups, late layout, and the scroller itself shrinking for the keyboard.
   // WebKit's parser may report overflow-anchor support even where anchoring is ineffective.
   const skippedItems = CSS.supports("overflow-anchor", "auto") &&
     !CSS.supports("-webkit-touch-callout", "none") &&
     !(/AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|Edg|OPR|Android/.test(navigator.userAgent));
-  let pinned = true;
-  let lastScrollTop = 0;
-  let touchingTranscript = false;
+  const pin = new BottomPin();
   $effect(() => {
     const element = transcript;
     const column = element?.firstElementChild;
     if (!element || !column) return;
-    pinned = true;
-    lastScrollTop = 0;
+    pin.reset();
     const observer = new ResizeObserver(() => {
-      if (pinned && !touchingTranscript) element.scrollTop = element.scrollHeight;
+      const top = pin.resized(element);
+      if (top !== null) element.scrollTop = top;
     });
     observer.observe(column);
     observer.observe(element);
     return () => observer.disconnect();
   });
-
-  // Scroll intent unpins before resizing can fight the gesture. Scroll events fire a frame
-  // late, so distance alone would also unpin on a large block landing after our own scroll.
-  function onTranscriptScroll() {
-    if (!transcript) return;
-    const { scrollTop, scrollHeight, clientHeight } = transcript;
-    // Upward movement wins even within the bottom threshold, including touch momentum
-    // delivered after touchend. Re-pin only on a downward return to the bottom.
-    if (scrollTop < lastScrollTop) pinned = false;
-    else if (!touchingTranscript && scrollHeight - scrollTop - clientHeight < 80) pinned = true;
-    lastScrollTop = scrollTop;
-  }
 
   // A pending question takes over the composer: number keys pick options and typed text is a
   // free-text answer. Several questions are answered one after another, then sent together.
@@ -384,10 +371,11 @@
         <button class="overview-button ghost" onclick={() => overview = true}>Overview</button>
         <button class="ghost icon delete" title="Delete thread" onclick={remove}><Trash2 size={16} /></button>
       </header>
-      <div class="transcript" role="region" aria-label="Thread transcript" bind:this={transcript} onscroll={onTranscriptScroll}
-        onwheel={(event) => { if (event.deltaY < 0) pinned = false; }}
-        ontouchstart={() => { touchingTranscript = true; pinned = false; }}
-        ontouchend={() => { touchingTranscript = false; }} ontouchcancel={() => { touchingTranscript = false; }}>
+      <div class="transcript" role="region" aria-label="Thread transcript" bind:this={transcript}
+        onscroll={() => transcript && pin.scrolled(transcript)}
+        onwheel={(event) => pin.wheel(event.deltaY)}
+        ontouchstart={() => pin.touchStart()}
+        ontouchend={() => transcript && pin.touchEnd(transcript)} ontouchcancel={() => transcript && pin.touchEnd(transcript)}>
         <div class="column" class:skipped-items={skippedItems}>
           {#each segments as segment (segment.kind === "item" ? segment.item.id : segment.id)}
             {#if segment.kind === "item"}
@@ -829,17 +817,49 @@
       width: 40px;
       height: 40px;
     }
+    /*
+     * The composer takes what it needs and the transcript keeps a strip; when the text outgrows
+     * that, the composer shrinks and its text box scrolls inside, so the controls row stays
+     * above the keyboard. vh-based caps can't do this on iOS, where vh ignores the keyboard.
+     */
     .transcript {
       padding: 12px;
       overscroll-behavior: contain;
+      min-height: 64px;
     }
     .composer-wrap {
-      flex-shrink: 0;
+      flex: 0 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
       padding: 4px 8px 8px;
-      max-height: 75%;
+    }
+    .composer-wrap > * {
+      flex-shrink: 0;
+      width: 100%;
+    }
+    .composer-wrap > .question {
+      flex-shrink: 1;
+      min-height: 44px;
     }
     .composer {
+      flex-shrink: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
       padding: 8px;
+    }
+    .composer > :global(*) {
+      flex-shrink: 0;
+    }
+    .composer > :global(.editor) {
+      flex-shrink: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    :global(html[data-keyboard]) .chips {
+      display: none;
     }
     .actions {
       flex-wrap: nowrap;

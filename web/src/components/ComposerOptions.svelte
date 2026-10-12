@@ -104,10 +104,11 @@
     .summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .summary :global(svg) { flex-shrink: 0; }
     dialog {
-      position: fixed; inset: auto 0 0; margin: 0; width: 100%; max-width: none;
+      position: fixed; inset: auto 0 var(--viewport-bottom, 0px); margin: 0; width: 100%; max-width: none;
       max-height: calc(var(--viewport-height, 100dvh) - 24px); overflow: auto;
       padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
       border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     }
+    :global(html[data-keyboard]) dialog { padding-bottom: 16px; }
   }
 </style>
