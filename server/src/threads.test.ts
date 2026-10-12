@@ -179,6 +179,35 @@ test("a message to a busy thread joins its turn at the next step, or waits for t
   agent.finish("done");
 });
 
+test("a slash command opens a turn of its own, as typed, and is never steered", async () => {
+  const picks = { model: null, effort: null, accessMode: "full" as const, fastMode: false };
+  const { thread, agent } = await startThread("first task");
+  assert.equal(await agent.turn(1), "first task");
+  agent.steerable = true;
+  await threads.send(thread.id, "/compact keep the API notes", picks);
+  await threads.send(thread.id, "then carry on", picks);
+  assert.deepEqual(agent.steers, []);
+  assert.equal((await threads.get(thread.id)).thread.queued, 2);
+  agent.finish("done with the first");
+  assert.equal(await agent.turn(2), "/compact keep the API notes");
+  agent.finish("Compacted");
+  assert.equal(await agent.turn(3), "then carry on");
+  agent.finish("done");
+
+  // Messages waiting ahead of a command go together, before it.
+  agent.steerable = false;
+  await threads.send(thread.id, "next task", picks);
+  assert.equal(await agent.turn(4), "next task");
+  await threads.send(thread.id, "one more", picks);
+  await threads.send(thread.id, "and another", picks);
+  await threads.send(thread.id, "/usage", picks);
+  agent.finish("done");
+  assert.match(await agent.turn(5), /one more[\s\S]*and another/);
+  agent.finish("done");
+  assert.equal(await agent.turn(6), "/usage");
+  agent.finish("done");
+});
+
 test("renaming a thread does not count as activity", async () => {
   const { thread, agent } = await startThread("rename me");
   await agent.turn(1);

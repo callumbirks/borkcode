@@ -29,7 +29,7 @@ import { handleMcpRequest } from "./mcp.ts";
 import { NetworkAccess } from "./network.ts";
 import { MentionSearch } from "./mentions.ts";
 import { hostName, assetBase, isAllowedOrigin, isAssetRequest, isSameSiteFetch, isAllowedRequest, isLocalMcpRequest } from "./origins.ts";
-import { listModels } from "./models.ts";
+import { listCommands, listModels } from "./models.ts";
 import { ProjectStore } from "./projects.ts";
 import { DEFAULT_SETTINGS, SettingsStore } from "./settings.ts";
 import { locateAll, PreviewError, readPreview, type PreviewRoots } from "./threadFiles.ts";
@@ -194,6 +194,7 @@ const handlers: Handlers = {
     return null;
   },
   "models.list": ({ provider }) => listModels(provider),
+  "commands.list": ({ provider }) => listCommands(provider),
   "network.get": async () => network.state,
   "settings.get": () => settings.get(),
   "settings.update": async (params) => {

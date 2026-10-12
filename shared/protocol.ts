@@ -22,6 +22,20 @@ export interface ModelOption {
   supportsFastMode: boolean;
 }
 
+/**
+ * One of the provider's own slash commands, offered by the composer's `/` menu. A message that
+ * starts with it runs it; borkcode lists only commands that work through its adapter.
+ */
+export interface ProviderCommand {
+  /** Without the slash, such as "compact". */
+  name: string;
+  description: string;
+  /** What may follow the name, such as "<instructions>"; empty when it takes nothing. */
+  argumentHint: string;
+  /** Can be a new thread's first message; false when it acts on a conversation so far. */
+  firstMessage: boolean;
+}
+
 /** Null model or effort means the provider's default. */
 export interface ModelChoice {
   provider: ProviderKind;
@@ -256,7 +270,25 @@ export type Item =
    * `/api/threads/<thread>/visualizations/<id>`, so the HTML stays out of the transcript.
    * `updatedAt` changes when the agent replaces it, so the client reloads it.
    */
-  | { id: string; kind: "visualization"; title: string; updatedAt: number };
+  | { id: string; kind: "visualization"; title: string; updatedAt: number }
+  /**
+   * The provider compacted the agent's context, replacing the conversation so far with a summary
+   * so it fits. Running while it works; the rest is whatever the provider reports, null if not.
+   */
+  | {
+      id: string;
+      kind: "compaction";
+      status: ToolStatus;
+      /** "manual" for a compact command, "auto" when the context filled up. */
+      trigger: "manual" | "auto" | null;
+      /** Context size before and after, in tokens. */
+      tokensBefore: number | null;
+      tokensAfter: number | null;
+      /** What the agent continues from. */
+      summary: string | null;
+      /** Why it failed. */
+      error?: string;
+    };
 
 /** A question the agent asks the user, with options to pick from. A typed answer is always allowed. */
 export interface Question {
@@ -434,6 +466,7 @@ export interface Requests {
     result: null;
   };
   "models.list": { params: { provider: ProviderKind }; result: ModelOption[] };
+  "commands.list": { params: { provider: ProviderKind }; result: ProviderCommand[] };
   "network.get": { params: Record<string, never>; result: NetworkState };
   "settings.get": { params: Record<string, never>; result: Settings };
   "settings.update": { params: { settings: Settings }; result: Settings };

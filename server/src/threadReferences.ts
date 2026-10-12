@@ -26,6 +26,7 @@ export function describeItem(item: Item): { source: string; text: string } | nul
     case "notice": return { source: "borkcode", text: item.text };
     case "thread": return { source: "handoff", text: `Started thread:${item.threadId}` };
     case "visualization": return { source: "visualization", text: item.title };
+    case "compaction": return item.status === "done" ? { source: "borkcode", text: "Context compacted" } : null;
     case "question": return { source: "assistant question", text: item.questions.map((q, i) =>
       `${q.question}${q.options.length ? `\nOptions: ${q.options.map(o => o.label).join(", ")}` : ""}\nAnswer: ${item.answers ? item.answers[i]?.join(", ") || "(empty)" : "(unanswered)"}`,
     ).join("\n") };

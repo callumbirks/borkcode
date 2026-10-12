@@ -1,13 +1,26 @@
 import { findModel, resolveDefaults } from "shared/models";
-import type { ChildFastMode, ChildModelRule, Effort, ModelChoice, ModelOption, ProviderKind } from "shared/protocol";
+import type {
+  ChildFastMode,
+  ChildModelRule,
+  Effort,
+  ModelChoice,
+  ModelOption,
+  ProviderCommand,
+  ProviderKind,
+} from "shared/protocol";
 import { ToolError } from "./errors.ts";
-import { generateClaudeText, listClaudeModels } from "./providers/claude.ts";
-import { generateCodexText, listCodexModels } from "./providers/codex.ts";
+import { generateClaudeText, listClaudeCommands, listClaudeModels } from "./providers/claude.ts";
+import { CODEX_COMMANDS, generateCodexText, listCodexModels } from "./providers/codex.ts";
 import type { TextRequest } from "./providers/types.ts";
 
 const listers: Record<ProviderKind, () => Promise<ModelOption[]>> = {
   claude: listClaudeModels,
   codex: listCodexModels,
+};
+
+const commandListers: Record<ProviderKind, () => Promise<ProviderCommand[]>> = {
+  claude: listClaudeCommands,
+  codex: async () => CODEX_COMMANDS,
 };
 
 const generators: Record<ProviderKind, (request: TextRequest) => Promise<string>> = {
@@ -17,16 +30,23 @@ const generators: Record<ProviderKind, (request: TextRequest) => Promise<string>
 
 /** Listing starts a CLI process, so results are reused for a while. CLI updates show up after that. */
 const CACHE_MS = 10 * 60_000;
-const cache = new Map<ProviderKind, { at: number; models: Promise<ModelOption[]> }>();
 
-export function listModels(provider: ProviderKind): Promise<ModelOption[]> {
-  const cached = cache.get(provider);
-  if (cached && Date.now() - cached.at < CACHE_MS) return cached.models;
-  const models = listers[provider]();
-  cache.set(provider, { at: Date.now(), models });
-  models.catch(() => cache.delete(provider));
-  return models;
+function cached<T>(list: (provider: ProviderKind) => Promise<T>): (provider: ProviderKind) => Promise<T> {
+  const cache = new Map<ProviderKind, { at: number; result: Promise<T> }>();
+  return (provider) => {
+    const hit = cache.get(provider);
+    if (hit && Date.now() - hit.at < CACHE_MS) return hit.result;
+    const result = list(provider);
+    cache.set(provider, { at: Date.now(), result });
+    result.catch(() => cache.delete(provider));
+    return result;
+  };
 }
+
+export const listModels = cached((provider) => listers[provider]());
+
+/** The provider's own slash commands that borkcode can run, for the composer's `/` menu. */
+export const listCommands = cached((provider) => commandListers[provider]());
 
 /**
  * Checks a model and effort an agent asked for against the provider's own list, so a typo fails

@@ -3,6 +3,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
+import type { Item } from "shared/protocol";
 import { codexModelOption, codexServiceTier, startCodexSession } from "./codex.ts";
 import type { SessionEvents, TurnOutcome } from "./types.ts";
 
@@ -19,17 +20,22 @@ function fakeCodex(name: string, script: string): string {
 function session(bin: string) {
   process.env.BORKCODE_CODEX_BIN = bin;
   const outcomes: TurnOutcome[] = [];
+  const items: Item[] = [];
+  const endWaiters: ((outcome: TurnOutcome) => void)[] = [];
+  /** Resolves when the next turn ends. */
+  const nextEnd = () => new Promise<TurnOutcome>((resolve) => endWaiters.push(resolve));
   let turnEnded!: (outcome: TurnOutcome) => void;
   const ended = new Promise<TurnOutcome>((resolve) => (turnEnded = resolve));
   let onClosed!: () => void;
   const closed = new Promise<void>((resolve) => (onClosed = resolve));
   const events: SessionEvents = {
     sessionId() {},
-    item() {},
+    item: (item) => items.push(item),
     delta() {},
     turnEnded(outcome) {
       outcomes.push(outcome);
       turnEnded(outcome);
+      for (const resolve of endWaiters.splice(0)) resolve(outcome);
     },
     closed: () => onClosed(),
     approval: async () => false,
@@ -47,7 +53,7 @@ function session(bin: string) {
     resumeId: null,
     events,
   });
-  return { started, outcomes, ended, closed };
+  return { started, outcomes, items, ended, closed, nextEnd };
 }
 
 test("a Codex binary that exits at once fails the session, not the server", async () => {
@@ -136,4 +142,112 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
   assert.deepEqual(turns.map((turn) => turn.serviceTierForTurn), ["priority", "default"]);
   assert.ok(outcomes.every((outcome) => outcome.status === "completed"));
   open.close();
+});
+
+/** A fake app-server that answers turns at once and compacts as Codex does, reporting context sizes. */
+function compactingCodex(log: string) {
+  return fakeCodex(
+    "compacts",
+    `#!${process.execPath}
+const { appendFileSync } = require("node:fs");
+const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
+const notify = (method, params) => send({ method, params: { threadId: "t1", ...params } });
+const usage = (totalTokens) => notify("thread/tokenUsage/updated", { turnId: "turn", tokenUsage: { last: { totalTokens } } });
+const compaction = (method) => notify(method, { turnId: "turn", item: { type: "contextCompaction", id: "c1" } });
+require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+  const { id, method, params } = JSON.parse(line);
+  if (id === undefined) return;
+  appendFileSync(${JSON.stringify(log)}, method + "\\n");
+  if (method === "turn/start") {
+    send({ id, result: { turn: { id: "turn", status: "inProgress", error: null } } });
+    usage(16040);
+    // A long turn's context fills up and Codex compacts it by itself.
+    if (params.input[0].text === "fill up") {
+      compaction("item/started");
+      usage(9000);
+      compaction("item/completed");
+    }
+    notify("turn/completed", { turn: { id: "turn", status: "completed", error: null } });
+  } else if (method === "thread/compact/start") {
+    send({ id, result: {} });
+    notify("turn/started", { turn: { id: "turn", status: "inProgress", error: null } });
+    compaction("item/started");
+    usage(10011);
+    compaction("item/completed");
+    notify("turn/completed", { turn: { id: "turn", status: "completed", error: null } });
+  } else {
+    send({ id, result: { thread: { id: "t1" } } });
+  }
+});
+`,
+  );
+}
+
+test("/compact runs Codex's compaction as a turn, recorded with the context's size before and after", async () => {
+  const log = join(dir, "compact.log");
+  const { started, outcomes, items, nextEnd } = session(compactingCodex(log));
+  const open = await started;
+  const settings = { model: null, effort: null, accessMode: "ask" as const, fastMode: false };
+  const turn = async (text: string) => {
+    const ended = nextEnd();
+    await open.sendTurn(text, settings, []);
+    await ended;
+  };
+  try {
+    await turn("hi");
+    await turn("/compact");
+    assert.deepEqual(readFileSync(log, "utf8").trim().split("\n").slice(-2), ["turn/start", "thread/compact/start"]);
+    assert.deepEqual(items.at(-1), {
+      id: "c1",
+      kind: "compaction",
+      status: "done",
+      trigger: "manual",
+      tokensBefore: 16040,
+      tokensAfter: 10011,
+      summary: null,
+    });
+    assert.equal(items.find((item) => item.kind === "compaction")?.status, "running");
+    assert.ok(outcomes.every((outcome) => outcome.status === "completed"));
+
+    // Codex compacts by itself when a turn fills the context; /compact with more text is a message.
+    await turn("fill up");
+    assert.equal((items.at(-1) as Extract<Item, { kind: "compaction" }>).trigger, "auto");
+    await turn("/compact but keep the notes");
+    assert.equal(readFileSync(log, "utf8").trim().split("\n").at(-1), "turn/start");
+  } finally {
+    open.close();
+  }
+});
+
+test("a Codex compaction that never finishes is failed when its turn ends", async () => {
+  const bin = fakeCodex(
+    "compaction-fails",
+    `#!${process.execPath}
+const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
+const notify = (method, params) => send({ method, params: { threadId: "t1", ...params } });
+require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+  const { id, method } = JSON.parse(line);
+  if (id === undefined) return;
+  if (method === "thread/compact/start") {
+    send({ id, result: {} });
+    notify("turn/started", { turn: { id: "turn", status: "inProgress", error: null } });
+    notify("item/started", { turnId: "turn", item: { type: "contextCompaction", id: "c1" } });
+    notify("turn/completed", { turn: { id: "turn", status: "failed", error: { message: "context too large" } } });
+  } else {
+    send({ id, result: { thread: { id: "t1" } } });
+  }
+});
+`,
+  );
+  const { started, items, ended } = session(bin);
+  const open = await started;
+  try {
+    await open.sendTurn("/compact", { model: null, effort: null, accessMode: "ask", fastMode: false }, []);
+    assert.deepEqual(await ended, { status: "failed", error: "context too large" });
+    const last = items.at(-1);
+    assert.equal(last?.kind === "compaction" && last.status, "failed");
+    assert.equal(last?.kind === "compaction" && last.error, "context too large");
+  } finally {
+    open.close();
+  }
 });

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { commandName } from "shared/commands";
 import { findModel } from "shared/models";
 import type {
   Approval,
@@ -717,8 +718,14 @@ export class ThreadService {
     // same messages or start two turns.
     const thread = this.#db.getThread(threadId);
     const live = this.#liveThread(threadId);
-    const messages = this.#db.listInbox(threadId);
-    if (!thread || messages.length === 0 || live.steering || this.#stopping) return;
+    const waitingMessages = this.#db.listInbox(threadId);
+    if (!thread || waitingMessages.length === 0 || live.steering || this.#stopping) return;
+    // A provider command runs only as a message of its own, so it opens a turn alone and is never
+    // steered; what waits behind it goes in the next turn.
+    const firstCommand = waitingMessages.findIndex(isCommand);
+    const command = firstCommand === 0;
+    if (live.active && firstCommand !== -1) return;
+    const messages = waitingMessages.slice(0, command ? 1 : firstCommand === -1 ? undefined : firstCommand);
     // Nothing works out of sight: a waiting message brings an archived thread back.
     if (thread.archivedAt !== null) this.setArchived(threadId, false);
     if (live.active && !live.session) return;
@@ -754,7 +761,8 @@ export class ThreadService {
     live.userJoined = false;
     this.#db.removeFromInbox(messages.map((message) => message.id));
     this.#accepted(thread, messages, false, automatic);
-    const serverStopped = this.#db.serverStopped(threadId);
+    // The note about a cut-off turn waits for the next turn that is not a command.
+    const serverStopped = !command && this.#db.serverStopped(threadId);
     await this.#runTurn(
       threadId,
       this.#compose(thread, messages, serverStopped),
@@ -1437,4 +1445,9 @@ export class ThreadService {
 /** Typed by the user, as opposed to sent by another thread or by borkcode. */
 function fromUser(message: InboxMessage): boolean {
   return message.fromThreadId === null && message.kind !== "borkcode";
+}
+
+/** The user's message starts with a slash command, which the provider runs if it knows it. */
+function isCommand(message: InboxMessage): boolean {
+  return fromUser(message) && message.attachments.length === 0 && commandName(message.text) !== null;
 }
