@@ -147,8 +147,8 @@ const handlers: Handlers = {
     threads.setArchived(threadId, archived);
     return null;
   },
-  "threads.markRead": async ({ threadId }) => {
-    threads.markRead(threadId);
+  "threads.setRead": async ({ threadId, read }) => {
+    threads.setRead(threadId, read);
     return null;
   },
   "threads.delete": async ({ threadId, force }) => {

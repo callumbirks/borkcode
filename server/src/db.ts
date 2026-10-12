@@ -54,6 +54,7 @@ interface ThreadRow {
   archived_at: number | null;
   responded_at: number | null;
   read_at: number | null;
+  marked_unread: number;
   created_at: number;
   updated_at: number;
 }
@@ -80,6 +81,7 @@ function fromRow(row: ThreadRow): StoredThread {
     archivedAt: row.archived_at,
     respondedAt: row.responded_at,
     readAt: row.read_at,
+    markedUnread: row.marked_unread === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -117,6 +119,7 @@ export class Database {
         archived_at INTEGER,
         responded_at INTEGER,
         read_at INTEGER,
+        marked_unread INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
@@ -155,7 +158,7 @@ export class Database {
     for (const column of ["effort", "parent_id", "start_branch"]) {
       if (missing(column)) this.#db.exec(`ALTER TABLE threads ADD COLUMN ${column} TEXT`);
     }
-    for (const column of ["captain", "watched", "paused"]) {
+    for (const column of ["captain", "watched", "paused", "marked_unread"]) {
       if (missing(column)) this.#db.exec(`ALTER TABLE threads ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
     }
     // Threads from before read tracking have no response on record, so they start out read.
@@ -228,8 +231,8 @@ export class Database {
       .prepare(
         `INSERT INTO threads (id, project, title, provider, model, effort, access_mode, workspace,
           branch, status, provider_session_id, parent_id, start_branch, captain, watched, paused,
-          archived_at, responded_at, read_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          archived_at, responded_at, read_at, marked_unread, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         thread.id,
@@ -251,6 +254,7 @@ export class Database {
         thread.archivedAt,
         thread.respondedAt,
         thread.readAt,
+        Number(thread.markedUnread),
         thread.createdAt,
         thread.updatedAt,
       );
@@ -278,6 +282,7 @@ export class Database {
         | "paused"
         | "respondedAt"
         | "readAt"
+        | "markedUnread"
       >
     >,
   ): StoredThread {
@@ -289,7 +294,7 @@ export class Database {
       .prepare(
         `UPDATE threads SET status = ?, provider_session_id = ?, title = ?, model = ?, effort = ?,
           access_mode = ?, workspace = ?, branch = ?, watched = ?, paused = ?, responded_at = ?, read_at = ?,
-          updated_at = ? WHERE id = ?`,
+          marked_unread = ?, updated_at = ? WHERE id = ?`,
       )
       .run(
         next.status,
@@ -304,6 +309,7 @@ export class Database {
         Number(next.paused),
         next.respondedAt,
         next.readAt,
+        Number(next.markedUnread),
         next.updatedAt,
         id,
       );

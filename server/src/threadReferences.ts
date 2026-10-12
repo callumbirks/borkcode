@@ -85,7 +85,7 @@ export class ThreadReferences {
     return { threads: page.map(t => ({ id: t.id, project: t.project, title: t.title, provider: t.provider,
       model: t.model, status: t.status, parentId: t.parentId, captain: t.captain, archivedAt: t.archivedAt,
       updatedAt: t.updatedAt, waiting: t.waiting, paused: t.paused,
-      unread: t.respondedAt !== null && (t.readAt === null || t.respondedAt > t.readAt),
+      unread: t.markedUnread || (t.respondedAt !== null && t.respondedAt > (t.readAt ?? 0)),
       pullRequests: this.db.listPullRequests(t.id).map(({ repo, number, state, url }) => ({ repo, number, state, url })),
     })), more, next_cursor: more && last ? JSON.stringify({ project, archived: includeArchived, updatedAt: last.updatedAt, id: last.id }) : null };
   }

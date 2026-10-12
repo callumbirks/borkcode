@@ -236,6 +236,7 @@ export class ThreadService {
       archivedAt: null,
       respondedAt: null,
       readAt: null,
+      markedUnread: false,
       createdAt: now,
       updatedAt: now,
     };
@@ -394,12 +395,18 @@ export class ThreadService {
     return this.#toThread(this.#update(threadId, { title: trimmed }));
   }
 
-  /** Reading is not activity, so the thread keeps its place in the lists. */
-  markRead(threadId: string): void {
+  /**
+   * Marking unread is a flag rather than an older `readAt`, so it works before any response.
+   * Neither is activity, so the thread keeps its place in the lists. No-ops send no broadcast.
+   */
+  setRead(threadId: string, read: boolean): void {
     const thread = this.#require(threadId);
-    if (thread.respondedAt !== null && (thread.readAt ?? 0) < thread.respondedAt) {
-      this.#update(threadId, { readAt: Date.now() });
+    if (!read) {
+      if (!thread.markedUnread) this.#update(threadId, { markedUnread: true });
+      return;
     }
+    const responded = thread.respondedAt !== null && (thread.readAt ?? 0) < thread.respondedAt;
+    if (responded || thread.markedUnread) this.#update(threadId, { readAt: Date.now(), markedUnread: false });
   }
 
   /**

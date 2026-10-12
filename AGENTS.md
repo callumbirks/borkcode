@@ -140,10 +140,12 @@ inventing a fix.
   its parent. `watch: true` on `start_thread`, or any message from the parent, makes it watched.
   Captains are a role chosen at creation, with their own instructions and their own worktree.
 - **Threads are unread when a turn ended with something for the user since they last read it.**
-  The server stores `respondedAt` and `readAt`; the client sends `threads.markRead` after the
+  The server stores `respondedAt` and `readAt`; the client sends `threads.setRead` after the
   thread has been open in a visible tab for 3 seconds. Stopped turns don't count, and neither does
   a watched child's turn the user didn't join, since its reply is its parent's to read. Reading is
-  not activity. Mark as read or unread later only needs to set or clear `readAt`.
+  not activity. Marking unread by hand sets a `markedUnread` flag rather than moving `readAt`, so
+  it works before any response; reading clears it. Marking the open thread unread holds off the
+  automatic read until another thread is opened or a new response arrives (`lib/unread.ts`).
 - **Delegation limits pause deliveries between threads,** not user messages: too many wake-ups of
   one thread in a window (fast loops), or too many across a captain's tree since the user last
   messaged it (slow loops). Paused threads keep their queue until the user resumes or messages.

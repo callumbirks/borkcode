@@ -17,7 +17,7 @@ const db = new Database(join(home, "db.sqlite"));
 function seed(id: string, patch: Partial<StoredThread> = {}) {
   const t: StoredThread = { id, project: "demo", title: id, provider: "codex", model: null, effort: null,
     accessMode: "full", workspace: null, branch: null, status: "idle", parentId: null, captain: false,
-    watched: false, queued: 0, paused: false, archivedAt: null, respondedAt: 100, readAt: null,
+    watched: false, queued: 0, paused: false, archivedAt: null, respondedAt: 100, readAt: null, markedUnread: false,
     createdAt: 1, updatedAt: 100, providerSessionId: null, startBranch: null, ...patch };
   db.insertThread(t);
   return t;
@@ -128,4 +128,26 @@ test("unknown IDs and invalid cursors fail clearly; reads preserve thread and in
   assert.throws(() => refs.readThread("paging", "end", undefined, 0), /limit/);
   await assert.rejects(refs.listThreads("missing"), /Unknown project/);
   await assert.rejects(refs.listThreads("demo", false, "bad"), /cursor/);
+});
+
+test("thread discovery includes manual unread marks and reading preserves them", async () => {
+  const cases = [
+    { markedUnread: true, respondedAt: null, readAt: null, unread: true },
+    { markedUnread: true, respondedAt: 100, readAt: 200, unread: true },
+    { markedUnread: false, respondedAt: 100, readAt: null, unread: true },
+    { markedUnread: false, respondedAt: 100, readAt: 50, unread: true },
+    { markedUnread: false, respondedAt: 100, readAt: 100, unread: false },
+    { markedUnread: false, respondedAt: null, readAt: null, unread: false },
+    { markedUnread: false, respondedAt: 0, readAt: null, unread: false },
+  ];
+  for (const [index, { unread, ...state }] of cases.entries()) {
+    const id = `read-state-${index}`;
+    seed(id, state);
+    db.upsertItem(id, { id: "message", kind: "assistant", text: "A message" });
+    const before = db.getThread(id);
+    assert.equal((await refs.listThreads("demo")).threads.find(t => t.id === id)?.unread, unread);
+    refs.readThread(id);
+    refs.readItem(id, "message");
+    assert.deepEqual(db.getThread(id), before);
+  }
 });

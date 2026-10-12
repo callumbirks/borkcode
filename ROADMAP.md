@@ -50,8 +50,11 @@ What borkcode has shipped and what may come next. The constraints every change w
     get a navigation drawer, full-screen panels, touch targets and a native keyboard composer;
     uploads, previews and visualizations use the same server routes. Reconnect on returning from
     the background or regaining the network.
+16. **Mark as read or unread.** Right-click or long-press a thread in the sidebar, or use the
+    thread header, to mark it read or unread, even before it has a response. A thread marked
+    unread while open stays unread until you leave it. A project's menu marks all its threads read.
 
-16. **`@` thread references.** The picker suggests other non-archived threads by title, inserting
+17. **`@` thread references.** The picker suggests other non-archived threads by title, inserting
     stable `borkcode:thread:<uuid>` references rendered as clickable thread chips. Agents discover
     projects/threads and read transcripts through bounded MCP pages, starting from the end,
     with tool summaries, skipped reasoning and complete text available in chunks.
@@ -60,9 +63,7 @@ What borkcode has shipped and what may come next. The constraints every change w
 
 Not prioritized yet. The order below is a suggestion.
 
-1. **Mark as read or unread.** Actions to mark a thread read or unread by hand, building on the
-   automatic unread indicator.
-2. **File uploads.** Attach any file to a message, not just images, from any device viewing
+1. **File uploads.** Attach any file to a message, not just images, from any device viewing
    borkcode, including remote ones. Builds on the attachments behind images in the prompt, and
    comes after remote and mobile access.
 
