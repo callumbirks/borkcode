@@ -1,0 +1,155 @@
+// The new-thread page: the sidebar's "+" opens it, its draft survives reloads and navigation, the
+// role and workspace pickers show only there, and sending with a file lands on the new thread
+// with the file shown and the draft cleared. Desktop Chromium and an iPhone-sized touch WebKit.
+import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { readdir, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { after, before, describe, test } from "node:test";
+import type { Browser, Page } from "playwright";
+import { launch, missingWebKitLibraries, open, startServer, type Engine, type Server } from "./harness.ts";
+
+const EXISTING = "77777777-7777-4777-8777-777777777777";
+const TEXT = { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("plover\n") };
+
+const engines = (process.env.E2E_BROWSERS ?? "chromium,webkit").split(",") as Engine[];
+const webkitMissing = engines.includes("webkit") ? await missingWebKitLibraries() : null;
+if (webkitMissing) console.warn(webkitMissing);
+
+/** The new-thread draft as saved in this browser, once its debounced write lands. */
+async function savedDraft(page: Page, expected: (draft: string | undefined) => boolean) {
+  const handle = await page.waitForFunction(
+    (source) => {
+      const draft = JSON.parse(localStorage.getItem("borkcode.drafts") ?? "{}")["new:demo"] as string | undefined;
+      return new Function("draft", `return (${source})(draft)`)(draft) ? { draft } : null;
+    },
+    expected.toString(),
+  );
+  return ((await handle.jsonValue()) as { draft?: string }).draft;
+}
+
+/** The pickers of the composer options, from the row on desktop or the sheet on a phone. */
+async function options(page: Page, engine: Engine) {
+  if (engine === "chromium") return page.locator(".desktop-options");
+  await page.locator(".phone-options .summary").click();
+  return page.locator("dialog[open]");
+}
+
+async function closeOptions(page: Page, engine: Engine) {
+  if (engine === "webkit") await page.locator("dialog[open]").getByRole("button", { name: "Done" }).click();
+}
+
+const selected = (page: Page, scope: Awaited<ReturnType<typeof options>>, label: string) =>
+  scope.locator(`select[aria-label="${label}"]`).evaluate((select: HTMLSelectElement) => select.selectedOptions[0]!.text);
+
+for (const engine of engines) {
+  describe(`new thread (${engine})`, { skip: (engine === "webkit" && webkitMissing) || false }, () => {
+    let server: Server;
+    let browser: Browser;
+    before(async () => {
+      server = await startServer([
+        { id: EXISTING, title: "Existing thread", items: [{ id: "e-a", kind: "assistant", text: "Hello." }] },
+      ]);
+      browser = await launch(engine);
+    });
+    after(async () => {
+      await browser?.close();
+      await server?.stop();
+    });
+
+    test("+ opens the page, the draft persists, and sending a file lands on the new thread", async () => {
+      const { page, close } = await open(browser, engine, server, EXISTING);
+      // A thread's composer has no role or workspace to choose.
+      assert.equal(await page.locator('select[aria-label="Role"]').count(), 0);
+
+      if (engine === "webkit") await page.getByRole("button", { name: "Open navigation" }).click();
+      await page.getByTitle("New thread in demo").click();
+      await page.waitForURL(/#\/project\/demo\/new$/);
+      await page.getByText("New thread", { exact: true }).waitFor();
+      assert.equal(await page.locator(".question").count(), 0);
+
+      let picks = await options(page, engine);
+      assert.equal(await selected(page, picks, "Role"), "Thread");
+      assert.equal(await selected(page, picks, "Workspace"), "New worktrees");
+      // Never remembered: choosing Captain now still starts the next visit as a Thread.
+      await picks.locator('select[aria-label="Role"]').selectOption({ label: "Captain" });
+      await closeOptions(page, engine);
+
+      // @ searches the project's main checkouts, since the thread has no worktree yet.
+      const composer = page.locator("[data-composer]");
+      await composer.click();
+      await page.keyboard.type("Read @ONBOA");
+      await page.locator(".mention", { hasText: "ONBOARDING.md" }).waitFor();
+      await page.keyboard.press("Enter");
+      await page.keyboard.type("and summarise it");
+      if (engine === "chromium") await composer.locator(".file-chip", { hasText: "ONBOARDING.md" }).waitFor();
+      const draft = "Read @app/ONBOARDING.md and summarise it";
+      assert.equal(await savedDraft(page, (text) => !!text?.includes("summarise")), draft);
+      // Desktop shows the reference as a chip with the file's name; touch keeps a plain textarea.
+      const shown = engine === "chromium" ? "Read ONBOARDING.md and summarise it" : draft;
+      const text = () => (engine === "chromium" ? composer.textContent() : composer.inputValue());
+
+      await page.reload();
+      await composer.waitFor();
+      assert.equal(await text(), shown);
+      picks = await options(page, engine);
+      assert.equal(await selected(page, picks, "Role"), "Thread");
+      assert.equal(await selected(page, picks, "Workspace"), "New worktrees");
+      await closeOptions(page, engine);
+
+      await page.evaluate(() => (location.hash = "#/project/demo"));
+      await page.getByRole("button", { name: "New thread", exact: true }).click();
+      await page.waitForURL(/#\/project\/demo\/new$/);
+      assert.equal(await text(), shown);
+      picks = await options(page, engine);
+      await picks.locator('select[aria-label="Agent"]').selectOption("codex");
+      await closeOptions(page, engine);
+
+      // Uploads wait in the draft's folder until the thread exists. If they are gone by then, the
+      // send fails on the page and leaves the draft and the file as they were.
+      await page.locator('input[type="file"]').setInputFiles([TEXT]);
+      await page.locator(".strip .chip").waitFor();
+      await page.locator(".strip .progress").waitFor({ state: "detached" });
+      const drafts = join(server.home, "attachments", "drafts");
+      assert.equal((await readdir(drafts)).length, 1);
+      await rm(drafts, { recursive: true });
+      await page.getByRole("button", { name: "Start thread" }).click();
+      await page.getByText("An attachment is missing; attach the file again").waitFor();
+      assert.match(page.url(), /#\/project\/demo\/new$/);
+      assert.equal(await text(), shown);
+      await page.getByTitle("Remove notes.txt").click();
+
+      await page.locator('input[type="file"]').setInputFiles([TEXT]);
+      await page.locator(".strip .progress").waitFor({ state: "detached" });
+      await page.getByRole("button", { name: "Start thread" }).click();
+      await page.waitForURL(/#\/thread\//);
+      const threadId = page.url().split("/").pop()!;
+
+      // The new thread's own flow takes over: its workspace is prepared, then the agent replies.
+      await page.getByTitle("Download notes.txt").waitFor();
+      await page.getByText("Reply finished.").waitFor();
+      const gap = await page.evaluate(() => {
+        const transcript = document.querySelector<HTMLElement>(".transcript")!;
+        return transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight;
+      });
+      assert.ok(gap < 2, `transcript ${gap}px above the bottom after the reply`);
+      assert.deepEqual(await readdir(drafts), []);
+      const [record] = (await readdir(join(server.home, "attachments", threadId))).filter((name) => name.endsWith(".json"));
+      assert.ok(existsSync(join(server.home, "attachments", threadId, record!.replace(".json", ""), "notes.txt")));
+      await page.locator("header .chip", { hasText: "borkcode/" }).waitFor();
+
+      // The draft is gone, and the next new thread starts as a Thread in a worktree with Codex.
+      assert.equal(await savedDraft(page, (text) => text === undefined), undefined);
+      await page.evaluate(() => (location.hash = "#/project/demo/new"));
+      await composer.waitFor();
+      assert.equal(await text(), "");
+      assert.equal(await page.locator(".strip").count(), 0);
+      picks = await options(page, engine);
+      assert.equal(await selected(page, picks, "Agent"), "Codex");
+      assert.equal(await selected(page, picks, "Role"), "Thread");
+      assert.equal(await selected(page, picks, "Workspace"), "New worktrees");
+      await closeOptions(page, engine);
+      await close();
+    });
+  });
+}

@@ -4,6 +4,7 @@
   import ArchivedView from "./components/ArchivedView.svelte";
   import FileView from "./components/FileView.svelte";
   import Home from "./components/Home.svelte";
+  import NewThreadView from "./components/NewThreadView.svelte";
   import ProjectView from "./components/ProjectView.svelte";
   import SettingsView from "./components/SettingsView.svelte";
   import Sidebar from "./components/Sidebar.svelte";
@@ -77,7 +78,11 @@
     {/if}
     {#if nav.route.view === "project"}
       {#key nav.route.name}
-        <ProjectView name={nav.route.name} {compact} />
+        <ProjectView name={nav.route.name} />
+      {/key}
+    {:else if nav.route.view === "new"}
+      {#key nav.route.project}
+        <NewThreadView project={nav.route.project} />
       {/key}
     {:else if nav.route.view === "file"}
       {#key `${nav.route.project}/${nav.route.path}`}

@@ -183,7 +183,8 @@
       {@const threads = threadsByProject.get(project.name) ?? []}
       {@const hidden = filtered.hidden.get(project.name) ?? 0}
       <div class="group">
-        <div class="group-header" class:active={nav.route.view === "project" && nav.route.name === project.name}>
+        <div class="group-header" class:active={(nav.route.view === "project" && nav.route.name === project.name) ||
+          (nav.route.view === "new" && nav.route.project === project.name)}>
           <button
             class="project ghost"
             onclick={() => go({ view: "project", name: project.name })}
@@ -197,7 +198,7 @@
           <button
             class="add ghost icon"
             title="New thread in {project.name}"
-            onclick={() => go({ view: "project", name: project.name })}
+            onclick={() => go({ view: "new", project: project.name })}
           >
             <Plus size={14} />
           </button>

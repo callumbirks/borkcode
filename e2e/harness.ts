@@ -219,13 +219,20 @@ function iosShim() {
 
 export type Session = { page: Page; socket: () => WebSocketRoute; close: () => Promise<void> };
 
-/** A fresh page on a thread, with the WebSocket passed through so tests can add server events. */
+/**
+ * A fresh page on a thread, or on any `hash` with a composer, with the WebSocket passed through so
+ * tests can add server events.
+ */
 export async function open(
   browser: Browser,
   engine: Engine,
   server: Server,
   threadId: string,
-  { base = server.url, context: options = profile(engine) }: { base?: string; context?: BrowserContextOptions } = {},
+  {
+    base = server.url,
+    context: options = profile(engine),
+    hash = `#/thread/${threadId}`,
+  }: { base?: string; context?: BrowserContextOptions; hash?: string } = {},
 ): Promise<Session> {
   const context = await browser.newContext(options);
   const page = await context.newPage();
@@ -238,7 +245,7 @@ export async function open(
     ws.connectToServer();
     route = ws;
   });
-  await page.goto(`${base}/#/thread/${threadId}`);
+  await page.goto(`${base}/${hash}`);
   await page.locator("[data-composer]").waitFor();
   return {
     page,
