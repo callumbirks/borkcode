@@ -1,11 +1,16 @@
 <script lang="ts">
   import Archive from "@lucide/svelte/icons/archive";
+  import ArchiveRestore from "@lucide/svelte/icons/archive-restore";
+  import CheckCheck from "@lucide/svelte/icons/check-check";
   import Crown from "@lucide/svelte/icons/crown";
   import Folder from "@lucide/svelte/icons/folder";
   import Inbox from "@lucide/svelte/icons/inbox";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
+  import Mail from "@lucide/svelte/icons/mail";
+  import MailOpen from "@lucide/svelte/icons/mail-open";
   import Plus from "@lucide/svelte/icons/plus";
   import Settings from "@lucide/svelte/icons/settings";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
   import type { Thread } from "shared/protocol";
   import {
     isUnread,
@@ -16,6 +21,8 @@
     type PullRequestState,
   } from "../lib/display.svelte";
   import { longPress } from "../lib/longPress";
+  import { deleteThread } from "../lib/threadActions";
+  import { workingInSubtree } from "../lib/threadTree";
   import { app, go, nav, rpc } from "../lib/state.svelte";
   import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
   import Spinner from "./Spinner.svelte";
@@ -50,16 +57,35 @@
 
   const setRead = (threadId: string, read: boolean) => void rpc.request("threads.setRead", { threadId, read }).catch(() => undefined);
 
+  // The sidebar has nowhere to show an error, so a refusal the menu could not foresee is an alert.
+  const report = (cause: Error) => alert(cause.message);
+
   function threadItems(thread: Thread): MenuItem[] {
-    return isUnread(thread)
-      ? [{ label: "Mark as read", run: () => setRead(thread.id, true) }]
-      : [{ label: "Mark as unread", run: () => setRead(thread.id, false) }];
+    const working = workingInSubtree(app.threads, thread.id);
+    return [
+      isUnread(thread)
+        ? { label: "Mark as read", icon: MailOpen, run: () => setRead(thread.id, true) }
+        : { label: "Mark as unread", icon: Mail, run: () => setRead(thread.id, false) },
+      thread.archivedAt
+        ? { label: "Unarchive", icon: ArchiveRestore, run: () => setArchived(thread.id, false) }
+        : {
+            label: "Archive",
+            icon: Archive,
+            run: () => setArchived(thread.id, true),
+            disabled: !working ? undefined : working.id === thread.id ? "Stop it to archive" : `Wait for "${working.title}"`,
+          },
+      { label: "Delete", icon: Trash2, danger: true, run: () => void deleteThread(thread).catch(report) },
+    ];
+  }
+
+  function setArchived(threadId: string, archived: boolean) {
+    void rpc.request("threads.archive", { threadId, archived }).catch(report);
   }
 
   function projectItems(threads: { thread: Thread }[]): MenuItem[] {
     const unread = threads.filter(({ thread }) => isUnread(thread));
     if (unread.length === 0) return [];
-    return [{ label: "Mark all as read", run: () => unread.forEach(({ thread }) => setRead(thread.id, true)) }];
+    return [{ label: "Mark all as read", icon: CheckCheck, run: () => unread.forEach(({ thread }) => setRead(thread.id, true)) }];
   }
 
   /** Right-click, or the context menu key, which reports no pointer position, so the menu opens under the row. */

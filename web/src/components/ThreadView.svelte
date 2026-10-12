@@ -30,9 +30,10 @@
   import { referenceRoots } from "../lib/fileReferences";
   import { answer, pick } from "../lib/questions";
   import { BottomPin } from "../lib/pin";
+  import { deleteThread } from "../lib/threadActions";
   import { autoReadDue, nextHold, type ReadHold } from "../lib/unread";
   import { segmentItems, type Segment } from "../lib/segments";
-  import { app, getDraft, go, openThread, rpc, setDraft } from "../lib/state.svelte";
+  import { app, getDraft, openThread, rpc, setDraft } from "../lib/state.svelte";
   import AttachButton from "./AttachButton.svelte";
   import ComposerAttachments from "./ComposerAttachments.svelte";
   import ComposerEditor from "./ComposerEditor.svelte";
@@ -314,20 +315,7 @@
 
   async function remove() {
     if (!thread) return;
-    const what = thread.workspace ? "this thread and its worktrees (branches are kept)" : "this thread";
-    if (!confirm(`Delete ${what}?`)) return;
-    try {
-      await rpc.request("threads.delete", { threadId: id });
-    } catch (cause) {
-      const message = (cause as Error).message;
-      if (!message.startsWith("Uncommitted changes")) {
-        error = message;
-        return;
-      }
-      if (!confirm(`${message}. Delete anyway and lose those changes?`)) return;
-      await rpc.request("threads.delete", { threadId: id, force: true });
-    }
-    go({ view: "project", name: thread.project });
+    await deleteThread(thread).catch((cause: Error) => (error = cause.message));
   }
 </script>
 

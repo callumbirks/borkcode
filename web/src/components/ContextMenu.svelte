@@ -1,5 +1,11 @@
 <script lang="ts" module>
-  export type MenuItem = { label: string; run: () => void };
+  import type Icon from "@lucide/svelte/icons/circle";
+
+  /**
+   * `danger` items, such as Delete, come last after a separator. A disabled item shows why
+   * beneath its label, since touch has no tooltips.
+   */
+  export type MenuItem = { label: string; icon: typeof Icon; run: () => void; danger?: boolean; disabled?: string };
 </script>
 
 <script lang="ts">
@@ -21,7 +27,7 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
-    const buttons = [...(menu?.querySelectorAll("button") ?? [])];
+    const buttons = [...(menu?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
     const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
     const focus = (next: number) => buttons[(next + buttons.length) % buttons.length]?.focus();
     if (event.key === "Escape" || event.key === "Tab") close();
@@ -44,7 +50,7 @@
       left: Math.max(4, Math.min(x, window.innerWidth - width - 4)),
       top: Math.max(4, Math.min(y, window.innerHeight - height - 4)),
     };
-    node.querySelector("button")?.focus();
+    node.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
     const outside = (event: Event) => {
       if (!node.contains(event.target as Node)) onclose();
     };
@@ -72,8 +78,23 @@
   oncontextmenu={(event) => event.preventDefault()}
   {@attach place}
 >
-  {#each items as item (item.label)}
-    <button class="ghost" role="menuitem" tabindex="-1" onclick={() => choose(item)}>{item.label}</button>
+  {#each items as item, index (item.label)}
+    {#if item.danger && index > 0 && !items[index - 1]?.danger}<div class="separator" role="separator"></div>{/if}
+    <button
+      class="ghost"
+      class:danger={item.danger}
+      role="menuitem"
+      tabindex="-1"
+      disabled={!!item.disabled}
+      title={item.disabled}
+      onclick={() => choose(item)}
+    >
+      <item.icon size={14} />
+      <span class="text">
+        {item.label}
+        {#if item.disabled}<span class="hint truncate">{item.disabled}</span>{/if}
+      </span>
+    </button>
   {/each}
 </div>
 
@@ -92,8 +113,41 @@
   }
   button {
     justify-content: flex-start;
+    gap: var(--space-2);
     font-weight: var(--weight-regular);
     color: var(--text-primary);
+  }
+  button :global(svg) {
+    flex-shrink: 0;
+    color: var(--text-muted);
+  }
+  .text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    text-align: left;
+  }
+  .hint {
+    max-width: 220px;
+    font-size: var(--text-2xs);
+    color: var(--text-faint);
+  }
+  button.danger,
+  button.danger :global(svg) {
+    color: var(--status-danger);
+  }
+  button.danger:hover:not(:disabled),
+  button.danger:focus-visible {
+    background: var(--status-danger-soft);
+    color: var(--status-danger);
+  }
+  button.danger:focus-visible {
+    outline-color: var(--status-danger);
+  }
+  .separator {
+    height: 1px;
+    margin: var(--space-1) 0;
+    background: var(--border-subtle);
   }
   @media (pointer: coarse) {
     button {
