@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 // Stands in for `codex app-server` in the browser tests, so sending a message runs a real turn
 // through the server without a provider. Each turn streams a short reply in deltas, ending with
-// the service tier it was asked for, which is how fast mode reaches Codex.
+// the service tier it was asked for, which is how fast mode reaches Codex. `thread/compact/start`
+// compacts as Codex does, holding the compaction until the test creates `release-compaction` in
+// the server's home, so a test can see it running.
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 
 const send = (message) => process.stdout.write(JSON.stringify(message) + "\n");
@@ -19,6 +23,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     ] } });
   }
   if (method === "thread/start" || method === "thread/resume") return send({ id, result: { thread: { id: "fake-thread" } } });
+  if (method === "thread/compact/start") return compact(id);
   if (method !== "turn/start") return send({ id, result: {} });
 
   const turn = { id: `turn-${++turns}`, status: "inProgress" };
@@ -36,7 +41,29 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       return;
     }
     clearInterval(timer);
+    usage(16_040);
     notify("item/completed", { threadId, item: { type: "agentMessage", id: itemId, text: chunks.join("") + `Reply finished.\n\nService tier: ${params.serviceTierForTurn ?? "none"}.` } });
     notify("turn/completed", { threadId, turn: { ...turn, status: "completed" } });
   }, 40);
 });
+
+function usage(totalTokens) {
+  notify("thread/tokenUsage/updated", { threadId: "fake-thread", turnId: `turn-${turns}`, tokenUsage: { last: { totalTokens } } });
+}
+
+function compact(id) {
+  send({ id, result: {} });
+  const turn = { id: `turn-${++turns}`, status: "inProgress" };
+  const threadId = "fake-thread";
+  const item = { type: "contextCompaction", id: `compaction-${turns}` };
+  notify("turn/started", { threadId, turn });
+  notify("item/started", { threadId, turnId: turn.id, item });
+  const release = join(process.env.BORKCODE_HOME ?? ".", "release-compaction");
+  const timer = setInterval(() => {
+    if (!existsSync(release)) return;
+    clearInterval(timer);
+    usage(10_011);
+    notify("item/completed", { threadId, turnId: turn.id, item });
+    notify("turn/completed", { threadId, turn: { ...turn, status: "completed" } });
+  }, 20);
+}

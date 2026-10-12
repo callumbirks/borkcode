@@ -1,22 +1,31 @@
 <script lang="ts">
   import MessagesSquare from "@lucide/svelte/icons/messages-square";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
-  import type { Mention, MentionScope } from "shared/protocol";
+  import type { Mention, MentionScope, ProviderCommand, ProviderKind } from "shared/protocol";
+  import { commandAt, insertCommand, searchCommands } from "../lib/commands";
   import { enterThreadMode, fileName, insertMention, mentionAt, mentionSearch, pickerEntries, type PickerEntry } from "../lib/mentions";
-  import { rpc } from "../lib/state.svelte";
+  import { app, commands, loadCommands, rpc } from "../lib/state.svelte";
   import type ComposerEditor from "./ComposerEditor.svelte";
 
-  // Suggests what to insert after an `@` typed in the composer. The composer forwards its keydown
-  // events to `keydown`, which claims the ones the open list uses.
+  // Suggests what to insert after an `@` typed in the composer, or the provider's commands after a
+  // `/` that opens the message. The composer forwards its keydown events to `keydown`, which
+  // claims the ones the open list uses.
   let {
     scope,
     editor,
     text,
+    provider,
+    newThread = false,
   }: {
     scope: MentionScope;
     editor: ComposerEditor | undefined;
     text: string;
+    provider: ProviderKind;
+    /** Offers only the commands that can open a thread. */
+    newThread?: boolean;
   } = $props();
+
+  type Entry = PickerEntry | { kind: "command"; reference: string; command: ProviderCommand };
 
   let caret = $state(0);
   let focused = $state(false);
@@ -26,10 +35,36 @@
   let dismissed = $state<number | null>(null);
   let list = $state<HTMLElement>();
 
-  const typing = $derived(focused ? mentionAt(text, caret) : null);
-  const query = $derived(typing?.query ?? null);
-  const entries = $derived(query === null ? [] : pickerEntries(query, results));
-  const open = $derived(typing !== null && typing.start !== dismissed && entries.length > 0);
+  const slash = $derived(focused ? commandAt(text, caret) : null);
+  const typing = $derived(slash ?? (focused ? mentionAt(text, caret) : null));
+  const query = $derived(slash || !typing ? null : typing.query);
+  const offered = $derived((commands[provider] ?? []).filter((command) => !newThread || command.firstMessage));
+  const entries: Entry[] = $derived(
+    slash
+      ? searchCommands(offered, slash.query).map((command) => ({ kind: "command", reference: `/${command.name}`, command }))
+      : query === null
+        ? []
+        : pickerEntries(query, results),
+  );
+  /** The command menu was closed with Escape; it stays closed until the `/` is typed again. */
+  let commandDismissed = $state(false);
+  const open = $derived(
+    (slash ? !commandDismissed : typing !== null && typing.start !== dismissed) && entries.length > 0,
+  );
+
+  $effect(() => {
+    if (app.connected) void loadCommands(provider);
+  });
+
+  $effect(() => {
+    if (!slash) commandDismissed = false;
+  });
+
+  // A new filter starts from the best match.
+  $effect(() => {
+    void slash?.query;
+    active = 0;
+  });
 
   $effect(() => {
     const box = editor;
@@ -89,24 +124,34 @@
     if (event.key === "ArrowDown") active = (active + 1) % entries.length;
     else if (event.key === "ArrowUp") active = (active - 1 + entries.length) % entries.length;
     else if (event.key === "Enter" || event.key === "Tab") choose(entries[active]);
-    else if (event.key === "Escape") dismissed = typing.start;
-    else return false;
+    else if (event.key === "Escape") {
+      if (slash) commandDismissed = true;
+      else dismissed = typing.start;
+    } else return false;
     event.preventDefault();
     event.stopPropagation();
     return true;
   }
 
-  function choose(mention: PickerEntry) {
+  function choose(mention: Entry) {
     if (!typing || !editor) return;
-    const next = mention.kind === "category"
-      ? enterThreadMode(text, typing.start, caret)
-      : insertMention(text, typing.start, caret, mention.reference);
+    const next = mention.kind === "command"
+      ? insertCommand(text, caret, mention.command.name)
+      : mention.kind === "category"
+        ? enterThreadMode(text, typing.start, caret)
+        : insertMention(text, typing.start, caret, mention.reference);
     results = [];
     editor.setText(next.text, next.caret);
+    // A tap moves the caret without a key event, and a touch textarea's selectionchange may not
+    // reach the document.
+    caret = next.caret;
   }
 
   /** How a suggestion is shown; each kind of mention adds its case here. */
-  function describe(mention: PickerEntry): { title: string; label: string; detail: string } {
+  function describe(mention: Entry): { title: string; label: string; detail: string } {
+    if (mention.kind === "command") {
+      return { title: mention.reference, label: mention.command.argumentHint, detail: mention.command.description };
+    }
     if (mention.kind === "category") return { title: "Threads", label: "", detail: "Search threads in all projects" };
     if (mention.kind === "thread") return { title: `↳ ${mention.title}`, label: "Thread", detail: `${mention.project} · ${mention.status}` };
     return { title: fileName(mention.path), label: mention.repo ?? "Project files", detail: mention.path };
@@ -114,7 +159,7 @@
 </script>
 
 {#if open}
-  <div class="mentions" role="listbox" bind:this={list}>
+  <div class="mentions" role="listbox" aria-label={slash ? "Commands" : "Mentions"} bind:this={list}>
     {#each entries as mention, index (mention.reference)}
       {@const row = describe(mention)}
       <button
@@ -123,7 +168,7 @@
         role="option"
         aria-selected={index === active}
         tabindex="-1"
-        onpointerdown={(event) => event.preventDefault()}
+        onmousedown={(event) => event.preventDefault()}
         onmousemove={() => (active = index)}
         onclick={() => choose(mention)}
       >

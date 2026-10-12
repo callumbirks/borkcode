@@ -9,7 +9,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { deflateSync, crc32 } from "node:zlib";
 import { chromium, devices, webkit, type Browser, type BrowserContextOptions, type Page, type WebSocketRoute } from "playwright";
-import type { ModelOption, ProviderKind } from "../shared/protocol.ts";
+import type { ModelOption, ProviderCommand, ProviderKind } from "../shared/protocol.ts";
 import type { Item, StoredThreadSeed } from "./seed.ts";
 import { seed } from "./seed.ts";
 
@@ -234,12 +234,15 @@ export async function open(
     context: options = profile(engine),
     hash = `#/thread/${threadId}`,
     models,
+    commands,
   }: {
     base?: string;
     context?: BrowserContextOptions;
     hash?: string;
     /** Answers `models.list` for these providers in place of the server, e.g. Claude, whose CLI fails here. */
     models?: Partial<Record<ProviderKind, ModelOption[]>>;
+    /** Answers `commands.list` for these providers in place of the server. */
+    commands?: Partial<Record<ProviderKind, ProviderCommand[]>>;
   } = {},
 ): Promise<Session> {
   const context = await browser.newContext(options);
@@ -252,10 +255,11 @@ export async function open(
   await page.routeWebSocket("**/ws", (ws) => {
     const upstream = ws.connectToServer();
     route = ws;
-    if (!models) return;
+    if (!models && !commands) return;
     ws.onMessage((message) => {
       const request = JSON.parse(String(message)) as { id: number; method: string; params: { provider?: ProviderKind } };
-      const list = request.method === "models.list" && request.params.provider && models[request.params.provider];
+      const stubs = request.method === "models.list" ? models : request.method === "commands.list" ? commands : undefined;
+      const list = request.params.provider && stubs?.[request.params.provider];
       if (list) ws.send(JSON.stringify({ id: request.id, result: list }));
       else upstream.send(message);
     });
