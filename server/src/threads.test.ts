@@ -13,7 +13,7 @@ import { borkcodeMessage, SERVER_STOPPED_NOTE, userMessage } from "./delegation.
 import { ProjectStore } from "./projects.ts";
 import type { PullRequestState } from "./pullRequests.ts";
 import type { ProviderSession, SessionEvents, TurnAttachment, TurnSettings } from "./providers/types.ts";
-import { SettingsStore } from "./settings.ts";
+import { DEFAULT_SETTINGS, SettingsStore } from "./settings.ts";
 import { ThreadService } from "./threads.ts";
 import { MAX_VISUALIZATION_BYTES } from "./visualizations.ts";
 
@@ -868,4 +868,80 @@ test("show_html stores the page beside the attachments, records only its id and 
   other.agent.finish("done");
   await threads.delete(thread.id, true);
   assert.ok(!existsSync(attachments.dir(thread.id)));
+});
+
+test("automatic archiving tucks away inactive subtrees with a notice, and does nothing when off", async () => {
+  const archiveHome = await mkdtemp(join(tmpdir(), "borkcode-archive-"));
+  after(() => rm(archiveHome, { recursive: true, force: true }));
+  const archiveSettings = new SettingsStore(archiveHome);
+  const events: ServerEvent[] = [];
+  const archiveDb = new Database(":memory:");
+  const service = new ThreadService(
+    archiveDb,
+    projects,
+    archiveSettings,
+    (event) => events.push(event),
+    "http://test/mcp/",
+    attachments,
+    fakeDeps,
+  );
+  const day = 24 * 60 * 60 * 1000;
+  const now = Date.now() + 30 * day;
+  const seed = (id: string, parentId: string | null, status: "idle" | "running" = "idle") =>
+    archiveDb.insertThread({
+      id,
+      project: "demo",
+      title: id,
+      provider: "claude",
+      model: null,
+      effort: null,
+      accessMode: "full",
+      workspace: null,
+      branch: null,
+      status,
+      providerSessionId: null,
+      startBranch: null,
+      parentId,
+      captain: false,
+      watched: false,
+      paused: false,
+      queued: 0,
+      archivedAt: null,
+      respondedAt: null,
+      readAt: null,
+      markedUnread: false,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  seed("captain", null);
+  seed("busy", "captain", "running");
+  seed("done", "captain");
+  seed("lonely", null);
+  seed("finished", "lonely");
+  const archived = () => service.list().filter((thread) => thread.archivedAt !== null).map((thread) => thread.id).sort();
+  const notices = async (id: string) =>
+    (await service.get(id)).items.flatMap((item) => (item.kind === "notice" ? [item.text] : []));
+
+  await archiveSettings.update({ ...DEFAULT_SETTINGS, autoArchive: { enabled: false, days: 7 } });
+  await service.autoArchive(now);
+  assert.deepEqual(archived(), []);
+
+  await archiveSettings.update({ ...DEFAULT_SETTINGS, autoArchive: { enabled: true, days: 31 } });
+  await service.autoArchive(now);
+  assert.deepEqual(archived(), []);
+
+  await archiveSettings.update({ ...DEFAULT_SETTINGS, autoArchive: { enabled: true, days: 7 } });
+  const before = service.list().map((thread) => thread.updatedAt);
+  await service.autoArchive(now);
+  assert.deepEqual(archived(), ["done", "finished", "lonely"]);
+  assert.deepEqual(await notices("lonely"), ["Archived automatically after 7 days inactive"]);
+  assert.deepEqual(await notices("finished"), ["Archived automatically after 7 days inactive"]);
+  assert.deepEqual(await notices("captain"), []);
+  assert.ok(events.some((event) => event.type === "thread.updated" && event.thread.id === "lonely" && event.thread.archivedAt !== null));
+  // Archiving is not activity.
+  assert.deepEqual(service.list().map((thread) => thread.updatedAt), before);
+
+  // Already archived threads are left alone, without a second notice.
+  await service.autoArchive(now);
+  assert.deepEqual(await notices("lonely"), ["Archived automatically after 7 days inactive"]);
 });

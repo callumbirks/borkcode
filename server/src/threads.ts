@@ -21,6 +21,7 @@ import type {
   ThreadDetail,
 } from "shared/protocol";
 import type { AttachmentStore } from "./attachments.ts";
+import { threadsToArchive } from "./autoArchive.ts";
 import type { PreviewRoots } from "./threadFiles.ts";
 import { findSource, readHtmlFile, VisualizationStore, type VisualizationSource } from "./visualizations.ts";
 import { toThread, type Database, type InboxMessage, type StoredThread } from "./db.ts";
@@ -433,6 +434,28 @@ export class ThreadService {
       archived ? Date.now() : null,
     );
     for (const each of changed) this.#emitThread(each.id);
+  }
+
+  /**
+   * Archives what has been inactive for the configured number of days, with a notice saying why.
+   * Threads that are working are refused by `setArchived` and simply wait for the next run.
+   */
+  async autoArchive(now = Date.now()): Promise<void> {
+    const { autoArchive } = await this.#settings.get();
+    if (!autoArchive.enabled) return;
+    const roots = threadsToArchive(this.list(), (id) => this.#db.listPullRequests(id), autoArchive.days, now);
+    for (const id of roots) {
+      const thread = this.#db.getThread(id);
+      if (!thread || thread.archivedAt !== null) continue;
+      const archiving = this.#subtree(thread).filter((each) => each.archivedAt === null);
+      try {
+        this.setArchived(id, true);
+      } catch {
+        continue;
+      }
+      const days = autoArchive.days === 1 ? "1 day" : `${autoArchive.days} days`;
+      for (const each of archiving) this.#notice(each.id, "info", `Archived automatically after ${days} inactive`);
+    }
   }
 
   /** The thread and every thread below it. */
