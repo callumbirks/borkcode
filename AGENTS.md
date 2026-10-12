@@ -38,7 +38,9 @@ inventing a fix.
 - **Network access is a server-owned Settings toggle, off by default.** `networkAccess` persists
   in settings.json. `NetworkAccess` keeps the main loopback listener on and adds/removes listeners
   only on Tailscale addresses (100.64.0.0/10 and fd7a:115c:a1e0::/48). No wildcard or LAN bind.
-  Discovery retries every 30 seconds while enabled, reading interfaces and the optional CLI.
+  Discovery retries every 30 seconds while enabled. The CLI's self TailscaleIPs are authoritative;
+  without it only Linux tailscale0 or macOS utun interfaces with a Tailscale-range address qualify.
+  Never infer Tailscale ownership from the CGNAT range on an arbitrary interface.
   The server broadcasts reachable URLs; the browser does not discover its own addresses. An
   existing Serve configuration targeting this port is probed before its HTTPS URL is advertised.
 - **Host is allowlisted from loopback and detected Tailscale addresses/MagicDNS.** Proxy headers
@@ -195,9 +197,12 @@ inventing a fix.
   are applied to the text and redrawn, with the composer's own undo stack. IME composition edits
   the DOM and is read back when it ends. Chips show the file name and a relative path on hover,
   never an absolute one.
-- **Transcript items use `content-visibility: auto`.** Without it every keystroke in the composer
+- **Chromium transcript items use `content-visibility: auto`.** Without it every keystroke in the composer
   paid to paint and hit-test the whole transcript. It contains each item's layout and paint, so a
   fixed overlay inside an item must move to `document.body` (`MessageAttachments` does).
+  Safari uses real item heights: skipped-item placeholders jump while scrolling without effective
+  scroll anchoring, including WebKit builds that parse overflow-anchor. Upward scroll intent unpins
+  before resizing, and upward momentum after touchend takes priority over the bottom threshold.
   Work groups render their steps only once opened, since long threads hold hundreds of them.
 - **The composer's input box and the sidebar are their own compositor layers**
   (`transform: translateZ(0)`), so a keystroke or a sidebar update re-rasters only that layer

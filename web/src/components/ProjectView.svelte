@@ -5,10 +5,11 @@
   import { providerLabel, relativeTime } from "../lib/display.svelte";
   import { app, go, loadFiles, rpc } from "../lib/state.svelte";
   import FileTree from "./FileTree.svelte";
-  import ModelPicker from "./ModelPicker.svelte";
+  import ComposerOptions from "./ComposerOptions.svelte";
+  import { resizeTextarea } from "../lib/textarea";
   import RepoEditor from "./RepoEditor.svelte";
 
-  let { name }: { name: string } = $props();
+  let { name, compact = false }: { name: string; compact?: boolean } = $props();
 
   const project = $derived(app.projects.find((candidate) => candidate.name === name));
   const threads = $derived(
@@ -65,11 +66,14 @@
   let starting = $state(false);
   let threadError = $state("");
 
-  function pickProvider(next: ProviderKind) {
-    provider = next;
-    model = null;
-    effort = null;
-  }
+  let textarea = $state<HTMLTextAreaElement>();
+  $effect(() => {
+    void message;
+    if (textarea) {
+      if (compact) resizeTextarea(textarea);
+      else textarea.style.height = "";
+    }
+  });
 
   async function createThread(event?: SubmitEvent) {
     event?.preventDefault();
@@ -97,7 +101,7 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
-    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+    if (!compact && event.key === "Enter" && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       void createThread();
     }
@@ -117,37 +121,20 @@
       <form class="composer" onsubmit={createThread}>
         <textarea
           bind:value={message}
+          bind:this={textarea}
           onkeydown={onKeydown}
-          rows="3"
-          placeholder="What should the agent do? The thread is named from this."
+          rows={compact ? 1 : 3}
+          aria-label="New thread message"
+          placeholder={compact ? "What should the agent do?" : "What should the agent do? The thread is named from this."}
           required
         ></textarea>
         <div class="actions">
-          <select
-            title="Agent"
-            value={provider}
-            onchange={(event) => pickProvider(event.currentTarget.value as ProviderKind)}
-          >
-            <option value="claude">Claude</option>
-            <option value="codex">Codex</option>
-          </select>
-          <ModelPicker {provider} bind:model bind:effort compact />
-          <select title="Access" bind:value={accessMode}>
-            <option value="ask">Ask first</option>
-            <option value="full">Full access</option>
-          </select>
-          <select title="Role" bind:value={captain}>
-            <option value={false}>Thread</option>
-            <option value={true}>Captain</option>
-          </select>
-          <select title="Workspace" bind:value={isolated} disabled={captain}>
-            <option value={true}>New worktrees</option>
-            <option value={false}>Main checkouts</option>
-          </select>
+          <ComposerOptions bind:provider bind:model bind:effort bind:accessMode bind:captain bind:isolated newThread />
           <span class="grow"></span>
           <button
             class="primary icon"
             type="submit"
+            aria-label="Start thread"
             title="Start thread (Enter)"
             disabled={project.repos.length === 0 || starting || !message.trim()}
           >
@@ -233,16 +220,6 @@
     gap: var(--space-1);
     margin-top: var(--space-2);
   }
-  .actions select {
-    background: none;
-    border-color: transparent;
-    color: var(--text-secondary);
-    padding: var(--space-1) var(--space-1-5);
-  }
-  .actions select:hover {
-    background: var(--surface-hover);
-    color: var(--text-primary);
-  }
   .actions .icon {
     border-radius: var(--radius-full);
   }
@@ -260,5 +237,10 @@
   }
   .inline input:first-child {
     flex: 1;
+  }
+  @media (max-width: 900px) {
+    textarea { min-height: 44px; max-height: 24vh; font-size: 16px; }
+    .actions .grow { display: none; }
+    .actions { flex-wrap: nowrap; }
   }
 </style>

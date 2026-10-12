@@ -60,7 +60,7 @@
     {/if}
     {#if nav.route.view === "project"}
       {#key nav.route.name}
-        <ProjectView name={nav.route.name} />
+        <ProjectView name={nav.route.name} {compact} />
       {/key}
     {:else if nav.route.view === "file"}
       {#key `${nav.route.project}/${nav.route.path}`}

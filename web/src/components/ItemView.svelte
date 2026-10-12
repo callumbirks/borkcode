@@ -376,8 +376,10 @@
     border-color: var(--border-strong);
   }
   .thumbnail img {
-    max-width: 240px;
-    max-height: 160px;
+    /* Reserve the preview box before a lazy image loads, including in Safari. */
+    width: 240px;
+    height: 160px;
+    max-width: 100%;
     object-fit: contain;
     background: var(--surface-raised);
   }

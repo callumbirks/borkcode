@@ -36,7 +36,9 @@
       focused = document.activeElement === element;
       caret = box.caret();
     };
-    const blur = () => (focused = false);
+    // Removing a focused textarea fires blur inside Svelte's route rendering. Defer the
+    // state write until that render finishes, and account for focus moving back meanwhile.
+    const blur = () => queueMicrotask(() => (focused = document.activeElement === element));
     document.addEventListener("selectionchange", sync);
     element.addEventListener("input", sync);
     element.addEventListener("select", sync);

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { chipBeside, coverReferences, History, insertBeside, replaceRange, sameChips, type Snapshot } from "../lib/composerModel";
   import { findFileReferences, splitReferences, type FileReference, type ReferenceRoots } from "../lib/fileReferences";
+  import { resizeTextarea } from "../lib/textarea";
 
   // The composer's text box. A textarea can't show file references as chips, so this is a
   // contenteditable whose text stays the source of truth. Plain typing and deleting inside one
@@ -26,6 +27,10 @@
 
   const touch = matchMedia("(pointer: coarse)").matches;
   let textarea = $state<HTMLTextAreaElement>();
+  $effect(() => {
+    void value;
+    if (textarea) resizeTextarea(textarea);
+  });
   let element = $state<HTMLDivElement>();
   let text = "";
   /** Where the last typed character ended; a reference still being typed there stays plain text. */
@@ -341,7 +346,7 @@
 <div class="editor">
   {#if touch}
     <textarea bind:this={textarea} class="input touch-input" value={value} {placeholder} aria-label={placeholder} data-composer
-      rows="3" autocapitalize="sentences" spellcheck="true"
+      rows="1" autocapitalize="sentences" spellcheck="true"
       oninput={() => onchange(textarea?.value ?? "")} {onkeydown} {onpaste}></textarea>
   {:else}
   {#if !value && !composing}<div class="placeholder">{placeholder}</div>{/if}

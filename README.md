@@ -149,6 +149,8 @@ is already configured to proxy this borkcode port, borkcode verifies the endpoin
 
 A phone has a menu drawer and full-screen overview, file and visualization panels. Tap outside
 the drawer or use its close button. The composer follows the visible viewport above the keyboard.
+Its compact model/access button opens a sheet with the full options; the new-thread form uses the
+same sheet for provider, role and workspace. Empty inputs stay short and grow as you type.
 Touch devices use a native textarea for predictive text, autocorrect and composition, with `@`
 file picking and image paste/attachment support; references become chips in sent messages. Enter
 adds a newline there; tap Send. Returning to the app or regaining the network reconnects and
