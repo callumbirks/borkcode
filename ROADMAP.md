@@ -74,6 +74,11 @@ What borkcode has shipped and what may come next. The constraints every change w
 
 - Checkpoints/restore.
 - Other providers.
+- Threads in other projects. Let a thread start a thread in another project, for example when a
+  Doofcraft change also needs work in vessel-deploy-rs. The new thread isn't a child, but it still
+  supports `watch` and messages between the two threads when needed. This changes how threads,
+  children, watching and delegation limits work, so it waits. For now, a project that needs both
+  repos holds them both.
 - Hardware budgets and a run queue. Heavy commands such as builds and test servers take memory
   from a machine-wide budget and wait in a queue when it's full, so parallel threads don't run the
   machine out of memory. Ideas: `ideas/machine-resources.md` in the shared project files.
