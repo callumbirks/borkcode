@@ -64,6 +64,12 @@
     max-width: min(240px, 100%);
     padding: 0 var(--space-6) 0 var(--space-3);
   }
+  /* Touch layouts make the remove button a taller, wider target. */
+  @media (pointer: coarse), (max-width: 900px) {
+    .chip {
+      padding-right: var(--space-8);
+    }
+  }
   .failed {
     border-color: var(--status-danger);
   }

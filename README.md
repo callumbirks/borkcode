@@ -45,10 +45,13 @@ files by their absolute path. Claude reads referenced files into the message its
 the path and opens the file when it needs it. References show as chips with the file name, in the composer and in
 messages; hover one for its path, or tap it on a phone. Backspace after a chip removes the whole reference.
 
-Paste, drag in or attach (the paperclip) PNG, JPEG, GIF or WebP images, up to 20 MB each, to send
-them with a message; a message can be just images. They upload as soon as you add them, and Send
-waits until they have. The agent sees each image and is also told where it is saved, so it can use
-the file itself. Click an image in the transcript to see it full size.
+Paste, drag in or attach (the paperclip) any files to send them with a message; a message can be
+just attachments. PNG, JPEG, GIF and WebP images can be up to 20 MB each, other files up to 100 MB.
+They upload as soon as you add them, and Send waits until they have. The agent sees each image
+and is told where every file is saved, with its type and size, so it reads other files with its
+own tools. Click an image in the transcript to see it full size; other files show as chips that
+download under their own name. On a phone the paperclip offers Files as well as the camera and
+photo library.
 
 File paths in the transcript are links when they name a file in the thread's workspace or project
 files: paths in the agent's messages (in code or plain text, absolute or relative to the workspace
@@ -168,7 +171,7 @@ detected addresses and MagicDNS name. Funnel requests are refused, and `/mcp/` a
 direct local agent requests. Sandboxed visualization assets use a capability route; other
 opaque-origin requests remain refused.
 
-HTTP on the Tailscale IP or MagicDNS name supports image paste, attachment upload, file previews,
+HTTP on the Tailscale IP or MagicDNS name supports file paste, attachment upload and download, file previews,
 visualizations and copying paths/URLs. If [Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve)
 is already configured to proxy this borkcode port, borkcode verifies the endpoint and also lists
 **Tailscale HTTPS (Serve)**. HTTPS is optional; it works with the same Host and asset guards.
@@ -178,7 +181,7 @@ the drawer or use its close button. The composer follows the visible viewport ab
 Its compact model/access button opens a sheet with the full options; the new-thread form uses the
 same sheet for provider, role and workspace. Empty inputs stay short and grow as you type.
 Touch devices use a native textarea for predictive text, autocorrect and composition, with `@`
-file picking and image paste/attachment support; references become chips in sent messages. Enter
+file picking and file paste/attachment support; references become chips in sent messages. Enter
 adds a newline there; tap Send. Returning to the app or regaining the network reconnects and
 reloads server state while keeping your draft.
 

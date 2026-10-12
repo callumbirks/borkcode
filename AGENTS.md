@@ -162,10 +162,16 @@ inventing a fix.
   `POST /api/threads/<id>/attachments` stores the raw body under `<home>/attachments/<thread id>/`
   (outside every repo, removed with the thread) and returns `{ id, name, mimeType, size }`;
   messages carry ids, and the inbox and transcript carry the records. Uploads are refused unless
-  same-origin, like `/ws`, and only ids that are UUIDs reach the filesystem. Only images are
-  accepted for now (not SVG, which could run script from our origin). Adapters send images
+  same-origin, like `/ws`, and only ids that are UUIDs reach the filesystem. Any type is accepted,
+  with the browser's type recorded (else `application/octet-stream`); PNG, JPEG, GIF and WebP are
+  images, capped at 20 MB, and everything else at 100 MB (`attachments.ts`). Images are stored as
+  `<id><ext>` and served inline. Other files, SVG included, are stored as `<id>/<sanitised name>`
+  (their own folder, so `x.json` cannot clash with the `<id>.json` record) and only ever served
+  as `application/octet-stream` with `Content-Disposition: attachment`, so uploaded HTML or SVG
+  never renders from our origin; both keep `nosniff` and the sandbox CSP. Adapters send images
   natively (Claude base64 blocks, Codex `localImage` paths) and name every attachment's path in
-  the text, which is how other file types will reach agents; the folder is a writable root.
+  the text, other files with type and size, which is how agents read them; the folder is a
+  writable root (Claude `additionalDirectories`, Codex `writable_roots`) in every access mode.
 - **The browser reads thread files over HTTP, never by local path,** so previews work from a
   remote browser too. `GET /api/threads/<id>/files?root=workspace|project&path=<rel>` serves a
   file or folder listing from the thread's workspace or its project files, same-origin only like
