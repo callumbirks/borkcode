@@ -63,6 +63,10 @@ What borkcode has shipped and what may come next. The constraints every change w
     tailnet: paste, drop or the paperclip (which offers Files and the photo library on phones).
     Images keep native handling; other files, up to 100 MB, show as chips with name and size,
     reach agents as a saved path they read with their own tools, and download from the transcript.
+19. **Provider commands and compaction.** Typing `/` at the start of the chatbox suggests the
+    agent's own commands that work in borkcode (Claude's `/compact`, `/context` and `/usage`,
+    Codex's `/compact`). Compaction, manual or automatic, shows while it runs and leaves a marker
+    with its token counts and, for Claude, the summary.
 
 ## Next
 

@@ -247,6 +247,23 @@ inventing a fix.
   The New thread buttons focus it through `startNewThread`, which sets the route, renders with
   `flushSync` and focuses inside the click: iOS opens the keyboard only for focus within the tap,
   and `hashchange` arrives after it. Reloads and history navigation don't focus it.
+- **Provider commands are the provider's own, run as the message text or the matching method.**
+  `commands.list` gives Claude's `supportedCommands()` filtered to `builtin` rows on an allowlist
+  that works headless (`compact`, `context`, `usage`; bundled skills are `builtin` too), and Codex's
+  `/compact`, which the adapter maps to `thread/compact/start` (a turn of its own, not steerable).
+  Commands that drive the TUI, duplicate borkcode's pickers, rewrite the session behind it (`clear`,
+  `rename`) or assume the cwd is a repo (`init`, reviews) are left out; each adapter's list says
+  why. Providers run a command only when it opens the message, so the composer's `/` menu opens
+  only at the start, and delivery sends a user message starting with `/name` alone, as typed,
+  unsteered and without the server-stopped note (`shared/commands.ts`). `firstMessage` marks those
+  the new-thread page may offer.
+- **Compaction is an item, not a notice.** Claude's `compacting` status opens it, `compact_boundary`
+  completes it with trigger and pre/post tokens, and the synthetic user message after it is the
+  summary. After compacting, Claude re-emits the kept messages with their old uuids, so the adapter
+  drops assistant messages it has seen. Codex's `contextCompaction` item has only an id: the
+  trigger is whether borkcode asked, and sizes come from `thread/tokenUsage/updated` (`last`)
+  before and during it. A compaction still running when its turn ends is failed by the adapter; one
+  left running by a crash shows as not finished.
 - **The composer is a contenteditable whose plain text is the source of truth**
   (`ComposerEditor.svelte`), so file references can show as chips. Plain typing and deleting
   inside one text node is left to the browser and read back from that node; redrawing on every
@@ -339,6 +356,8 @@ inventing a fix.
   projects, without read receipts, PR refreshes, activity updates or agent deliveries. Transcript
   cursors use SQLite seq, count non-reasoning items, and advance older from the end/newer from the
   start. Tools expose summaries only; long item text is fetched in bounded character chunks.
+- **Suggestion rows keep the composer focused on `mousedown`, not `pointerdown`.** Preventing a
+  touch `pointerdown` makes WebKit drop the tap's click, so a tapped suggestion did nothing.
 - **Claude expands `@path` in prompts.** The CLI, also under the SDK, turns each `@path` (or
   `@"path with spaces"`) in a user message into an inlined Read result. Codex passes the text
   through. The composer's `@` picker relies on this and inserts paths, never file contents.

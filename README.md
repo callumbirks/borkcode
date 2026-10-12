@@ -76,6 +76,21 @@ files by their absolute path. Claude reads referenced files into the message its
 the path and opens the file when it needs it. References show as chips with the file name, in the composer and in
 messages; hover one for its path, or tap it on a phone. Backspace after a chip removes the whole reference.
 
+Type `/` at the start of a message for the agent's own commands, picked the same way as `@`
+suggestions (or tapped). They run only as a message of their own, so one sent while the agent works
+waits for its turn to end. Claude offers `/compact` (with optional instructions for the summary),
+`/context` and `/usage`; Codex offers `/compact`. The new-thread page offers only commands that
+make sense as a first message, so not `/compact`. Other provider commands are left out because
+borkcode has its own controls for them (model, effort, fast mode), they only work in the terminal
+UI, or they assume the working directory is a repo; skills and your own custom commands are not
+listed.
+
+Compacting replaces the agent's context with a summary so the conversation can go on. It happens
+on `/compact` or by itself when the context fills up. While it runs the thread shows
+"Compacting…"; afterwards a "Context compacted" rule stays in the transcript with whether it was
+manual or automatic and the context's size before and after. Claude's summary is folded under the
+rule; click it to read it.
+
 Paste, drag in or attach (the paperclip) any files to send them with a message; a message can be
 just attachments. PNG, JPEG, GIF and WebP images can be up to 20 MB each, other files up to 100 MB.
 They upload as soon as you add them, and Send waits until they have. The agent sees each image
