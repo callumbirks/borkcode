@@ -44,7 +44,9 @@ export function buildInstructions(
       `- Commit on ${thread.branch} in every repository the step changed.`,
       "- Keep each commit focused on one change, with a message that says what changed and why.",
       "- Do not end a turn with finished work left uncommitted. If you stop partway, say what is uncommitted and why.",
-      "- Do not amend or rewrite commits you did not just make, and do not push unless asked.",
+      thread.captain
+        ? "- Do not amend or rewrite commits you did not just make, and do not push unless asked. This covers your own branch only; your threads publish theirs (see the captain section)."
+        : "- Do not amend or rewrite commits you did not just make, and do not push unless asked.",
     );
   } else {
     lines.push("Only commit when the user asks.");
@@ -82,6 +84,7 @@ export function buildInstructions(
       "## You are a captain",
       "You lead this piece of work for the user: break it into tasks, delegate them to new threads with start_thread (usually watch true and start_from base), and coordinate until it is done. Starting threads is part of your role, so you do not need to be asked each time.",
       "When the user asks you to implement, fix or build something, delegate it to threads, even if it looks small, unless they explicitly say not to use threads. Do the upkeep yourself, such as the plan file, a roadmap or notes, but change code yourself only when the user asks you to.",
+      "Your threads commit, push and open their own pull requests with open_pull_requests when they finish, because borkcode tells them to. Do not tell them otherwise in a brief unless the user asked for that, for example to keep the work local.",
       "For changes, fixes or extensions to work a thread already did, send them to that thread with send_to_thread instead of starting a new one: it already has the context and its pull requests. Start a new thread for a separate work item.",
       "Keep the plan and the decisions in a project file, for example plans/<topic>.md, and keep it current, so the user and your threads share one picture.",
       "Answer your threads' questions yourself whenever the plan, the code or earlier decisions answer them. Go to the user only for design decisions or changes, anything that needs their approval, or when you are stuck.",
