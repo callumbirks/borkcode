@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { commandName } from "shared/commands";
 import { findModel } from "shared/models";
 import type {
   Approval,
@@ -38,7 +39,7 @@ import {
   userMessage,
 } from "./delegation.ts";
 import { buildInstructions } from "./instructions.ts";
-import { checkModelChoice, childFastMode, childModelChoice, listModels, matchChildModelRule, resolveDefaults, resolveRuleModels } from "./models.ts";
+import { checkModelChoice, childFastMode, childModelChoice, listCommands, listModels, matchChildModelRule, resolveDefaults, resolveRuleModels } from "./models.ts";
 import type { ProjectStore } from "./projects.ts";
 import { ToolError } from "./errors.ts";
 import { git } from "./exec.ts";
@@ -93,6 +94,7 @@ export interface ThreadDeps {
   generateTitle: typeof generateTitle;
   pullRequestStates: typeof fetchPullRequestStates;
   listModels: typeof listModels;
+  listCommands: typeof listCommands;
 }
 
 const realDeps: ThreadDeps = {
@@ -100,6 +102,7 @@ const realDeps: ThreadDeps = {
   generateTitle,
   pullRequestStates: fetchPullRequestStates,
   listModels,
+  listCommands,
 };
 
 /** How often open pull requests are checked for merges and closes. */
@@ -713,12 +716,29 @@ export class ThreadService {
       }
     }
     const limits = (await this.#settings.get().catch(() => DEFAULT_SETTINGS)).delegation;
+    // Only the provider's own commands count, so "/tmp is full" is a message like any other. Without
+    // the list, nothing does. Listing Claude's may start its CLI, so only when a message could be one.
+    const mayBeCommand = (message: InboxMessage) =>
+      fromUser(message) && message.attachments.length === 0 && commandName(message.text) !== null;
+    const listed = !!stored && this.#db.listInbox(threadId).some(mayBeCommand);
+    const commands = listed
+      ? new Set((await this.#deps.listCommands(stored.provider).catch(() => [])).map((command) => command.name))
+      : new Set<string>();
+    const isCommand = (message: InboxMessage) => mayBeCommand(message) && commands.has(commandName(message.text)!);
     // Everything from here to the first await runs at once, so two deliveries cannot claim the
     // same messages or start two turns.
     const thread = this.#db.getThread(threadId);
     const live = this.#liveThread(threadId);
-    const messages = this.#db.listInbox(threadId);
-    if (!thread || messages.length === 0 || live.steering || this.#stopping) return;
+    const waitingMessages = this.#db.listInbox(threadId);
+    if (!thread || waitingMessages.length === 0 || live.steering || this.#stopping) return;
+    // A possible command arrived while settings were read: start over so it is checked.
+    if (!listed && waitingMessages.some(mayBeCommand)) return void this.#deliver(threadId);
+    // A provider command runs only as a message of its own, so it opens a turn alone and is never
+    // steered; what waits behind it goes in the next turn.
+    const firstCommand = waitingMessages.findIndex(isCommand);
+    const command = firstCommand === 0;
+    if (live.active && firstCommand !== -1) return;
+    const messages = waitingMessages.slice(0, command ? 1 : firstCommand === -1 ? undefined : firstCommand);
     // Nothing works out of sight: a waiting message brings an archived thread back.
     if (thread.archivedAt !== null) this.setArchived(threadId, false);
     if (live.active && !live.session) return;
@@ -754,7 +774,8 @@ export class ThreadService {
     live.userJoined = false;
     this.#db.removeFromInbox(messages.map((message) => message.id));
     this.#accepted(thread, messages, false, automatic);
-    const serverStopped = this.#db.serverStopped(threadId);
+    // The note about a cut-off turn waits for the next turn that is not a command.
+    const serverStopped = !command && this.#db.serverStopped(threadId);
     await this.#runTurn(
       threadId,
       this.#compose(thread, messages, serverStopped),

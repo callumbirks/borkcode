@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { tmpdir } from "node:os";
 import { createInterface } from "node:readline";
-import type { AccessMode, Item, ModelOption, Question } from "shared/protocol";
+import type { AccessMode, Item, ModelOption, ProviderCommand, Question } from "shared/protocol";
 import { isNativeImage } from "../attachments.ts";
 import {
   isEffort,
@@ -65,6 +65,39 @@ type CodexItem =
   | { type: "imageView"; id: string; path: string }
   | { type: string; id?: string };
 
+/** `thread/tokenUsage/updated`; `last` is the latest model call, so its total is the context's size. */
+interface CodexTokenUsage {
+  last: { totalTokens: number };
+}
+
+type Compaction = Extract<Item, { kind: "compaction" }>;
+
+/**
+ * A `contextCompaction` item starting or completing. It carries only an id, so the trigger is
+ * whether borkcode asked for it, and the size before is the last model call's.
+ */
+export function codexCompaction(
+  current: Compaction | null,
+  id: string,
+  completed: boolean,
+  requested: boolean,
+  contextTokens: number | null,
+): Compaction {
+  const base: Compaction =
+    current?.id === id
+      ? current
+      : {
+          id,
+          kind: "compaction",
+          status: "running",
+          trigger: requested ? "manual" : "auto",
+          tokensBefore: contextTokens,
+          tokensAfter: null,
+          summary: null,
+        };
+  return completed ? { ...base, status: "done" } : base;
+}
+
 interface CodexTurn {
   id: string;
   status: "completed" | "interrupted" | "failed" | "inProgress";
@@ -103,6 +136,28 @@ export function codexModelOption(model: CodexModel): ModelOption {
  */
 export function codexServiceTier(fastMode: boolean): string {
   return fastMode ? FAST_TIER : "default";
+}
+
+/**
+ * Codex's commands are app-server methods rather than text, and it has no list of them, so borkcode
+ * names the one it maps: `/compact` is `thread/compact/start`, which runs as a turn of its own.
+ * Left out: `/review` reviews the cwd's changes, and the workspace root is not a repo; `/goal` needs
+ * goal UI borkcode lacks; `/feedback` uploads logs to OpenAI; `/init` is a TUI prompt that the
+ * app-server would pass to the model as plain text; the rest drive the terminal UI or settings
+ * borkcode picks itself.
+ */
+export const CODEX_COMMANDS: ProviderCommand[] = [
+  {
+    name: "compact",
+    description: "Summarize the conversation so far to free up context",
+    argumentHint: "",
+    firstMessage: false,
+  },
+];
+
+/** Whether a message is the compact command; Codex takes no instructions with it. */
+export function isCodexCompact(text: string, attachments: TurnAttachment[]): boolean {
+  return attachments.length === 0 && text.trim().toLowerCase() === "/compact";
 }
 
 /** `item/tool/requestUserInput`, which the request_user_input tool sends. */
@@ -403,11 +458,20 @@ export async function startCodexSession(options: SessionOptions): Promise<Provid
   let turnId: string | null = null;
   let turnActive = false;
   const fileChanges = new Map<string, string>();
+  /** The context's size as of the last model call, which is what a compaction starts from. */
+  let contextTokens: number | null = null;
+  let compactRequested = false;
+  let compaction: Extract<Item, { kind: "compaction" }> | null = null;
 
   const endTurn = (outcome: Parameters<typeof events.turnEnded>[0]) => {
     if (!turnActive) return;
     turnActive = false;
     turnId = null;
+    compactRequested = false;
+    if (compaction?.status === "running") {
+      events.item({ ...compaction, status: "failed", error: outcome.status === "failed" ? outcome.error : "Stopped" });
+    }
+    compaction = null;
     events.turnEnded(outcome);
   };
 
@@ -418,6 +482,11 @@ export async function startCodexSession(options: SessionOptions): Promise<Provid
         case "item/started":
         case "item/completed": {
           const raw = params.item as CodexItem;
+          if (raw.type === "contextCompaction") {
+            compaction = codexCompaction(compaction, raw.id!, method === "item/completed", compactRequested, contextTokens);
+            events.item(compaction);
+            return;
+          }
           if (raw.type === "fileChange") {
             const change = raw as Extract<CodexItem, { type: "fileChange" }>;
             fileChanges.set(change.id, change.changes.map((file) => file.path).join("\n"));
@@ -433,6 +502,15 @@ export async function startCodexSession(options: SessionOptions): Promise<Provid
         case "turn/started":
           turnId = (params.turn as CodexTurn).id;
           return;
+        case "thread/tokenUsage/updated": {
+          contextTokens = (params.tokenUsage as CodexTokenUsage).last.totalTokens;
+          // Reported while compacting: the size of the compacted context.
+          if (compaction?.status === "running") {
+            compaction = { ...compaction, tokensAfter: contextTokens };
+            events.item(compaction);
+          }
+          return;
+        }
         case "turn/completed": {
           const turn = params.turn as CodexTurn;
           if (turn.status === "failed") {
@@ -505,6 +583,13 @@ export async function startCodexSession(options: SessionOptions): Promise<Provid
   return {
     async sendTurn(text, settings, attachments) {
       turnActive = true;
+      if (isCodexCompact(text, attachments)) {
+        compactRequested = true;
+        await connection.request("thread/compact/start", { threadId }).catch((error: Error) => {
+          endTurn({ status: "failed", error: error.message });
+        });
+        return;
+      }
       try {
         // Overrides stick for later turns, and null means "no change" rather than "default".
         const switchAccess = settings.accessMode !== currentAccess;

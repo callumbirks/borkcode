@@ -4,6 +4,7 @@ import type {
   NetworkState,
   Project,
   ProjectFile,
+  ProviderCommand,
   ProviderKind,
   ServerEvent,
   Settings,
@@ -88,6 +89,27 @@ export function loadModels(provider: ProviderKind): Promise<void> {
       },
     );
     modelRequests.set(provider, request);
+  }
+  return request;
+}
+
+/** Each provider's slash commands for the composer's `/` menu, loaded on first use. */
+export const commands = $state<Partial<Record<ProviderKind, ProviderCommand[]>>>({});
+const commandRequests = new Map<ProviderKind, Promise<void>>();
+
+export function loadCommands(provider: ProviderKind): Promise<void> {
+  let request = commandRequests.get(provider);
+  if (!request) {
+    request = rpc.request("commands.list", { provider }).then(
+      (list) => {
+        commands[provider] = list;
+      },
+      () => {
+        // The menu just stays empty; try again next time.
+        commandRequests.delete(provider);
+      },
+    );
+    commandRequests.set(provider, request);
   }
   return request;
 }

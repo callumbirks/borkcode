@@ -108,6 +108,9 @@ const PNG = Buffer.from(
   "base64",
 );
 
+/** How often delivery asked for the provider's commands. */
+let commandListings = 0;
+
 const fakeDeps = {
   startSession: async (_provider: string, options: { cwd: string; events: SessionEvents }) => {
     const agent = new FakeAgent(options.events);
@@ -127,6 +130,10 @@ const fakeDeps = {
           { id: "haiku", name: "Haiku", isDefault: false, efforts: [], defaultEffort: null, supportsFastMode: false },
         ]
       : [{ id: "gpt-6.1-sol", name: "GPT 6.1 Sol", isDefault: true, efforts: ["low", "high"], defaultEffort: "low", supportsFastMode: false }],
+  listCommands: async () => (commandListings++, [
+    { name: "compact", description: "Summarize the conversation", argumentHint: "", firstMessage: false },
+    { name: "usage", description: "Show usage", argumentHint: "", firstMessage: true },
+  ]),
 } satisfies ConstructorParameters<typeof ThreadService>[6];
 const db = new Database(":memory:");
 const threads = new ThreadService(db, projects, settings, emit, "http://test/mcp/", attachments, fakeDeps);
@@ -177,6 +184,55 @@ test("a message to a busy thread joins its turn at the next step, or waits for t
   assert.equal(steered?.steered, true);
   assert.equal((await threads.get(thread.id)).thread.queued, 0);
   agent.finish("done");
+});
+
+test("a slash command opens a turn of its own, as typed, and is never steered", async () => {
+  const picks = { model: null, effort: null, accessMode: "full" as const, fastMode: false };
+  const { thread, agent } = await startThread("first task");
+  assert.equal(await agent.turn(1), "first task");
+  agent.steerable = true;
+  await threads.send(thread.id, "/compact keep the API notes", picks);
+  await threads.send(thread.id, "then carry on", picks);
+  assert.deepEqual(agent.steers, []);
+  assert.equal((await threads.get(thread.id)).thread.queued, 2);
+  agent.finish("done with the first");
+  assert.equal(await agent.turn(2), "/compact keep the API notes");
+  agent.finish("Compacted");
+  assert.equal(await agent.turn(3), "then carry on");
+  agent.finish("done");
+
+  // Messages waiting ahead of a command go together, before it.
+  agent.steerable = false;
+  await threads.send(thread.id, "next task", picks);
+  assert.equal(await agent.turn(4), "next task");
+  await threads.send(thread.id, "one more", picks);
+  await threads.send(thread.id, "and another", picks);
+  await threads.send(thread.id, "/usage", picks);
+  agent.finish("done");
+  assert.match(await agent.turn(5), /one more[\s\S]*and another/);
+  agent.finish("done");
+  assert.equal(await agent.turn(6), "/usage");
+  agent.finish("done");
+});
+
+test("a message starting with a /word the provider does not offer is an ordinary message", async () => {
+  const picks = { model: null, effort: null, accessMode: "full" as const, fastMode: false };
+  const { thread, agent } = await startThread("first task");
+  assert.equal(await agent.turn(1), "first task");
+  agent.steerable = true;
+  // Plain messages never need the command list, which can mean starting a provider CLI.
+  const listings = commandListings;
+  await threads.send(thread.id, "check the logs", picks);
+  assert.deepEqual(agent.steers, ["check the logs"]);
+  assert.equal(commandListings, listings);
+  await threads.send(thread.id, "/tmp is full again", picks);
+  assert.deepEqual(agent.steers, ["check the logs", "/tmp is full again"]);
+  await threads.send(thread.id, "/compact", picks);
+  assert.deepEqual(agent.steers, ["check the logs", "/tmp is full again"]);
+  assert.equal((await threads.get(thread.id)).thread.queued, 1);
+  agent.finish("done");
+  assert.equal(await agent.turn(2), "/compact");
+  agent.finish("Compacted");
 });
 
 test("renaming a thread does not count as activity", async () => {

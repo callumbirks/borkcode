@@ -25,6 +25,7 @@
   import { BottomPin } from "../lib/pin";
   import { deleteThread } from "../lib/threadActions";
   import { autoReadDue, nextHold, type ReadHold } from "../lib/unread";
+  import { isCompacting } from "../lib/compaction";
   import { segmentItems, type Segment } from "../lib/segments";
   import { app, getDraft, openThread, rpc, setDraft } from "../lib/state.svelte";
   import Composer from "./Composer.svelte";
@@ -44,6 +45,7 @@
   // Consecutive tool calls and reasoning fold into one group; messages and notices stand alone.
   let lastSegments: Segment[] = [];
   const segments = $derived((lastSegments = segmentItems(detail?.items ?? [], lastSegments)));
+  const compacting = $derived(isCompacting(detail?.items ?? []));
 
   const preview = $derived(previews[id]);
   // Files may have appeared since paths in this thread were last looked up.
@@ -384,7 +386,7 @@
           {#if thread.status === "preparing"}
             <p class="status"><span class="dot running"></span>Preparing the workspace…</p>
           {:else if thread.status === "running" && !thread.waiting}
-            <p class="status"><span class="dot running"></span>Working…</p>
+            <p class="status"><span class="dot running"></span>{compacting ? "Compacting…" : "Working…"}</p>
           {/if}
         </div>
       </div>

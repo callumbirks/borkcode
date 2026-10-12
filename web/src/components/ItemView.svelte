@@ -2,12 +2,15 @@
   import Brain from "@lucide/svelte/icons/brain";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import CornerDownRight from "@lucide/svelte/icons/corner-down-right";
+  import FoldVertical from "@lucide/svelte/icons/fold-vertical";
   import GitFork from "@lucide/svelte/icons/git-fork";
   import Info from "@lucide/svelte/icons/info";
   import MessageCircleQuestionMark from "@lucide/svelte/icons/message-circle-question-mark";
   import DOMPurify from "dompurify";
   import { mount, unmount } from "svelte";
+  import { commandName } from "shared/commands";
   import type { Item } from "shared/protocol";
+  import { compactionLabel } from "../lib/compaction";
   import { providerLabel, pullRequestIcon, toolIcon, toolLabel } from "../lib/display.svelte";
   import { fileUrl, labelTarget, targetLabel, toolPaths } from "../lib/fileLinks";
   import { linker, openFileLink } from "../lib/filePreview.svelte";
@@ -67,7 +70,18 @@
     expanded = !expanded;
   }
 
-  const markdownText = $derived(item.kind === "assistant" || item.kind === "reasoning" ? item.text : "");
+  const markdownText = $derived(
+    item.kind === "assistant" || item.kind === "reasoning"
+      ? item.text
+      : item.kind === "compaction"
+        ? (item.summary ?? "")
+        : "",
+  );
+  /** A message that ran a provider command shows the command as such. */
+  const command = $derived(item.kind === "user" && !item.fromThreadId && !item.fromBorkcode ? commandName(item.text) : null);
+  const threadRunning = $derived(
+    item.kind === "compaction" && app.detail?.thread.id === threadId && app.detail.thread.status === "running",
+  );
   const referenceText = $derived(item.kind === "user" ? item.text : markdownText);
   const referencedThreadIds = $derived(findThreadReferences(referenceText, []).map(r => r.threadId));
   const threadLabels = $derived(JSON.stringify(referencedThreadIds.length ? app.threads
@@ -145,7 +159,7 @@
     <div class="user" onclick={(event) => openFileLink(threadId, event)}>
       {#if item.fromBorkcode}<div class="from"><CornerDownRight size={12} />From borkcode</div>{/if}
       {#if item.steered}<div class="from">Read while working</div>{/if}
-      {@render withChips(item.text)}
+      {#if command}{@const start = item.text.indexOf("/")}<code class="command">{item.text.slice(start, start + command.length + 1)}</code>{@render withChips(item.text.slice(start + command.length + 1))}{:else}{@render withChips(item.text)}{/if}
     </div>
   {/if}
 {:else if item.kind === "thread"}
@@ -228,6 +242,22 @@
   {/if}
 {:else if item.kind === "visualization"}
   <VisualizationCard {threadId} id={item.id} title={item.title} updatedAt={item.updatedAt} />
+{:else if item.kind === "compaction"}
+  {@const label = compactionLabel(item, threadRunning)}
+  {#snippet marker()}
+    <FoldVertical size={14} />
+    <span class="compaction-title">{label.title}</span>
+    {#each label.details as detail (detail)}{" "}<span class="compaction-detail">· {detail}</span>{/each}
+  {/snippet}
+  {#if item.summary}
+    <details class="compaction {item.status}">
+      <summary aria-label="{label.title}: show summary">{@render marker()}</summary>
+      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions: the links inside are focusable -->
+      <div class="body compaction-summary" onclick={(event) => openFileLink(threadId, event)} {@attach markdown(markdownText, referenced, threadLabels)}></div>
+    </details>
+  {:else}
+    <div class="compaction {item.status}" role="status"><div class="marker">{@render marker()}</div></div>
+  {/if}
 {:else if item.kind === "notice"}
   <div class="notice {item.level}">
     {#if item.level === "error"}<CircleAlert size={14} />{:else}<Info size={14} />{/if}
@@ -446,6 +476,49 @@
     color: var(--text-primary);
     white-space: pre-wrap;
     word-break: break-word;
+  }
+  .command {
+    font-weight: 600;
+  }
+  /* A rule across the transcript: what the agent remembers starts again here. */
+  .compaction > summary,
+  .compaction > .marker {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+  .compaction > summary::before,
+  .compaction > summary::after,
+  .compaction > .marker::before,
+  .compaction > .marker::after {
+    content: "";
+    flex: 1;
+    min-width: var(--space-4);
+    border-top: 1px solid var(--border-subtle);
+  }
+  .compaction-title {
+    color: var(--text-secondary);
+  }
+  .compaction.running .compaction-title {
+    color: var(--status-running);
+  }
+  .compaction.failed .compaction-title {
+    color: var(--status-danger);
+  }
+  .compaction-detail {
+    color: var(--text-faint);
+  }
+  .compaction-summary {
+    margin-left: 0;
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+  }
+  .compaction-summary :global(p),
+  .compaction-summary :global(ul),
+  .compaction-summary :global(ol) {
+    margin: 0 0 var(--space-2);
   }
   .notice.error {
     color: var(--status-danger);

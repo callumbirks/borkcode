@@ -9,8 +9,9 @@ import {
   type PermissionMode,
   type SDKMessage,
   type SDKUserMessage,
+  type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { AccessMode, Item, ModelOption, Question } from "shared/protocol";
+import type { AccessMode, Item, ModelOption, ProviderCommand, Question } from "shared/protocol";
 import { isNativeImage } from "../attachments.ts";
 import {
   truncate,
@@ -125,6 +126,92 @@ export async function listClaudeModels(): Promise<ModelOption[]> {
   } finally {
     conversation.close();
   }
+}
+
+/**
+ * Claude's own commands that work headless, sent as the message text; `/context` and `/usage`
+ * answer with a synthetic assistant message. The rest are left out: borkcode picks the model,
+ * effort and fast mode itself; config, colour, focus, MCP and plugin commands drive the terminal
+ * UI; clear and rename would change the session or title behind borkcode; init and the review
+ * commands expect the cwd to be a repo, which the workspace root is not; goal, insights and the
+ * cloud and account commands need UI borkcode lacks. Bundled skills are marked builtin too but
+ * are not commands, and user, project and plugin commands are out of scope.
+ */
+const CLAUDE_COMMANDS: Record<string, { firstMessage: boolean }> = {
+  compact: { firstMessage: false },
+  context: { firstMessage: true },
+  usage: { firstMessage: true },
+};
+
+/** The commands borkcode offers from those Claude lists, as it describes them. */
+export function claudeCommands(commands: SlashCommand[]): ProviderCommand[] {
+  return commands.flatMap((command) => {
+    const known = command.builtin ? CLAUDE_COMMANDS[command.name] : undefined;
+    return known
+      ? [{ name: command.name, description: command.description, argumentHint: command.argumentHint, ...known }]
+      : [];
+  });
+}
+
+export async function listClaudeCommands(): Promise<ProviderCommand[]> {
+  const claudeBinary = findClaudeBinary();
+  const conversation = query({
+    prompt: noTurns,
+    options: {
+      cwd: tmpdir(),
+      persistSession: false,
+      ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
+    },
+  });
+  try {
+    return claudeCommands(await conversation.supportedCommands());
+  } finally {
+    conversation.close();
+  }
+}
+
+/** The summary Claude continues from, without its preamble. */
+export function compactSummary(text: string): string {
+  return text.replace(/^[\s\S]*?\nSummary:\n/, "").trim();
+}
+
+type Compaction = Extract<Item, { kind: "compaction" }>;
+
+/**
+ * Follows a compaction through Claude's messages: the "compacting" status starts it, the boundary
+ * brings the trigger and token counts, and the synthetic user message right after it is the
+ * summary. Returns the item to record, or undefined for messages about something else.
+ */
+export function claudeCompaction(current: Compaction | null, message: SDKMessage): Compaction | undefined {
+  if (message.type === "system" && message.subtype === "status") {
+    if (message.status === "compacting" && current?.status !== "running") {
+      return { id: message.uuid, kind: "compaction", status: "running", trigger: null, tokensBefore: null, tokensAfter: null, summary: null };
+    }
+    if (message.compact_result === "failed" && current?.status === "running") {
+      return { ...current, status: "failed", ...(message.compact_error ? { error: message.compact_error } : {}) };
+    }
+    return undefined;
+  }
+  if (message.type === "system" && message.subtype === "compact_boundary") {
+    const { trigger, pre_tokens, post_tokens } = message.compact_metadata;
+    return {
+      ...(current?.status === "running" ? current : { id: message.uuid, kind: "compaction", summary: null }),
+      status: "done",
+      trigger,
+      tokensBefore: pre_tokens,
+      tokensAfter: post_tokens ?? null,
+    };
+  }
+  if (
+    message.type === "user" &&
+    message.isSynthetic &&
+    typeof message.message.content === "string" &&
+    current?.status === "done" &&
+    current.summary === null
+  ) {
+    return { ...current, summary: compactSummary(message.message.content) };
+  }
+  return undefined;
 }
 
 export async function generateClaudeText(request: TextRequest): Promise<string> {
@@ -331,6 +418,10 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
   const openText: string[] = [];
   const openThinking: string[] = [];
   const tools = new Map<string, { item: Extract<Item, { kind: "tool" }>; input: Record<string, unknown> }>();
+  /** The latest compaction, until the turn ends; its summary arrives after it is done. */
+  let compaction: Compaction | null = null;
+  // After compacting, Claude sends the messages it kept again, with the same uuids.
+  const seenAssistant = new Set<string>();
 
   const endTurn = (outcome: Parameters<typeof events.turnEnded>[0]) => {
     if (!turnActive) return;
@@ -338,6 +429,10 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
     interruptRequested = false;
     openText.length = 0;
     openThinking.length = 0;
+    if (compaction?.status === "running") {
+      events.item({ ...compaction, status: "failed", error: outcome.status === "failed" ? outcome.error : "Stopped" });
+    }
+    compaction = null;
     events.turnEnded(outcome);
   };
 
@@ -348,6 +443,12 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
     }
     // Subagent activity is summarized by its parent tool call.
     if ("parent_tool_use_id" in message && message.parent_tool_use_id) return;
+    const compacted = claudeCompaction(compaction, message);
+    if (compacted) {
+      compaction = compacted;
+      events.item(compacted);
+      return;
+    }
 
     switch (message.type) {
       case "stream_event": {
@@ -370,6 +471,8 @@ export async function startClaudeSession(options: SessionOptions): Promise<Provi
         return;
       }
       case "assistant": {
+        if (seenAssistant.has(message.uuid)) return;
+        seenAssistant.add(message.uuid);
         for (const block of message.message.content) {
           if (block.type === "text") {
             events.item({ id: openText.shift() ?? randomUUID(), kind: "assistant", text: block.text });

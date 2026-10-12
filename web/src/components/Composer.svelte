@@ -155,7 +155,7 @@
     ondragleave={() => (dragging = false)}
     ondrop={onDrop}
   >
-    <MentionPicker bind:this={mentions} {scope} {editor} text={draft} />
+    <MentionPicker bind:this={mentions} {scope} {editor} text={draft} {provider} {newThread} />
     <ComposerAttachments {draftKey} />
     <ComposerEditor
       bind:this={editor}
