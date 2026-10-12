@@ -44,3 +44,13 @@ test("references inside link text are not nested links", () => {
   const html = renderMarkdown("[about borkcode#3](https://example.com)", [merged]);
   assert.equal(html, `<p><a href="https://example.com">about borkcode#3</a></p>\n`);
 });
+
+test("file references into the project become file chips, outside code", () => {
+  const roots = { repos: ["borkcode"], workspace: "/w", projectFiles: "/p/files" };
+  const html = renderMarkdown("Read @borkcode/src/main.ts and @/p/files/plan.md, not `@borkcode/x.ts` or @bob.", [], roots);
+  assert.equal(
+    html,
+    '<p>Read <span class="file-chip" title="borkcode/src/main.ts">main.ts</span> and ' +
+      '<span class="file-chip" title="Project files/plan.md">plan.md</span>, not <code>@borkcode/x.ts</code> or @bob.</p>\n',
+  );
+});

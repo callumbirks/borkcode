@@ -306,6 +306,20 @@ label {
   white-space: nowrap;
 }
 
+/* A file reference in a message or the composer; the title shows its path. */
+.file-chip {
+  display: inline-block;
+  padding: 0 var(--space-1-5);
+  border: 1px solid var(--accent-soft);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-size: 0.92em;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: default;
+}
+
 .pr-open {
   color: var(--pr-open);
 }
