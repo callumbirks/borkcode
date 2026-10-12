@@ -704,3 +704,88 @@ test("the user stopping a turn is recorded as theirs, and the agent gets no serv
   assert.deepEqual(notices((await threads.get(thread.id)).items), ["Interrupted"]);
   agent.finish("done");
 });
+
+/** The agent session a thread opens after `mark` sessions had started, e.g. the first after a restart. */
+async function agentAfter(mark: number, threadId: string, service: ThreadService): Promise<FakeAgent> {
+  const { workspacePath } = await service.get(threadId);
+  for (;;) {
+    const found = agents.slice(mark).find((entry) => entry.cwd === workspacePath);
+    if (found) return found.agent;
+    await new Promise<void>((resolve) => (agentStarted = resolve));
+  }
+}
+
+/** A parent on its own database file with a child running its first turn. */
+async function parentWithRunningChild(file: string, watch: boolean) {
+  const { service, thread: parent, restart } = await serviceWithThread(file, "coordinate");
+  (await agentOf(parent.id, service)).finish("ok");
+  await service.startThread(parent.id, { message: "build it", watch, startFrom: "base" });
+  const child = service.list().find((thread) => thread.parentId === parent.id)!;
+  await (await agentOf(child.id, service)).turn(1);
+  return { service, parent, child, restart };
+}
+
+for (const how of ["shutting down", "being killed"]) {
+  test(`a watched child cut off by the server ${how} reports once to its parent after the restart`, async () => {
+    const { service, parent, child, restart } = await parentWithRunningChild(`child-${how.split(" ")[0]}.sqlite`, true);
+    if (how === "shutting down") {
+      await service.shutdown();
+      // Deliveries are blocked while stopping, so the report waits for the restart.
+      assert.equal((await service.get(parent.id)).thread.queued, 1);
+    }
+    const restarted = restart();
+    assert.equal((await restarted.get(parent.id)).thread.queued, 1);
+    const mark = agents.length;
+    restarted.resumeQueued();
+    const parentAgent = await agentAfter(mark, parent.id, restarted);
+    const turn = await parentAgent.turn(1);
+    assert.match(turn, new RegExp(`Report from thread "${child.title}" \\(id ${child.id}\\)`));
+    assert.match(turn, /cut off because the borkcode server stopped[\s\S]*send_to_thread/);
+    // The parent's own turn had finished, so it gets no server note.
+    assert.doesNotMatch(turn, /From borkcode/);
+    const reports = (await restarted.get(parent.id)).items.filter(
+      (item) => item.kind === "user" && item.fromThreadId === child.id,
+    );
+    assert.equal(reports.length, 1);
+    assert.equal((await restarted.get(parent.id)).thread.queued, 0);
+    // The child does not resume on its own.
+    const childDetail = await restarted.get(child.id);
+    assert.equal(childDetail.thread.status, "idle");
+    assert.deepEqual(notices(childDetail.items), ["Stopped: borkcode server shut down"]);
+    parentAgent.finish("noted");
+  });
+}
+
+test("an unwatched child cut off by the server sends its parent no report", async () => {
+  const { service, parent, child, restart } = await parentWithRunningChild("unwatched-child.sqlite", false);
+  await service.shutdown();
+  const restarted = restart();
+  assert.deepEqual(notices((await restarted.get(child.id)).items), ["Stopped: borkcode server shut down"]);
+  assert.equal((await restarted.get(parent.id)).thread.queued, 0);
+  assert.equal((await restarted.get(child.id)).thread.queued, 0);
+});
+
+test("a new thread stopped while its workspace is being created gets its first message after the restart", async () => {
+  const path = join(home, "preparing.sqlite");
+  // The title never arrives, so the server stops before the workspace exists.
+  const stuck = { ...fakeDeps, generateTitle: () => new Promise<string>(() => {}) };
+  const service = new ThreadService(new Database(path), projects, settings, emit, "http://test/mcp/", attachments, stuck);
+  const thread = await service.create({ ...SETTINGS_NOW, project: "demo", text: "first words", provider: "claude", isolated: true, captain: false });
+  await service.shutdown();
+  assert.equal((await service.get(thread.id)).thread.status, "preparing");
+
+  const restarted = new ThreadService(new Database(path), projects, settings, emit, "http://test/mcp/", attachments, fakeDeps);
+  const mark = agents.length;
+  restarted.resumeQueued();
+  const agent = await agentAfter(mark, thread.id, restarted);
+  assert.equal(await agent.turn(1), "first words");
+  const detail = await restarted.get(thread.id);
+  assert.ok(existsSync(detail.workspacePath));
+  assert.deepEqual(
+    detail.items.flatMap((item) => (item.kind === "user" ? [item.text] : [])),
+    ["first words"],
+  );
+  // No agent turn had started, so there is no server note.
+  assert.deepEqual(notices(detail.items), []);
+  agent.finish("hello");
+});
