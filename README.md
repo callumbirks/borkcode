@@ -47,8 +47,8 @@ every old inactive thread at once; turn it off under Settings first if you don't
 A thread starts from its first message. The **+** beside a project in the sidebar, or **New thread**
 on the project page, opens a new-thread page with the same composer as a thread, focused and
 ready to type (on a phone, the keyboard opens too). Only there it
-also picks the agent, the role (Thread or Captain) and the workspace (new worktrees or the main
-checkouts). Role and workspace start as Thread and new worktrees every time; agent, model, effort
+also picks the agent, the role (Thread, or Captain with the crown) and the workspace (a new
+worktree, or the main checkouts with the folder icon). Role and workspace start as Thread and new worktrees every time; agent, model, effort
 and access start from your last new thread on that device. The unsent message is a draft, kept per
 project in this browser like a thread's, through reloads and navigation, and cleared once the
 thread starts. Files attached there go with the first message; a thread can't start from files
@@ -209,8 +209,8 @@ is already configured to proxy this borkcode port, borkcode verifies the endpoin
 
 A phone has a menu drawer and full-screen overview, file and visualization panels. Tap outside
 the drawer or use its close button. The composer follows the visible viewport above the keyboard.
-Its compact model/access button opens a sheet with the full options; the new-thread form uses the
-same sheet for provider, role and workspace. Empty inputs stay short and grow as you type.
+Its compact model button opens a sheet with the full options as labelled rows, beside the fast
+mode and access toggles; the new-thread form uses the same sheet for provider, role and workspace. Empty inputs stay short and grow as you type.
 Touch devices use a native textarea for predictive text, autocorrect and composition, with `@`
 file picking and file paste/attachment support; references become chips in sent messages. Enter
 adds a newline there; tap Send. Returning to the app or regaining the network reconnects and

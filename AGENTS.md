@@ -236,8 +236,10 @@ inventing a fix.
 - **There is one composer, `Composer.svelte`,** for threads and the new-thread page
   (`#/project/<name>/new`). It owns the editor, `@` picker, attachments, options row or phone sheet,
   paste, drop and sending, keyed by a draft key (`<thread id>` or `new:<project>`) and an upload
-  URL; pages add banners and buttons as snippets. Only `newThread` shows the agent, role and
-  workspace pickers. The new-thread `@` picker searches the project's main checkouts
+  URL; pages add banners and buttons as snippets. Only `newThread` shows the agent picker and the
+  role and workspace toggles. Two-way options are icon toggles that name their state in
+  `aria-label` and set `aria-pressed` for the less usual choice; phones keep fast mode and access
+  in the row and the rest as labelled rows in the sheet, so the row fits one line at 360px. The new-thread `@` picker searches the project's main checkouts
   (`mentions.search` with `project`), since there is no workspace yet.
   The New thread buttons focus it through `startNewThread`, which sets the route, renders with
   `flushSync` and focuses inside the click: iOS opens the keyboard only for focus within the tap,
