@@ -4,12 +4,16 @@ import type { ModelChoice, ModelOption } from "./protocol.ts";
 
 /**
  * The listed model a choice names. Null means the provider's default, and so does "default", the
- * pseudo-model Claude lists and older threads and settings may still name. Undefined when the
- * provider no longer lists the model.
+ * pseudo-model Claude lists and older threads and settings may still name. A full id that only an
+ * alias resolves to (Claude lists Opus 5.5 as "opus" alone) finds that alias, preferring the
+ * default, as Claude's own default does. Undefined when the provider no longer lists the model.
  */
 export function findModel(list: ModelOption[], model: string | null): ModelOption | undefined {
-  if (model !== null && model !== "default") return list.find((option) => option.id === model);
-  return list.find((option) => option.isDefault) ?? list[0];
+  if (model === null || model === "default") return list.find((option) => option.isDefault) ?? list[0];
+  const exact = list.find((option) => option.id === model);
+  if (exact) return exact;
+  const aliases = list.filter((option) => option.resolvedModel === model);
+  return aliases.find((option) => option.isDefault) ?? aliases[0];
 }
 
 /**
