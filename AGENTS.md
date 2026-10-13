@@ -305,6 +305,13 @@ inventing a fix.
   element is the containing block for fixed descendants. Promote sparingly: each layer costs memory.
   The mobile drawer wraps the promoted nav, and sheets sit outside the promoted composer input,
   so their bounds do not depend on those transforms.
+- **Threads open with finished tool calls trimmed.** Tool output was about 90% of a long thread's
+  `threads.get` bytes and shows only once a step is expanded. Done and failed tool items go out
+  without `output`, with `trimmed: true`, `outputLength` and the summary cut at 500 characters
+  (`TrimmedToolItem`). Expanding a step calls `items.get` for the full item (same-tick expands share
+  one request), which replaces the trimmed one unless a live upsert got there first. Running tool
+  calls and every `item.upserted` stay full, so a running turn streams as before. The MCP
+  transcript tools read SQLite directly and are unaffected. The item list itself is not paged.
 - **Clients get everything by broadcast.** It's fine for one user across their devices. Revisit
   if many clients arrive. Keep payloads small: stream deltas, not whole items.
 
