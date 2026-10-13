@@ -1,4 +1,5 @@
 import type {
+  Item,
   LinkedPullRequest,
   ModelOption,
   NetworkState,
@@ -254,6 +255,34 @@ function checkPullRequests(): void {
 }
 document.addEventListener("visibilitychange", checkPullRequests);
 window.addEventListener("focus", checkPullRequests);
+
+/** Trimmed items asked for in this tick, per thread, and the request they will share. */
+const wanted = new Map<string, { ids: string[]; loaded: Promise<Item[]> }>();
+
+/**
+ * Replaces a trimmed tool call in the open thread with the full item, such as when its step is
+ * expanded. Steps expanded together share one request. A live upsert that arrived meanwhile is
+ * newer, so it is kept.
+ */
+export async function loadFullItem(threadId: string, itemId: string): Promise<void> {
+  let batch = wanted.get(threadId);
+  if (!batch) {
+    const ids: string[] = [];
+    const loaded = Promise.resolve().then(() => {
+      wanted.delete(threadId);
+      return rpc.request("items.get", { threadId, itemIds: ids });
+    });
+    batch = { ids, loaded };
+    wanted.set(threadId, batch);
+  }
+  if (!batch.ids.includes(itemId)) batch.ids.push(itemId);
+  const items = await batch.loaded;
+  const detail = app.detail;
+  if (detail?.thread.id !== threadId) return;
+  const item = items.find((entry) => entry.id === itemId);
+  const index = detail.items.findIndex((entry) => entry.id === itemId);
+  if (item && index !== -1 && "trimmed" in detail.items[index]!) detail.items[index] = item;
+}
 
 export async function openThread(id: string): Promise<void> {
   try {

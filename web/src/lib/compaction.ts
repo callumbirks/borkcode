@@ -1,4 +1,4 @@
-import type { Item } from "shared/protocol";
+import type { Item, TranscriptItem } from "shared/protocol";
 
 type Compaction = Extract<Item, { kind: "compaction" }>;
 
@@ -31,7 +31,7 @@ export function compactionLabel(item: Compaction, threadRunning: boolean): { tit
 }
 
 /** The current turn is compacting: checks back only to the turn's opening message, so it stays cheap. */
-export function isCompacting(items: Item[]): boolean {
+export function isCompacting(items: TranscriptItem[]): boolean {
   for (let index = items.length - 1; index >= 0; index--) {
     const item = items[index]!;
     if (item.kind === "compaction") return item.status === "running";

@@ -1,7 +1,7 @@
-import type { Item } from "shared/protocol";
+import type { TranscriptItem } from "shared/protocol";
 
 /** A transcript row: a message or notice on its own, or a run of tool calls and reasoning. */
-export type Segment = { kind: "item"; item: Item } | { kind: "work"; id: string; items: Item[] };
+export type Segment = { kind: "item"; item: TranscriptItem } | { kind: "work"; id: string; items: TranscriptItem[] };
 
 const segmentKey = (segment: Segment) => (segment.kind === "item" ? segment.item.id : segment.id);
 
@@ -10,7 +10,7 @@ const segmentKey = (segment: Segment) => (segment.kind === "item" ? segment.item
  * same objects as in `previous` is returned as the same object, so one changed item re-renders
  * its own row rather than every row in a long thread.
  */
-export function segmentItems(items: Item[], previous: Segment[] = []): Segment[] {
+export function segmentItems(items: TranscriptItem[], previous: Segment[] = []): Segment[] {
   const fresh: Segment[] = [];
   for (const item of items) {
     const last = fresh.at(-1);
