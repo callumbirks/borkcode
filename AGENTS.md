@@ -89,7 +89,10 @@ inventing a fix.
   names each model, since agents ask for full ids and bare aliases don't say which version they are.
 - **Fast mode is a per-thread flag,** like access mode: saved with the next message and the
   new-thread preferences, inherited by children unless the matching child model rule's `use`
-  sets it `on` or `off` (missing means inherit, as for rules saved before; `childFastMode`). It is sent only where the model list says the
+  sets it `on` or `off` (missing means inherit, as for rules saved before; `childFastMode`). The
+  rule's setting goes with its model: an agent's explicit `start_thread` provider or model that
+  differs (compared via `findModel`, so aliases match full ids) drops it back to inheriting, while
+  an explicit effort alone keeps it (`ruleFastMode`). It is sent only where the model list says the
   model offers it (`supportsFastMode`), because asking Claude for fast mode on another model makes
   it switch models. Claude takes it as the `fastMode` flag setting (the `settings` option, then
   `applyFlagSettings`); the SDK serves it only when that flag layer asks. Codex takes it as

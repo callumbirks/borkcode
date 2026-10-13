@@ -360,6 +360,35 @@ test("a child model rule turns fast mode on or off whatever the parent has", asy
   }
 });
 
+test("an explicit provider or model drops the rule's fast mode, and an explicit effort keeps it", async () => {
+  await writeFile(
+    settings.path,
+    JSON.stringify({
+      childModelRules: [
+        { when: { provider: "claude", model: "opus-5-5", effort: "xhigh" }, use: { provider: "codex", model: "gpt-6.1-sol", effort: "high", fastMode: "on" } },
+        { when: { provider: "claude", model: "opus-5-5", effort: "medium" }, use: { provider: "claude", model: "opus-5-5", effort: "xhigh", fastMode: "on" } },
+      ],
+    }),
+  );
+  try {
+    const { thread: parent, agent } = await startThread("explicit choices");
+    await agent.turn(1);
+    agent.finish("ok");
+    const child = (message: string) => threads.list().find((each) => each.parentId === parent.id && each.title.includes(message));
+    // The rule's Codex model is replaced by Opus, which has fast mode: the child inherits off.
+    await threads.startThread(parent.id, { message: "own model", watch: false, startFrom: "base", provider: "claude", model: "opus-5-5", effort: "medium" });
+    assert.deepEqual([child("own model")?.provider, child("own model")?.fastMode], ["claude", false]);
+    // Same rule model at another effort: the rule's on holds.
+    await threads.send(parent.id, "medium", { model: "opus-5-5", effort: "medium", accessMode: "full", fastMode: false });
+    await agent.turn(2);
+    agent.finish("ok");
+    await threads.startThread(parent.id, { message: "own effort", watch: false, startFrom: "base", effort: "medium" });
+    assert.deepEqual([child("own effort")?.effort, child("own effort")?.fastMode], ["medium", true]);
+  } finally {
+    await rm(settings.path, { force: true });
+  }
+});
+
 test("a watched child reports every turn to its parent, including turns the user started", async () => {
   const { thread: parent, agent: parentAgent } = await startThread("coordinate");
   await parentAgent.turn(1);

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ChildModelRule, ModelOption } from "shared/protocol";
-import { checkModelChoice, childFastMode, childModelChoice, matchChildModelRule, resolveDefaults, resolveRuleModels } from "./models.ts";
+import { findModel } from "shared/models";
+import { checkModelChoice, childFastMode, childModelChoice, ruleFastMode, matchChildModelRule, resolveDefaults, resolveRuleModels } from "./models.ts";
 import { claudeFastMode, claudeModelOptions } from "./providers/claude.ts";
 
 const rules: ChildModelRule[] = [
@@ -157,4 +158,39 @@ test("a rule's fast mode decides a child's, else the parent's, never on a model 
   // With no model list, the provider decides.
   assert.equal(childFastMode("on", false, null), true);
   assert.equal(childFastMode(undefined, true, null), true);
+});
+
+test("a rule's fast mode applies only while the child runs on the rule's model", () => {
+  const claude: ModelOption[] = [
+    { id: "opus", name: "Opus 5.5", isDefault: true, efforts: ["medium", "high"], defaultEffort: "high", supportsFastMode: true, resolvedModel: "claude-opus-5-5" },
+  ];
+  const codex: ModelOption[] = [
+    { id: "gpt-6.1-sol", name: "GPT 6.1 Sol", isDefault: true, efforts: ["low", "high"], defaultEffort: "low", supportsFastMode: true },
+  ];
+  const rule: ChildModelRule = {
+    when: { provider: "codex", model: "gpt-6-astra", effort: null },
+    use: { provider: "codex", model: "gpt-6.1-sol", effort: "high", fastMode: "on" },
+  };
+  // As start_thread decides it: the rule's use, the agent's choices over it, the parent's fast mode.
+  const decide = (request: Parameters<typeof childModelChoice>[1], parentFastMode: boolean, use = rule.use) => {
+    const child = childModelChoice(use, request);
+    const list = child.provider === "claude" ? claude : codex;
+    const option = findModel(list, child.model);
+    return childFastMode(ruleFastMode(use, resolveDefaults(child, list), list), parentFastMode, option?.supportsFastMode ?? false);
+  };
+  // The agent replaced the rule's provider and model: the child inherits the parent's off.
+  assert.equal(decide({ provider: "claude", model: "opus", effort: "medium" }, false), false);
+  // ...or its on, where the model offers fast mode, by alias or full id.
+  assert.equal(decide({ provider: "claude", model: "opus", effort: "medium" }, true), true);
+  assert.equal(decide({ provider: "claude", model: "claude-opus-5-5" }, true), true);
+  // Only the effort changed: still the rule's model, so its on or off holds.
+  assert.equal(decide({ effort: "low" }, false), true);
+  assert.equal(decide({ effort: "low" }, true, { ...rule.use, fastMode: "off" }), false);
+  // No explicit choice: the rule applies as before.
+  assert.equal(decide({}, false), true);
+  assert.equal(decide({}, true, { ...rule.use, fastMode: "off" }), false);
+  // An alias in the rule and the full id it resolves to are the same model.
+  const claudeRule = { provider: "claude" as const, model: "claude-opus-5-5", effort: null, fastMode: "off" as const };
+  assert.equal(ruleFastMode(claudeRule, { provider: "claude", model: "opus", effort: "high" }, claude), "off");
+  assert.equal(ruleFastMode(undefined, { provider: "claude", model: "opus", effort: "high" }, claude), undefined);
 });

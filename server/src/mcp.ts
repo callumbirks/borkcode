@@ -124,7 +124,7 @@ function buildServer({ threads, files }: Services, threadId: string): McpServer 
         "The new thread sees only your message, not this conversation, so make it self-contained: the goal, what has been decided or tried, the relevant files and pull requests, and what done looks like.",
         "Do not name a branch for it: it works on a new branch of its own, which it already knows.",
         "However long the brief, send it as the message: it is saved as brief.md in the new thread's scratch folder, so the thread can re-read it and it is cleaned up with the thread. Write a brief to a project file only when the user asks for one.",
-        "The new thread uses this thread's access mode, and the provider and model the user's child model rules pick for it (else this thread's) unless you choose others; give them only if the user asked for them. Its fast mode is the matching rule's (on or off) or else this thread's, and applies only where its model offers it.",
+        "The new thread uses this thread's access mode, and the provider and model the user's child model rules pick for it (else this thread's) unless you choose others; give them only if the user asked for them. Its fast mode is the matching rule's (on or off) while it runs on the rule's model, else this thread's; choosing another provider or model drops the rule's, and fast mode applies only where the model offers it.",
         "The user may be asked to approve.",
       ].join(" "),
       inputSchema: {

@@ -104,6 +104,22 @@ export function childFastMode(setting: ChildFastMode | undefined, parentFastMode
   return wanted && supported !== false;
 }
 
+/**
+ * The rule's fast mode, if the child runs on the rule's model. The agent's explicit provider or
+ * model replaces the rule's choice, and its fast mode with it, so the child inherits as with no
+ * rule; an explicit effort alone keeps it. Models compare as listed, so an alias and the full id
+ * it resolves to are the same model.
+ */
+export function ruleFastMode(
+  use: ChildModelRule["use"] | undefined,
+  child: ModelChoice,
+  list: ModelOption[] | null,
+): ChildFastMode | undefined {
+  if (!use || use.provider !== child.provider) return undefined;
+  const named = (model: string | null) => (list && findModel(list, model)?.id) ?? model;
+  return named(use.model) === named(child.model) ? use.fastMode : undefined;
+}
+
 export function matchChildModelRule(rules: ChildModelRule[], parent: ModelChoice): ChildModelRule | undefined {
   return rules.find(
     ({ when }) =>
