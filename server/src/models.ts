@@ -50,7 +50,7 @@ export const listCommands = cached((provider) => commandListers[provider]());
 
 /**
  * Checks a model and effort an agent asked for against the provider's own list, so a typo fails
- * with the valid names instead of starting a thread that cannot run. An inherited effort the model
+ * with the valid ids and the models they stand for instead of starting a thread that cannot run. An inherited effort the model
  * lacks falls back to its default; an explicit one is an error. Unchecked if the list is unavailable.
  */
 export async function checkModelChoice(
@@ -66,15 +66,18 @@ export async function checkModelChoice(
   const chosen = findModel(list, model);
   if (!chosen) {
     if (model === null) return { model, effort };
-    throw new ToolError(`${provider} has no model "${model}". Available: ${list.map((option) => option.id).join(", ")}.`);
+    const available = list.map((option) => (option.name === option.id ? option.id : `${option.id} (${option.name})`));
+    throw new ToolError(`${provider} has no model "${model}". Available: ${available.join(", ")}.`);
   }
+  // A full id an alias resolves to is stored as the listed alias, which the picker shows.
+  const listed = model === null ? null : chosen.id;
   if (effort && !chosen.efforts.includes(effort)) {
     if (effortExplicit) {
       throw new ToolError(`${chosen.name} supports ${chosen.efforts.join(", ") || "no effort levels"}, not ${effort}.`);
     }
-    return { model, effort: null };
+    return { model: listed, effort: null };
   }
-  return { model, effort };
+  return { model: listed, effort };
 }
 
 export { resolveDefaults };

@@ -12,6 +12,11 @@ export interface ModelOption {
   /** Passed back to the provider as the model name. */
   id: string;
   name: string;
+  /**
+   * The full model id an alias stands for, as Claude reports it (e.g. "claude-opus-5-5" for
+   * "opus"), so a choice naming the full id finds the listed alias.
+   */
+  resolvedModel?: string;
   /** Picked by the provider when no model is chosen. */
   isDefault: boolean;
   /** Empty when the model has no effort control. */

@@ -83,7 +83,10 @@ inventing a fix.
   report default efforts. A null model or effort (or Claude's old "default"), still in older threads
   and settings, is resolved with `shared/models.ts` rather than migrated: pickers show and write
   back the concrete choice, and the server resolves it before starting sessions, turns and titles
-  and before storing a child's model, so what runs is what the picker showed.
+  and before storing a child's model, so what runs is what the picker showed. Claude lists its
+  newest models only by alias, so `findModel` also matches the full id an alias resolves to
+  (`resolvedModel`), preferring an exact id; `start_thread` stores the listed id, and its error
+  names each model, since agents ask for full ids and bare aliases don't say which version they are.
 - **Fast mode is a per-thread flag,** like access mode: saved with the next message and the
   new-thread preferences, inherited by children unless the matching child model rule's `use`
   sets it `on` or `off` (missing means inherit, as for rules saved before; `childFastMode`). It is sent only where the model list says the

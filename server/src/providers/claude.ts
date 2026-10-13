@@ -94,6 +94,7 @@ export function claudeModelOptions(models: ModelInfo[]): ModelOption[] {
     return {
       id: model.value,
       name: model.displayName,
+      resolvedModel: model.resolvedModel,
       isDefault: model === preferred,
       efforts,
       defaultEffort: efforts.includes("high") ? "high" : (efforts.at(-1) ?? null),

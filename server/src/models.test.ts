@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ChildModelRule, ModelOption } from "shared/protocol";
-import { childFastMode, childModelChoice, matchChildModelRule, resolveDefaults, resolveRuleModels } from "./models.ts";
+import { checkModelChoice, childFastMode, childModelChoice, matchChildModelRule, resolveDefaults, resolveRuleModels } from "./models.ts";
 import { claudeFastMode, claudeModelOptions } from "./providers/claude.ts";
 
 const rules: ChildModelRule[] = [
@@ -80,6 +80,35 @@ test("Claude's default pseudo-model is left out, and the model it stands for is 
       ["claude-haiku-4-5", false, null, false],
     ],
   );
+  assert.equal(options.find((option) => option.id === "opus")?.resolvedModel, "claude-opus-5-5");
+});
+
+const claudeList: ModelOption[] = [
+  { id: "opus", name: "Opus 5.5", resolvedModel: "claude-opus-5-5", isDefault: true, efforts: ["high", "max"], defaultEffort: "high", supportsFastMode: true },
+  { id: "fable", name: "Fable 5.1", resolvedModel: "claude-fable-5-1", isDefault: false, efforts: ["high"], defaultEffort: "high", supportsFastMode: false },
+  { id: "claude-opus-5", name: "Opus 5", resolvedModel: "claude-opus-5", isDefault: false, efforts: ["high"], defaultEffort: "high", supportsFastMode: false },
+];
+const check = (model: string | null, list = claudeList) => checkModelChoice("claude", model, null, false, async () => list);
+
+test("a full model id an alias resolves to is stored as the alias", async () => {
+  assert.deepEqual(await check("claude-opus-5-5"), { model: "opus", effort: null });
+  assert.deepEqual(await check("claude-fable-5-1"), { model: "fable", effort: null });
+  assert.deepEqual(await check("claude-opus-5"), { model: "claude-opus-5", effort: null });
+  assert.deepEqual(resolveDefaults({ model: "claude-opus-5-5", effort: null }, claudeList), { model: "opus", effort: "high" });
+});
+
+test("a pinned id is kept when listed, even if an alias resolves to it", async () => {
+  const pinned: ModelOption = { ...claudeList[0]!, id: "claude-opus-5-5", name: "Opus 5.5 (pinned)", isDefault: false };
+  assert.deepEqual(await check("claude-opus-5-5", [...claudeList, pinned]), { model: "claude-opus-5-5", effort: null });
+  assert.deepEqual(await check("opus", [...claudeList, pinned]), { model: "opus", effort: null });
+});
+
+test("an unknown model fails, naming each listed model", async () => {
+  for (const model of ["claude-opus-5.5", "Opus 5.5"]) {
+    await assert.rejects(check(model), {
+      message: `claude has no model "${model}". Available: opus (Opus 5.5), fable (Fable 5.1), claude-opus-5 (Opus 5).`,
+    });
+  }
 });
 
 test("null, Claude's old \"default\" and efforts a model lacks resolve to concrete names", () => {
