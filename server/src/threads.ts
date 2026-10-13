@@ -21,6 +21,7 @@ import type {
   ServerEvent,
   Thread,
   ThreadDetail,
+  TranscriptItem,
 } from "shared/protocol";
 import type { AttachmentStore } from "./attachments.ts";
 import { threadsToArchive } from "./autoArchive.ts";
@@ -141,6 +142,21 @@ const PUBLISH_MESSAGE = [
   "Write each title and description from the commits: what changed, why, and how it was tested.",
   "Finish by listing the pull request URLs.",
 ].join(" ");
+
+/** `threads.get` cuts longer tool summaries, such as long commands; the collapsed row shows one line. */
+export const TRIMMED_SUMMARY_LENGTH = 500;
+const MAX_ITEM_IDS = 200;
+
+/**
+ * A finished tool call without its output, as `threads.get` sends it. Running ones stay full, so
+ * the client never has to tell a trimmed output from one still arriving.
+ */
+function trimItem(item: Item): TranscriptItem {
+  if (item.kind !== "tool" || item.status === "running") return item;
+  const { output, ...rest } = item;
+  if (output === null && item.summary.length <= TRIMMED_SUMMARY_LENGTH) return item;
+  return { ...rest, summary: item.summary.slice(0, TRIMMED_SUMMARY_LENGTH), trimmed: true, outputLength: output?.length ?? null };
+}
 
 export function workspaceSlug(title: string, id: string): string {
   const base = title
@@ -513,7 +529,7 @@ export class ThreadService {
     const live = this.#live.get(threadId);
     const items = this.#db
       .listItems(threadId)
-      .map((item) => live?.streaming.get(item.id) ?? item);
+      .map((item) => trimItem(live?.streaming.get(item.id) ?? item));
     return {
       thread: this.#toThread(thread),
       workspacePath: workspacePath(project, thread.workspace),
@@ -521,6 +537,17 @@ export class ThreadService {
       approvals: [...(live?.approvals.values() ?? [])].map((entry) => entry.approval),
       questions: [...(live?.questions.values() ?? [])].map((entry) => entry.request),
     };
+  }
+
+  /** Full items of this thread by id, in the order asked, such as tool calls the user expands. */
+  items(threadId: string, itemIds: string[]): Item[] {
+    this.#require(threadId);
+    if (itemIds.length > MAX_ITEM_IDS) throw new Error(`At most ${MAX_ITEM_IDS} items at a time`);
+    const live = this.#live.get(threadId);
+    return itemIds.flatMap((id) => {
+      const item = live?.streaming.get(id) ?? this.#db.getItem(threadId, id);
+      return item ? [item] : [];
+    });
   }
 
   /**

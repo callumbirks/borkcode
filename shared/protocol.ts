@@ -341,10 +341,24 @@ export interface RepoStatus {
   ahead: number | null;
 }
 
+/**
+ * A finished tool call as `threads.get` sends it. Outputs are most of a long transcript's bytes
+ * and show only once a step is expanded, so the output is left out and a very long summary is cut;
+ * `items.get` returns the full item. `outputLength` is the output's length, null when it has none.
+ */
+export type TrimmedToolItem = Omit<Extract<Item, { kind: "tool" }>, "output"> & {
+  trimmed: true;
+  outputLength: number | null;
+};
+
+/** A transcript entry as the client holds it: full, or a trimmed tool call until it is fetched. */
+export type TranscriptItem = Item | TrimmedToolItem;
+
 export interface ThreadDetail {
   thread: Thread;
   workspacePath: string;
-  items: Item[];
+  /** Running tool calls and live events are always full. */
+  items: TranscriptItem[];
   approvals: Approval[];
   questions: QuestionRequest[];
 }
@@ -413,6 +427,8 @@ export interface Requests {
     result: Thread;
   };
   "threads.get": { params: { threadId: string }; result: ThreadDetail };
+  /** Full items of the thread, such as trimmed tool calls being expanded. Unknown ids are left out. At most 200. */
+  "items.get": { params: { threadId: string; itemIds: string[] }; result: Item[] };
   /**
    * Model, effort, access and fast mode apply to this turn and are remembered for the next. Attachments
    * are ids of files uploaded to this thread; with any, the text may be empty.
