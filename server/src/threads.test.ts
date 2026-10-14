@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { after, test } from "node:test";
-import type { Item, LinkedPullRequest, Question, ServerEvent } from "shared/protocol";
+import type { Item, LinkedPullRequest, Question, ServerEvent, TranscriptItem } from "shared/protocol";
 import { AttachmentStore } from "./attachments.ts";
 import { Database } from "./db.ts";
 import { borkcodeMessage, SERVER_STOPPED_NOTE, userMessage } from "./delegation.ts";
@@ -14,7 +14,7 @@ import { ProjectStore } from "./projects.ts";
 import type { PullRequestState } from "./pullRequests.ts";
 import type { ProviderSession, SessionEvents, TurnAttachment, TurnSettings } from "./providers/types.ts";
 import { DEFAULT_SETTINGS, SettingsStore } from "./settings.ts";
-import { ThreadService } from "./threads.ts";
+import { ThreadService, TRIMMED_SUMMARY_LENGTH } from "./threads.ts";
 import { MAX_VISUALIZATION_BYTES } from "./visualizations.ts";
 
 /** A scripted agent: records what it is sent and ends turns when the test says so. */
@@ -58,6 +58,11 @@ class FakeAgent implements ProviderSession {
   async turn(n: number): Promise<string> {
     while (this.turns.length < n) await new Promise<void>((resolve) => this.#waiting.push(resolve));
     return this.turns[n - 1]!;
+  }
+
+  /** Any item, such as a tool call starting or finishing. */
+  emit(item: Item) {
+    this.#events.item(item);
   }
 
   /** An assistant message mid-turn. */
@@ -1003,7 +1008,7 @@ test("a new thread takes its draft's uploads, sends the named ones with its firs
 
 const SETTINGS_NOW = { model: null, effort: null, accessMode: "full" as const, fastMode: false };
 
-function notices(items: Item[]): string[] {
+function notices(items: TranscriptItem[]): string[] {
   return items.flatMap((item) => (item.kind === "notice" ? [item.text] : []));
 }
 
@@ -1145,6 +1150,48 @@ test("a new thread stopped while its workspace is being created gets its first m
   // No agent turn had started, so there is no server note.
   assert.deepEqual(notices(detail.items), []);
   agent.finish("hello");
+});
+
+test("opening a thread trims finished tool calls, which items.get returns in full for that thread only", async () => {
+  const { thread, agent } = await startThread("run things");
+  await agent.turn(1);
+  const output = "line\n".repeat(10_000);
+  const command = `cat <<'EOF'\n${"x".repeat(2 * TRIMMED_SUMMARY_LENGTH)}\nEOF`;
+  const running: Item = { id: randomUUID(), kind: "tool", name: "Bash", summary: command, output: "partial", status: "running" };
+  agent.emit(running);
+  const live = (await threads.get(thread.id)).items.find((item) => item.id === running.id);
+  assert.deepEqual(live, running, "a running tool call streams in full");
+
+  const done: Item = { ...running, output, status: "done" };
+  const quiet: Item = { id: randomUUID(), kind: "tool", name: "Read", summary: "README.md", output: null, status: "done", image: "/tmp/a.png" };
+  const broadcastFull = broadcastOf(
+    (event) => event.type === "item.upserted" && event.item.kind === "tool" && event.item.output === output,
+  );
+  agent.emit(done);
+  await broadcastFull;
+  agent.emit(quiet);
+  agent.finish("ran it");
+  const items = (await threads.get(thread.id)).items;
+  const trimmed = items.find((item) => item.id === done.id);
+  assert.deepEqual(trimmed, {
+    id: done.id,
+    kind: "tool",
+    name: "Bash",
+    summary: command.slice(0, TRIMMED_SUMMARY_LENGTH),
+    status: "done",
+    trimmed: true,
+    outputLength: output.length,
+  });
+  assert.deepEqual(items.find((item) => item.id === quiet.id), quiet, "nothing to leave out");
+  assert.deepEqual(
+    items.flatMap((item) => (item.kind === "assistant" || item.kind === "user" ? [item.text] : [])),
+    ["run things", "ran it"],
+  );
+
+  assert.deepEqual(threads.items(thread.id, [done.id, randomUUID(), quiet.id]), [done, quiet]);
+  const other = await startThread("elsewhere");
+  assert.deepEqual(threads.items(other.thread.id, [done.id]), []);
+  other.agent.finish("done");
 });
 
 test("show_html stores the page beside the attachments, records only its id and title, and can replace it", async () => {

@@ -9,7 +9,7 @@
   import DOMPurify from "dompurify";
   import { mount, unmount } from "svelte";
   import { commandName } from "shared/commands";
-  import type { Item } from "shared/protocol";
+  import type { TranscriptItem } from "shared/protocol";
   import { compactionLabel } from "../lib/compaction";
   import { providerLabel, pullRequestIcon, toolIcon, toolLabel } from "../lib/display.svelte";
   import { fileUrl, labelTarget, targetLabel, toolPaths } from "../lib/fileLinks";
@@ -18,12 +18,12 @@
   import { findReferences, findThreadReferences, isThreadReference } from "../lib/threadReferences";
   import { renderMarkdown } from "../lib/markdown";
   import { mentionedPullRequestNumbers } from "../lib/pullRequests";
-  import { app, go } from "../lib/state.svelte";
+  import { app, go, loadFullItem } from "../lib/state.svelte";
   import MessageAttachments from "./MessageAttachments.svelte";
   import VisualizationCard from "./VisualizationCard.svelte";
 
   /** `roots` are what file references in messages can point into, to render them as chips. */
-  let { item, threadId, roots }: { item: Item; threadId: string; roots: ReferenceRoots | null } = $props();
+  let { item, threadId, roots }: { item: TranscriptItem; threadId: string; roots: ReferenceRoots | null } = $props();
 
   /** The other thread a handoff item points at; titles and status stay live as it works. */
   const linked = $derived.by(() => {
@@ -41,6 +41,16 @@
         })
       : [],
   );
+
+  /** A tool call opened trimmed has an output to fetch once its step is expanded. */
+  const hasOutput = $derived(item.kind === "tool" && ("trimmed" in item ? !!item.outputLength : !!item.output));
+  let outputFailed = $state(false);
+
+  function stepToggled(event: Event & { currentTarget: HTMLDetailsElement }) {
+    if (!event.currentTarget.open || !("trimmed" in item)) return;
+    outputFailed = false;
+    loadFullItem(threadId, item.id).catch(() => (outputFailed = true));
+  }
 
   /** Lines a message from another thread shows while collapsed; keep in step with `.clip`. */
   const collapsedLines = 5;
@@ -192,8 +202,8 @@
   {/if}
 {:else if item.kind === "tool"}
   {@const Icon = toolIcon(item.name)}
-  <details class="step {item.status}">
-    <summary class:static={!item.output && !item.image}>
+  <details class="step {item.status}" ontoggle={stepToggled}>
+    <summary class:static={!hasOutput && !item.image}>
       <Icon size={14} />
       <span class="name">{toolLabel(item.name)}</span>
       {#if toolFiles.length > 0}
@@ -222,7 +232,9 @@
         <p class="body faint">The image is outside this thread's workspace, so it can't be shown here.</p>
       {/if}
     {/if}
-    {#if item.output}<pre class="body">{item.output}</pre>{/if}
+    {#if "trimmed" in item}
+      {#if hasOutput}<p class="body faint">{outputFailed ? "The output could not be loaded." : "Loading output…"}</p>{/if}
+    {:else if item.output}<pre class="body">{item.output}</pre>{/if}
   </details>
 {:else if item.kind === "question"}
   {@const answers = item.answers}

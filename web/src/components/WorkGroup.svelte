@@ -1,12 +1,12 @@
 <script lang="ts">
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
-  import type { Item } from "shared/protocol";
+  import type { TranscriptItem } from "shared/protocol";
   import { toolLabel } from "../lib/display.svelte";
   import type { ReferenceRoots } from "../lib/fileReferences";
   import ItemView from "./ItemView.svelte";
 
   /** A run of tool calls and reasoning between messages, folded into one line so the answer stays readable. */
-  let { items, threadId, roots }: { items: Item[]; threadId: string; roots: ReferenceRoots | null } = $props();
+  let { items, threadId, roots }: { items: TranscriptItem[]; threadId: string; roots: ReferenceRoots | null } = $props();
 
   const tools = $derived(items.filter((item) => item.kind === "tool"));
   const failed = $derived(tools.filter((tool) => tool.status === "failed").length);

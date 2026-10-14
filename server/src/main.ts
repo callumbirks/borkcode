@@ -143,6 +143,7 @@ const handlers: Handlers = {
   "threads.list": async () => threads.list(),
   "threads.create": (params) => threads.create(params),
   "threads.get": ({ threadId }) => threads.get(threadId),
+  "items.get": async ({ threadId, itemIds }) => threads.items(threadId, itemIds),
   "threads.send": async ({ threadId, text, attachments, model, effort, accessMode, fastMode }) => {
     // The turn runs in the background; progress arrives as events. A tab from before fast mode
     // sends none, which means off.
