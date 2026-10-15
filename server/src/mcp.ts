@@ -124,7 +124,8 @@ function buildServer({ threads, files }: Services, threadId: string): McpServer 
         "The new thread sees only your message, not this conversation, so make it self-contained: the goal, what has been decided or tried, the relevant files and pull requests, and what done looks like.",
         "Do not name a branch for it: it works on a new branch of its own, which it already knows.",
         "However long the brief, send it as the message: it is saved as brief.md in the new thread's scratch folder, so the thread can re-read it and it is cleaned up with the thread. Write a brief to a project file only when the user asks for one.",
-        "The new thread uses this thread's access mode, and the provider and model the user's child model rules pick for it (else this thread's) unless you choose others; give them only if the user asked for them. Its fast mode is the matching rule's (on or off) while it runs on the rule's model, else this thread's; choosing another provider or model drops the rule's, and fast mode applies only where the model offers it.",
+        "The new thread uses this thread's access mode, and the provider and model the user's child model rules pick for it (else this thread's) unless you choose others; give them only if the user asked for them.",
+        "Set fast_mode only if the user asked for a speed: true requests fast mode and requires the chosen model to offer it; false requests standard speed. When omitted, fast mode is the matching rule's (on or off) while the child runs on the rule's model, else this thread's; choosing another provider or model drops the rule's, and fast mode applies only where the model offers it.",
         "The user may be asked to approve.",
       ].join(" "),
       inputSchema: {
@@ -145,10 +146,11 @@ function buildServer({ threads, files }: Services, threadId: string): McpServer 
         provider: z.enum(["claude", "codex"]).optional().describe("Agent for the new thread; defaults to the child model rules' or this thread's"),
         model: z.string().optional().describe("Model id, as the provider lists it; defaults to the child model rules' or this thread's model when the provider is the same"),
         effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional().describe("Reasoning effort; defaults to the model's own when you choose a model or another provider, else to the child model rules' or this thread's"),
+        fast_mode: z.boolean().optional().describe("Override the child model rule's and this thread's fast mode: true for fast mode (the chosen model must offer it), false for standard speed; omit to use the rule or inherit"),
       },
     },
-    ({ message, watch, start_from, provider, model, effort }) =>
-      toolResult(() => threads.startThread(threadId, { message, watch, startFrom: start_from, provider, model, effort })),
+    ({ message, watch, start_from, provider, model, effort, fast_mode }) =>
+      toolResult(() => threads.startThread(threadId, { message, watch, startFrom: start_from, provider, model, effort, fastMode: fast_mode })),
   );
 
   server.registerTool(

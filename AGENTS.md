@@ -88,8 +88,11 @@ inventing a fix.
   (`resolvedModel`), preferring an exact id; `start_thread` stores the listed id, and its error
   names each model, since agents ask for full ids and bare aliases don't say which version they are.
 - **Fast mode is a per-thread flag,** like access mode: saved with the next message and the
-  new-thread preferences, inherited by children unless the matching child model rule's `use`
-  sets it `on` or `off` (missing means inherit, as for rules saved before; `childFastMode`). The
+  new-thread preferences. An explicit `start_thread` `fast_mode` overrides rules and inheritance;
+  `true` requires the chosen model to advertise `supportsFastMode` (and fails if its model list
+  is unavailable), while `false` always selects standard speed. Otherwise it is inherited by
+  children unless the matching child model rule's `use` sets it `on` or `off` (missing means
+  inherit, as for rules saved before; `childFastMode`). The
   rule's setting goes with its model: an agent's explicit `start_thread` provider or model that
   differs (compared via `findModel`, so aliases match full ids) drops it back to inheriting, while
   an explicit effort alone keeps it (`ruleFastMode`). It is sent only where the model list says the

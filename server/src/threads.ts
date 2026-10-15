@@ -315,6 +315,7 @@ export class ThreadService {
       provider?: ProviderKind;
       model?: string;
       effort?: Effort;
+      fastMode?: boolean;
       startFrom: "base" | "this_branch";
     },
   ): Promise<string> {
@@ -337,8 +338,13 @@ export class ThreadService {
     const list = await this.#deps.listModels(provider).catch(() => null);
     const choice = resolveDefaults({ provider, ...checked }, list);
     const option = list && findModel(list, choice.model);
-    // The rule's fast mode goes with its model: an explicit provider or model drops it.
-    const fastMode = childFastMode(ruleFastMode(rule?.use, choice, list), parent.fastMode, list ? (option?.supportsFastMode ?? false) : null);
+    if (request.fastMode === true) {
+      const modelName = option?.name ?? choice.model ?? `${provider}'s default model`;
+      if (!list) throw new ToolError(`Cannot verify fast mode for ${modelName}: ${provider}'s model list is unavailable. Try again when it is available.`);
+      if (!option?.supportsFastMode) throw new ToolError(`${modelName} does not support fast mode. Choose a model that offers it or set fast_mode to false.`);
+    }
+    // An explicit speed wins; otherwise the rule's speed goes with its model, else the parent's.
+    const fastMode = request.fastMode ?? childFastMode(ruleFastMode(rule?.use, choice, list), parent.fastMode, list ? (option?.supportsFastMode ?? false) : null);
 
     let startBranch: string | null = null;
     if (request.startFrom === "this_branch") {

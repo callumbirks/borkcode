@@ -61,6 +61,7 @@ export function buildInstructions(
       ? "You may start threads whenever the work calls for it; see the captain section below."
       : "When the user asks you to hand work off or delegate it to a new thread, use the borkcode start_thread tool. Only start threads when asked.",
     "Choose watch true when you are to keep track of the work or follow it up: each of the thread's final replies then comes back to you as a message. Choose false for a plain handoff that the user will follow themselves.",
+    "When the user asks for a child's fast mode or standard speed, pass fast_mode true or false to start_thread. This overrides child model rules and inheritance; true requires the chosen model to offer fast mode. Otherwise omit fast_mode to use the matching rule's speed on its model, else inherit this thread's speed, where supported.",
     "The new thread sees only your message, so make it self-contained: the goal, what has been decided or tried, the relevant files and pull requests, and what done looks like. Do not tell it which branch to use: it gets a branch of its own and knows its name. However long the brief, send it as the message: borkcode saves it as brief.md in the new thread's scratch folder so it can re-read it. Write a brief to a project file only when the user asks for one.",
     thread.branch
       ? "Use start_from this_branch to continue your own work with fresh context, and base for separate work."
