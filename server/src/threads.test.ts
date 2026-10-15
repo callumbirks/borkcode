@@ -394,6 +394,101 @@ test("an explicit provider or model drops the rule's fast mode, and an explicit 
   }
 });
 
+test("an Opus medium parent can explicitly start a fast Codex child across providers", async () => {
+  const service = new ThreadService(new Database(":memory:"), projects, settings, emit, "http://test/mcp/", attachments, {
+    ...fakeDeps,
+    listModels: async (provider) => (await fakeDeps.listModels(provider)).map((model) => ({ ...model, supportsFastMode: true })),
+  });
+  await settings.update({ ...DEFAULT_SETTINGS, childModelRules: [
+    { when: { provider: "claude", model: "opus-5-5", effort: "xhigh" }, use: { provider: "claude", model: "opus-5-5", effort: "medium", fastMode: "off" } },
+    { when: { provider: "codex", model: "gpt-6-astra", effort: null }, use: { provider: "codex", model: "gpt-6.1-sol", effort: "high", fastMode: "on" } },
+  ] });
+  try {
+    const parent = await service.create({ project: "demo", text: "Opus medium", provider: "claude", model: "opus-5-5", effort: "medium", fastMode: false, accessMode: "full", isolated: true, captain: false });
+    const agent = await agentOf(parent.id, service);
+    await agent.turn(1);
+    agent.finish("ok");
+    const request = { watch: false, startFrom: "base" as const, provider: "codex" as const, model: "gpt-6.1-sol", effort: "high" as const };
+    const startChild = async (message: string, fastMode?: boolean) => {
+      const reply = await service.startThread(parent.id, { ...request, message, fastMode });
+      const child = service.list().find((each) => each.parentId === parent.id && each.title.includes(message))!;
+      const childAgent = await agentOf(child.id, service);
+      await childAgent.turn(1);
+      assert.deepEqual([child.provider, child.model, child.effort], ["codex", "gpt-6.1-sol", "high"]);
+      assert.equal(childAgent.settings[0]?.fastMode, child.fastMode);
+      childAgent.finish("done");
+      return { child, reply };
+    };
+    // The reported failure: a rule for a Codex parent does not match an Opus parent.
+    assert.equal((await startChild("inherit off")).child.fastMode, false);
+    const fast = await startChild("explicit on", true);
+    assert.equal(fast.child.fastMode, true);
+    assert.match(fast.reply, /in fast mode/);
+    await service.send(parent.id, "fast parent", { model: "opus-5-5", effort: "medium", accessMode: "full", fastMode: true });
+    await agent.turn(2);
+    agent.finish("ok");
+    assert.equal((await startChild("inherit on")).child.fastMode, true);
+    const standard = await startChild("explicit off", false);
+    assert.equal(standard.child.fastMode, false);
+    assert.doesNotMatch(standard.reply, /in fast mode/);
+  } finally {
+    await service.shutdown();
+    await rm(settings.path, { force: true });
+  }
+});
+
+test("explicit fast mode beats both on and off child model rules", async () => {
+  await settings.update({ ...DEFAULT_SETTINGS, childModelRules: [
+    { when: { provider: "claude", model: "opus-5-5", effort: "xhigh" }, use: { provider: "claude", model: "opus-5-5", effort: "medium", fastMode: "on" } },
+    { when: { provider: "claude", model: "opus-5-5", effort: "medium" }, use: { provider: "claude", model: "opus-5-5", effort: "xhigh", fastMode: "off" } },
+  ] });
+  try {
+    const { thread: parent, agent } = await startThread("override rules", true);
+    await agent.turn(1);
+    agent.finish("ok");
+    await threads.startThread(parent.id, { message: "force off", watch: false, startFrom: "base", fastMode: false });
+    const child = (message: string) => threads.list().find((each) => each.parentId === parent.id && each.title.includes(message))!;
+    assert.deepEqual([child("force off").effort, child("force off").fastMode], ["medium", false]);
+    await threads.send(parent.id, "standard medium", { model: "opus-5-5", effort: "medium", accessMode: "full", fastMode: false });
+    await agent.turn(2);
+    agent.finish("ok");
+    await threads.startThread(parent.id, { message: "force on", watch: false, startFrom: "base", fastMode: true });
+    assert.deepEqual([child("force on").effort, child("force on").fastMode], ["xhigh", true]);
+  } finally {
+    await rm(settings.path, { force: true });
+  }
+});
+
+test("explicit fast mode rejects unsupported models before creating a child, but standard speed is allowed", async () => {
+  const { thread: parent, agent } = await startThread("check speed");
+  await agent.turn(1);
+  agent.finish("ok");
+  const count = threads.list().length;
+  const request = { message: "no fast mode", watch: false, startFrom: "base" as const, fastMode: true };
+  await assert.rejects(threads.startThread(parent.id, { ...request, model: "haiku" }), /Haiku does not support fast mode/);
+  // Capability validation uses the resolved default when only the provider was specified.
+  await assert.rejects(threads.startThread(parent.id, { ...request, provider: "codex" }), /GPT 6\.1 Sol does not support fast mode/);
+  assert.equal(threads.list().length, count);
+  await threads.startThread(parent.id, { ...request, model: "haiku", fastMode: false });
+  assert.equal(threads.list().find((each) => each.parentId === parent.id)?.fastMode, false);
+});
+
+test("an explicit fast request requires the model list; omitted speed keeps the existing fallback", async () => {
+  const service = new ThreadService(db, projects, settings, emit, "http://test/mcp/", attachments, {
+    ...fakeDeps,
+    listModels: async () => { throw new Error("offline"); },
+  });
+  const { thread: parent, agent } = await startThread("offline models", true);
+  await agent.turn(1);
+  agent.finish("ok");
+  const request = { message: "offline fast", watch: false, startFrom: "base" as const, provider: "codex" as const, model: "gpt-6.1-sol", effort: "high" as const };
+  const count = service.list().length;
+  await assert.rejects(service.startThread(parent.id, { ...request, fastMode: true }), /Cannot verify fast mode for gpt-6\.1-sol.*model list is unavailable/);
+  assert.equal(service.list().length, count);
+  await service.startThread(parent.id, request);
+  assert.equal(service.list().find((each) => each.parentId === parent.id)?.fastMode, true);
+});
+
 test("a watched child reports every turn to its parent, including turns the user started", async () => {
   const { thread: parent, agent: parentAgent } = await startThread("coordinate");
   await parentAgent.turn(1);
