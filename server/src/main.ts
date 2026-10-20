@@ -142,7 +142,8 @@ const handlers: Handlers = {
   "threads.locateFiles": async ({ threadId, paths }) => locateAll(await previewRoots(threadId), paths),
   "threads.list": async () => threads.list(),
   "threads.create": (params) => threads.create(params),
-  "threads.get": ({ threadId }) => threads.get(threadId),
+  "threads.get": ({ threadId, from }) => threads.get(threadId, from),
+  "items.older": async ({ threadId, before }) => threads.older(threadId, before),
   "items.get": async ({ threadId, itemIds }) => threads.items(threadId, itemIds),
   "threads.send": async ({ threadId, text, attachments, model, effort, accessMode, fastMode }) => {
     // The turn runs in the background; progress arrives as events. A tab from before fast mode

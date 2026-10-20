@@ -354,11 +354,19 @@ export type TrimmedToolItem = Omit<Extract<Item, { kind: "tool" }>, "output"> & 
 /** A transcript entry as the client holds it: full, or a trimmed tool call until it is fetched. */
 export type TranscriptItem = Item | TrimmedToolItem;
 
-export interface ThreadDetail {
+/**
+ * A run of whole turns, oldest first. A turn is a user message and everything after it up to the
+ * next one; items before the first user message belong to the first turn. Every item has a seq
+ * of at least `from`; above 0, earlier turns exist and `items.older` with `before: from` loads them.
+ */
+export interface TurnWindow {
+  items: TranscriptItem[];
+  from: number;
+}
+
+export interface ThreadDetail extends TurnWindow {
   thread: Thread;
   workspacePath: string;
-  /** Running tool calls and live events are always full. */
-  items: TranscriptItem[];
   approvals: Approval[];
   questions: QuestionRequest[];
 }
@@ -426,7 +434,14 @@ export interface Requests {
     };
     result: Thread;
   };
-  "threads.get": { params: { threadId: string }; result: ThreadDetail };
+  /**
+   * The latest turns (`TURNS_PER_PAGE` in the server), finished tool calls trimmed. Running tool
+   * calls are always full. `from` asks for everything from that seq instead, as when a reconnecting client keeps
+   * the turns it had loaded.
+   */
+  "threads.get": { params: { threadId: string; from?: number }; result: ThreadDetail };
+  /** The `TURNS_PER_PAGE` turns before `before` (a window's `from`), trimmed like `threads.get`. */
+  "items.older": { params: { threadId: string; before: number }; result: TurnWindow };
   /** Full items of the thread, such as trimmed tool calls being expanded. Unknown ids are left out. At most 200. */
   "items.get": { params: { threadId: string; itemIds: string[] }; result: Item[] };
   /**
@@ -504,7 +519,11 @@ export type ServerEvent =
   | { type: "thread.updated"; thread: Thread }
   | { type: "thread.deleted"; threadId: string }
   /** `toEnd` moves an existing item to the end of the transcript, as a replaced visualization does. */
-  | { type: "item.upserted"; threadId: string; item: Item; toEnd?: true }
+  /**
+   * `seq` is the item's place in the transcript. A client whose window starts later than it has
+   * not loaded that part, so it ignores an item it doesn't hold rather than adding it at the end.
+   */
+  | { type: "item.upserted"; threadId: string; item: Item; seq: number; toEnd?: true }
   | { type: "item.delta"; threadId: string; itemId: string; text: string }
   | { type: "approval.requested"; threadId: string; approval: Approval }
   | { type: "approval.resolved"; threadId: string; approvalId: string }
