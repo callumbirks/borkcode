@@ -235,6 +235,7 @@ export async function open(
     hash = `#/thread/${threadId}`,
     models,
     commands,
+    beforeRequest,
   }: {
     base?: string;
     context?: BrowserContextOptions;
@@ -243,6 +244,8 @@ export async function open(
     models?: Partial<Record<ProviderKind, ModelOption[]>>;
     /** Answers `commands.list` for these providers in place of the server. */
     commands?: Partial<Record<ProviderKind, ProviderCommand[]>>;
+    /** Runs before a request goes to the server, which waits for it, e.g. to hold a response. */
+    beforeRequest?: (method: string) => Promise<void> | void;
   } = {},
 ): Promise<Session> {
   const context = await browser.newContext(options);
@@ -255,13 +258,14 @@ export async function open(
   await page.routeWebSocket("**/ws", (ws) => {
     const upstream = ws.connectToServer();
     route = ws;
-    if (!models && !commands) return;
-    ws.onMessage((message) => {
+    if (!models && !commands && !beforeRequest) return;
+    ws.onMessage(async (message) => {
       const request = JSON.parse(String(message)) as { id: number; method: string; params: { provider?: ProviderKind } };
       const stubs = request.method === "models.list" ? models : request.method === "commands.list" ? commands : undefined;
       const list = request.params.provider && stubs?.[request.params.provider];
-      if (list) ws.send(JSON.stringify({ id: request.id, result: list }));
-      else upstream.send(message);
+      if (list) return ws.send(JSON.stringify({ id: request.id, result: list }));
+      await beforeRequest?.(request.method);
+      upstream.send(message);
     });
   });
   await page.goto(`${base}/${hash}`);
