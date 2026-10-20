@@ -12,9 +12,10 @@ import type {
   Thread,
   ThreadDetail,
 } from "shared/protocol";
-import { flushSync } from "svelte";
+import { flushSync, untrack } from "svelte";
 import { parseRoute, routeHash, type Route } from "./routes";
 import { RpcClient } from "./rpc";
+import { prependOlder, upsertItem } from "./transcript";
 
 export const app = $state({
   connected: false,
@@ -182,12 +183,7 @@ function handleEvent(event: ServerEvent): void {
       if (detail?.thread.id === event.threadId) app.detail = null;
       return;
     case "item.upserted":
-      if (detail?.thread.id !== event.threadId) return;
-      if (event.toEnd) {
-        const index = detail.items.findIndex((entry) => entry.id === event.item.id);
-        if (index !== -1) detail.items.splice(index, 1);
-        detail.items.push(event.item);
-      } else upsertById(detail.items, event.item);
+      if (detail?.thread.id === event.threadId) upsertItem(detail, event.item, event.seq, event.toEnd);
       return;
     case "item.delta": {
       if (detail?.thread.id !== event.threadId) return;
@@ -284,9 +280,26 @@ export async function loadFullItem(threadId: string, itemId: string): Promise<vo
   if (item && index !== -1 && "trimmed" in detail.items[index]!) detail.items[index] = item;
 }
 
+/**
+ * Loads the turns before the open thread's earliest, if there are any. Resolves once they are in
+ * `app.detail`; `apply` runs just before, so the caller can measure the view on either side.
+ */
+export async function loadOlderTurns(threadId: string, apply: (change: () => void) => Promise<void>): Promise<void> {
+  const detail = app.detail;
+  if (detail?.thread.id !== threadId || detail.from === 0) return;
+  const before = detail.from;
+  const older = await rpc.request("items.older", { threadId, before });
+  // The thread was reopened or another load got there first.
+  if (app.detail !== detail || detail.from !== before) return;
+  await apply(() => prependOlder(detail, older));
+}
+
 export async function openThread(id: string): Promise<void> {
   try {
-    app.detail = await rpc.request("threads.get", { threadId: id });
+    // Reopening the same thread, as after a reconnect, keeps the older turns it had loaded.
+    // Untracked, since effects call this and must not rerun when the transcript changes.
+    const from = untrack(() => (app.detail?.thread.id === id ? app.detail.from : undefined));
+    app.detail = await rpc.request("threads.get", { threadId: id, ...(from !== undefined && { from }) });
   } catch {
     app.detail = null;
   }

@@ -4,18 +4,28 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import X from "@lucide/svelte/icons/x";
   import { closeOnEscape, previewLayout, previews, startResize } from "../lib/filePreview.svelte";
-  import { app } from "../lib/state.svelte";
+  import type { Item, TranscriptItem } from "shared/protocol";
+  import { app, rpc } from "../lib/state.svelte";
   import { visualizationUrl } from "../lib/visualizations";
 
   /** A visualization opened larger in the right-hand panel, in the same sandbox as inline. */
   let { threadId, id }: { threadId: string; id: string } = $props();
 
-  const item = $derived(
-    app.detail?.items.find(
-      (candidate): candidate is Extract<typeof candidate, { kind: "visualization" }> =>
-        candidate.id === id && candidate.kind === "visualization",
-    ),
-  );
+  type Visualization = Extract<Item, { kind: "visualization" }>;
+  const isThis = (candidate: TranscriptItem): candidate is Visualization => candidate.id === id && candidate.kind === "visualization";
+  const loaded = $derived(app.detail?.thread.id === threadId ? app.detail.items.find(isThis) : undefined);
+  // Its turn may be older than those loaded, as when the thread is reopened with the panel open.
+  let fetched = $state<Visualization | undefined>();
+  const unloaded = $derived(!loaded && app.detail?.thread.id === threadId && app.detail.from > 0);
+  $effect(() => {
+    fetched = undefined;
+    if (!unloaded) return;
+    const wanted = id;
+    void rpc.request("items.get", { threadId, itemIds: [wanted] }).then(([found]) => {
+      if (id === wanted && found && isThis(found)) fetched = found;
+    }, () => undefined);
+  });
+  const item = $derived(loaded ?? fetched);
   const url = $derived(item ? visualizationUrl(threadId, id, item.updatedAt) : null);
   let frame: HTMLIFrameElement | undefined = $state();
 </script>
