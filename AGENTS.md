@@ -314,7 +314,21 @@ inventing a fix.
   (`TrimmedToolItem`). Expanding a step calls `items.get` for the full item (same-tick expands share
   one request), which replaces the trimmed one unless a live upsert got there first. Running tool
   calls and every `item.upserted` stay full, so a running turn streams as before. The MCP
-  transcript tools read SQLite directly and are unaffected. The item list itself is not paged.
+  transcript tools read SQLite directly and are unaffected.
+- **Threads open with their last 20 turns** (`TURNS_PER_PAGE`), since building every row and its
+  markdown made a 1,000-item thread slow to open; `content-visibility` skips only layout and paint.
+  A turn starts at a user message; items before the first one belong to the first turn. The window
+  is found by seq (`Database.turnWindow`), not by loading the transcript, and its start is `from`,
+  0 once everything is loaded. Scrolling within a screen of the top loads the 20 turns before it
+  (`items.older`, trimmed alike), one request at a time behind a row reserved at the top; a
+  transcript pinned to the bottom loads more only while it is too short to scroll far, as it sits
+  at the top while first laying out. The row being read is measured before and after the insert
+  and the scroll corrected: WebKit has no anchoring, and Chromium doesn't anchor at scrollTop 0.
+  `item.upserted` carries the item's seq, so an update to an item above the window is ignored
+  rather than added at the end; a `toEnd` move always lands at the end. Reconnecting reopens from
+  `from`, keeping what was loaded. Anything needing an item outside the window asks the server
+  (`VisualizationPanel` uses `items.get`); the current turn is always loaded, so `isCompacting`
+  and pending questions hold, and work groups never span the window's start, which is a user message.
 - **Clients get everything by broadcast.** It's fine for one user across their devices. Revisit
   if many clients arrive. Keep payloads small: stream deltas, not whole items.
 

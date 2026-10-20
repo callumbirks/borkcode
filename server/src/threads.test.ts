@@ -1421,3 +1421,95 @@ test("automatic archiving tucks away inactive subtrees with a notice, and does n
   await service.autoArchive(now);
   assert.deepEqual(await notices("lonely"), ["Archived automatically after 7 days inactive"]);
 });
+
+/** A thread stored directly, with these items, for transcript reads. */
+function storedThread(items: Item[]): string {
+  const id = randomUUID();
+  db.insertThread({
+    id, project: "demo", title: "Stored", provider: "codex", model: null, effort: null, accessMode: "full", fastMode: false,
+    workspace: null, branch: null, status: "idle", providerSessionId: null, parentId: null, startBranch: null,
+    captain: false, watched: false, paused: false, queued: 0, archivedAt: null, respondedAt: null, readAt: null,
+    markedUnread: false, createdAt: Date.now(), updatedAt: Date.now(),
+  });
+  for (const item of items) db.upsertItem(id, item);
+  return id;
+}
+
+/** `turns` turns of a user message, a finished tool call and a reply, after `preamble` items. */
+function turns(count: number, preamble: Item[] = []): Item[] {
+  return [
+    ...preamble,
+    ...Array.from({ length: count }, (_, i): Item[] => [
+      { id: `u${i}`, kind: "user", text: `question ${i}` },
+      { id: `t${i}`, kind: "tool", name: "Bash", summary: `step ${i}`, output: `output ${i}`, status: "done" },
+      { id: `a${i}`, kind: "assistant", text: `answer ${i}` },
+    ]).flat(),
+  ];
+}
+
+const ids = (items: TranscriptItem[]) => items.map((item) => item.id);
+
+test("opening a thread sends its last 20 turns, and older turns load 20 at a time, trimmed alike", async () => {
+  const notice: Item = { id: "n", kind: "notice", level: "info", text: "before any message" };
+  const id = storedThread(turns(45, [notice]));
+  const detail = await threads.get(id);
+  assert.deepEqual(ids(detail.items), ids(turns(45).slice(25 * 3)));
+  assert.ok(detail.from > 0, "earlier turns exist");
+  assert.ok(detail.items.every((item) => item.kind !== "tool" || "trimmed" in item), "tool outputs stay out");
+
+  const middle = threads.older(id, detail.from);
+  assert.deepEqual(ids(middle.items), ids(turns(25).slice(5 * 3)));
+  assert.ok(middle.from > 0 && middle.from < detail.from);
+  // The first turn takes what came before the first user message.
+  const first = threads.older(id, middle.from);
+  assert.deepEqual(ids(first.items), ["n", ...ids(turns(5))]);
+  assert.equal(first.from, 0, "nothing earlier");
+  assert.ok(first.items.every((item) => item.kind !== "tool" || "trimmed" in item), "tool outputs stay out");
+});
+
+test("a thread of 20 turns or fewer, or with no user messages, opens whole", async () => {
+  for (const items of [turns(20), turns(3), turns(0), [{ id: "x", kind: "assistant", text: "hi" }, { id: "y", kind: "notice", level: "info", text: "ok" }] satisfies Item[]]) {
+    const detail = await threads.get(storedThread(items));
+    assert.deepEqual(ids(detail.items), ids(items));
+    assert.equal(detail.from, 0);
+  }
+  const exactly21 = storedThread(turns(21, [{ id: "n", kind: "notice", level: "info", text: "first" }]));
+  const detail = await threads.get(exactly21);
+  assert.deepEqual(ids(detail.items), ids(turns(21).slice(3)));
+  assert.deepEqual(ids(threads.older(exactly21, detail.from).items), ["n", "u0", "t0", "a0"]);
+});
+
+test("reopening from a window's start keeps every turn loaded since, and a moved item stays at the end", async () => {
+  const id = storedThread(turns(30));
+  const opened = await threads.get(id);
+  const older = threads.older(id, opened.from);
+  const reopened = await threads.get(id, older.from);
+  assert.deepEqual(ids(reopened.items), ids(turns(30)));
+  assert.equal(reopened.from, 0, "nothing is left before it");
+  assert.equal((await threads.get(id, opened.from)).from, opened.from);
+
+  // A visualization replaced far up moves past the window's start, and its upsert says where.
+  db.upsertItem(id, { id: "viz", kind: "visualization", title: "v1", updatedAt: 1 });
+  const seq = db.upsertItem(id, { id: "viz", kind: "visualization", title: "v2", updatedAt: 2 }, true);
+  assert.ok(seq > opened.from);
+  assert.equal((await threads.get(id)).items.at(-1)?.id, "viz");
+});
+
+test("an item's upsert carries its seq: an update keeps its place, a new item comes after", async () => {
+  const { thread, agent } = await startThread("number things");
+  await agent.turn(1);
+  const seqs: [string, number][] = [];
+  const seen = broadcastOf((event) => {
+    if (event.type === "item.upserted" && event.threadId === thread.id) seqs.push([event.item.id, event.seq]);
+    return event.type === "item.upserted" && event.item.kind === "tool" && event.item.status === "done";
+  });
+  agent.emit({ id: "late", kind: "tool", name: "Bash", summary: "ls", output: null, status: "running" });
+  agent.emit({ id: "next", kind: "notice", level: "info", text: "between" });
+  agent.emit({ id: "late", kind: "tool", name: "Bash", summary: "ls", output: "a", status: "done" });
+  await seen;
+  agent.finish("done");
+  const [running, next, done] = seqs.slice(-3);
+  assert.deepEqual([running?.[0], next?.[0], done?.[0]], ["late", "next", "late"]);
+  assert.equal(done![1], running![1]);
+  assert.ok(next![1] > running![1]);
+});

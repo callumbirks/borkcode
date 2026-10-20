@@ -430,6 +430,34 @@ export class Database {
     return rows.map((row) => JSON.parse(row.data) as Item);
   }
 
+  /**
+   * The last `turns` turns before seq `before` (from the end when null), oldest first. A turn
+   * starts at a user message; items before the first one belong to the first turn, so a window
+   * reaching it starts at 0. `from` is where the window starts.
+   */
+  turnWindow(threadId: string, turns: number, before: number | null): { from: number; items: Item[] } {
+    const starts = this.#db
+      .prepare(
+        `SELECT seq FROM items WHERE thread_id = ? AND json_extract(data, '$.kind') = 'user'
+         ${before === null ? "" : "AND seq < ?"} ORDER BY seq DESC LIMIT ?`,
+      )
+      .all(...(before === null ? [threadId, turns + 1] : [threadId, before, turns + 1])) as unknown as { seq: number }[];
+    const from = starts.length > turns ? starts[turns - 1]!.seq : 0;
+    return { from, items: this.itemsBetween(threadId, from, before) };
+  }
+
+  /** Items with seq from `from` up to `before` (the end when null), oldest first. */
+  itemsBetween(threadId: string, from: number, before: number | null): Item[] {
+    const rows = this.#db
+      .prepare(`SELECT data FROM items WHERE thread_id = ? AND seq >= ? ${before === null ? "" : "AND seq < ?"} ORDER BY seq`)
+      .all(...(before === null ? [threadId, from] : [threadId, from, before])) as unknown as { data: string }[];
+    return rows.map((row) => JSON.parse(row.data) as Item);
+  }
+
+  hasItemsBefore(threadId: string, seq: number): boolean {
+    return !!this.#db.prepare(`SELECT 1 FROM items WHERE thread_id = ? AND seq < ? LIMIT 1`).get(threadId, seq);
+  }
+
   /** Bounded transcript scan in either direction. Reasoning never leaves this query. */
   pageItems(threadId: string, from: "start" | "end", cursor: number | null, limit: number): { seq: number; item: Item }[] {
     const rows = this.#db.prepare(
@@ -447,15 +475,17 @@ export class Database {
 
   /**
    * Inserts or replaces an item. A replaced item keeps its position in the transcript unless
-   * `toEnd`, which gives it the next seq, as if added now.
+   * `toEnd`, which gives it the next seq, as if added now. Returns the item's seq.
    */
-  upsertItem(threadId: string, item: Item, toEnd = false): void {
-    this.#db
+  upsertItem(threadId: string, item: Item, toEnd = false): number {
+    const row = this.#db
       .prepare(
         `INSERT INTO items (thread_id, id, seq, data)
          VALUES (?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM items WHERE thread_id = ?), ?)
-         ON CONFLICT (thread_id, id) DO UPDATE SET data = excluded.data${toEnd ? ", seq = excluded.seq" : ""}`,
+         ON CONFLICT (thread_id, id) DO UPDATE SET data = excluded.data${toEnd ? ", seq = excluded.seq" : ""}
+         RETURNING seq`,
       )
-      .run(threadId, item.id, threadId, JSON.stringify(item));
+      .get(threadId, item.id, threadId, JSON.stringify(item)) as { seq: number };
+    return row.seq;
   }
 }

@@ -21,6 +21,7 @@ import type {
   ServerEvent,
   Thread,
   ThreadDetail,
+  TurnWindow,
   TranscriptItem,
 } from "shared/protocol";
 import type { AttachmentStore } from "./attachments.ts";
@@ -145,6 +146,11 @@ const PUBLISH_MESSAGE = [
 
 /** `threads.get` cuts longer tool summaries, such as long commands; the collapsed row shows one line. */
 export const TRIMMED_SUMMARY_LENGTH = 500;
+/**
+ * Turns `threads.get` sends, and `items.older` adds at a time. Rendering every item of a long
+ * thread made opening it slow; older turns load as the user scrolls up.
+ */
+export const TURNS_PER_PAGE = 20;
 const MAX_ITEM_IDS = 200;
 
 /**
@@ -527,22 +533,35 @@ export class ThreadService {
     return found;
   }
 
-  async get(threadId: string): Promise<ThreadDetail> {
+  /** The latest turns, or everything from seq `from`, such as what a reconnecting client had loaded. */
+  async get(threadId: string, from?: number): Promise<ThreadDetail> {
     const thread = this.#require(threadId);
     const project = await this.#projects.get(thread.project);
     // Someone is looking, so make sure what they see is current; changes arrive as events.
     void this.#refreshPullRequests([thread]);
     const live = this.#live.get(threadId);
-    const items = this.#db
-      .listItems(threadId)
-      .map((item) => trimItem(live?.streaming.get(item.id) ?? item));
+    const window =
+      from === undefined
+        ? this.#db.turnWindow(threadId, TURNS_PER_PAGE, null)
+        : { from: from > 0 && this.#db.hasItemsBefore(threadId, from) ? from : 0, items: this.#db.itemsBetween(threadId, from, null) };
     return {
       thread: this.#toThread(thread),
       workspacePath: workspacePath(project, thread.workspace),
-      items,
+      ...this.#trimWindow(threadId, window),
       approvals: [...(live?.approvals.values() ?? [])].map((entry) => entry.approval),
       questions: [...(live?.questions.values() ?? [])].map((entry) => entry.request),
     };
+  }
+
+  /** The turns before seq `before`, the `from` of the window the client holds. */
+  older(threadId: string, before: number): TurnWindow {
+    this.#require(threadId);
+    return this.#trimWindow(threadId, this.#db.turnWindow(threadId, TURNS_PER_PAGE, before));
+  }
+
+  #trimWindow(threadId: string, { from, items }: { from: number; items: Item[] }): TurnWindow {
+    const live = this.#live.get(threadId);
+    return { from, items: items.map((item) => trimItem(live?.streaming.get(item.id) ?? item)) };
   }
 
   /** Full items of this thread by id, in the order asked, such as tool calls the user expands. */
@@ -1481,8 +1500,8 @@ export class ThreadService {
 
   #upsertItem(threadId: string, item: Item, toEnd = false): void {
     if (!this.#db.getThread(threadId)) return;
-    this.#db.upsertItem(threadId, item, toEnd);
-    this.#emit({ type: "item.upserted", threadId, item, ...(toEnd && { toEnd }) });
+    const seq = this.#db.upsertItem(threadId, item, toEnd);
+    this.#emit({ type: "item.upserted", threadId, item, seq, ...(toEnd && { toEnd }) });
   }
 
   #notice(threadId: string, level: "info" | "error", text: string): void {

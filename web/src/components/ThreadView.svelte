@@ -14,7 +14,7 @@
   import ShieldAlert from "@lucide/svelte/icons/shield-alert";
   import Square from "@lucide/svelte/icons/square";
   import Trash2 from "@lucide/svelte/icons/trash-2";
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import type { AccessMode, Effort, Thread } from "shared/protocol";
   import { isUnread, providerLabel } from "../lib/display.svelte";
   import { uploadUrl } from "../lib/attachments";
@@ -27,8 +27,9 @@
   import { autoReadDue, nextHold, type ReadHold } from "../lib/unread";
   import { isCompacting } from "../lib/compaction";
   import { segmentItems, type Segment } from "../lib/segments";
-  import { app, getDraft, openThread, rpc, setDraft } from "../lib/state.svelte";
+  import { app, getDraft, loadOlderTurns, openThread, rpc, setDraft } from "../lib/state.svelte";
   import Composer from "./Composer.svelte";
+  import Spinner from "./Spinner.svelte";
   import FilePreview from "./FilePreview.svelte";
   import ItemView from "./ItemView.svelte";
   import RepoPanel from "./RepoPanel.svelte";
@@ -156,6 +157,7 @@
     const observer = new ResizeObserver(() => {
       const top = pin.resized(element);
       if (top !== null) element.scrollTop = top;
+      nearTop();
     });
     observer.observe(column);
     observer.observe(element);
@@ -171,6 +173,45 @@
     const top = pin.resized(element);
     if (top !== null) element.scrollTop = top;
   });
+
+  // Threads open with their latest turns; earlier ones load as the user nears the top. Only a
+  // transcript the user has scrolled, or one too short to scroll far, loads more: one pinned to
+  // the bottom of a long transcript is briefly at the top while it first lays out.
+  const hasOlder = $derived(!!detail && detail.from > 0);
+  let loadingOlder = $state(false);
+  function nearTop() {
+    const element = transcript;
+    if (!element || loadingOlder || !hasOlder) return;
+    const margin = Math.max(element.clientHeight, 600);
+    const short = element.scrollHeight - element.clientHeight < margin;
+    if (element.scrollTop < margin && (!pin.pinned || short)) void loadOlder(element);
+  }
+
+  /**
+   * Keeps the row the user is reading where it is while turns are added above it. Chromium's
+   * scroll anchoring may already have, and then this moves nothing; WebKit has none.
+   */
+  async function loadOlder(element: HTMLElement) {
+    const threadId = id;
+    loadingOlder = true;
+    try {
+      await loadOlderTurns(threadId, async (change) => {
+        const top = element.getBoundingClientRect().top;
+        const rows = [...(element.firstElementChild?.children ?? [])].filter((row) => !row.classList.contains("older"));
+        const anchor = rows.find((row) => row.getBoundingClientRect().bottom > top);
+        const before = anchor?.getBoundingClientRect().top;
+        change();
+        await tick();
+        if (anchor?.isConnected && before !== undefined) element.scrollTop += anchor.getBoundingClientRect().top - before;
+      });
+    } catch (cause) {
+      error = (cause as Error).message;
+      return;
+    } finally {
+      loadingOlder = false;
+    }
+    if (id === threadId) nearTop();
+  }
 
   /** Sending shows the message being sent, wherever the user had scrolled to. */
   function followToBottom() {
@@ -369,13 +410,23 @@
         <button class="ghost icon delete" title="Delete thread" onclick={remove}><Trash2 size={16} /></button>
       </header>
       <div class="transcript" role="region" aria-label="Thread transcript" bind:this={transcript}
-        onscroll={() => transcript && pin.scrolled(transcript, performance.now())}
+        onscroll={() => {
+          if (!transcript) return;
+          pin.scrolled(transcript, performance.now());
+          nearTop();
+        }}
         onwheel={(event) => (event.deltaY < 0 ? pin.intendUp(performance.now()) : pin.input(performance.now()))}
         onpointerdown={grab}
         ontouchstart={() => pin.hold()}
         ontouchend={() => transcript && pin.release(transcript, performance.now())}
         ontouchcancel={() => transcript && pin.release(transcript, performance.now())}>
         <div class="column" class:skipped-items={skippedItems}>
+          <!-- Holds its place while earlier turns exist, so showing it moves nothing. -->
+          {#if hasOlder}
+            <p class="status older">
+              {#if loadingOlder}<Spinner label="Loading earlier turns" />Loading earlier turns…{/if}
+            </p>
+          {/if}
           {#each segments as segment (segment.kind === "item" ? segment.item.id : segment.id)}
             {#if segment.kind === "item"}
               <ItemView item={segment.item} threadId={id} roots={fileRoots} />
@@ -603,6 +654,11 @@
     gap: var(--space-2);
     font-size: var(--text-sm);
     color: var(--text-muted);
+  }
+  .older {
+    justify-content: center;
+    min-height: 1.5em;
+    margin: 0;
   }
   .approval {
     display: flex;
